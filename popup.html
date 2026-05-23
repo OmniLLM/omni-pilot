@@ -3,71 +3,149 @@
 <head>
   <meta charset="UTF-8">
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: system-ui, -apple-system, sans-serif;
-      background: #13132b;
-      color: #d0d0f0;
-      width: 240px;
-      padding: 16px;
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0e0e16;
+      --bg2: #17171f;
+      --bg3: #1f1f2c;
+      --border: rgba(255,255,255,0.07);
+      --ink: #e4e4f0;
+      --ink2: #7a7a92;
+      --accent: #6c6cff;
+      --success: #3ecf8e;
+      --danger: #f87171;
     }
+    [data-theme="light"] {
+      --bg: #f5f5f8;
+      --bg2: #ffffff;
+      --bg3: #eeeef4;
+      --border: rgba(0,0,0,0.08);
+      --ink: #111118;
+      --ink2: #666677;
+      --accent: #4a4aff;
+    }
+
+    body {
+      font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+      background: var(--bg);
+      color: var(--ink);
+      width: 220px;
+      padding: 14px;
+    }
+
     .header {
       display: flex;
       align-items: center;
-      gap: 8px;
-      margin-bottom: 14px;
+      justify-content: space-between;
+      margin-bottom: 12px;
     }
-    .logo { color: #7878ff; font-size: 18px; }
-    .title { font-size: 15px; font-weight: 600; color: #e0e0ff; }
+    .header-left { display: flex; align-items: center; gap: 8px; }
+    .logo {
+      width: 24px; height: 24px;
+      background: var(--accent);
+      border-radius: 6px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 11px; color: #fff;
+    }
+    .title { font-size: 14px; font-weight: 600; letter-spacing: -0.01em; }
+
+    .theme-toggle {
+      display: flex;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 100px;
+      padding: 2px;
+    }
+    .theme-btn {
+      background: none; border: none; cursor: pointer;
+      width: 22px; height: 20px;
+      border-radius: 100px;
+      font-size: 10px;
+      color: var(--ink2);
+      display: flex; align-items: center; justify-content: center;
+      transition: background 0.12s, color 0.12s;
+    }
+    .theme-btn.active { background: var(--bg3); color: var(--ink); }
+
+    .divider {
+      height: 1px;
+      background: var(--border);
+      margin-bottom: 12px;
+    }
+
     .desc {
       font-size: 12px;
-      color: #666688;
-      line-height: 1.5;
-      margin-bottom: 14px;
+      color: var(--ink2);
+      line-height: 1.55;
+      margin-bottom: 12px;
     }
+
     .status-row {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 7px;
       font-size: 12px;
-      color: #888899;
+      color: var(--ink2);
       margin-bottom: 12px;
     }
     .dot {
-      width: 7px; height: 7px;
+      width: 6px; height: 6px;
       border-radius: 50%;
-      background: #ff7070;
+      background: var(--danger);
       flex-shrink: 0;
     }
-    .dot.ok { background: #44cc88; }
+    .dot.ok { background: var(--success); }
+
     .settings-btn {
-      display: block;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
       width: 100%;
-      padding: 9px;
-      background: #4a4aff;
-      color: #fff;
-      border: none;
-      border-radius: 7px;
-      font-size: 13px;
+      padding: 8px;
+      background: var(--bg2);
+      color: var(--ink);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 12px;
       font-weight: 500;
       cursor: pointer;
       font-family: inherit;
-      transition: background 0.2s;
+      transition: background 0.12s, border-color 0.12s;
     }
-    .settings-btn:hover { background: #6060ff; }
+    .settings-btn:hover {
+      background: var(--bg3);
+      border-color: var(--accent);
+      color: var(--accent);
+    }
   </style>
 </head>
 <body>
   <div class="header">
-    <span class="logo">✦</span>
-    <span class="title">OmniPilot</span>
+    <div class="header-left">
+      <div class="logo">✦</div>
+      <span class="title">OmniPilot</span>
+    </div>
+    <div class="theme-toggle">
+      <button class="theme-btn active" id="btnDark" title="Dark">🌙</button>
+      <button class="theme-btn" id="btnLight" title="Light">☀️</button>
+    </div>
   </div>
-  <div class="desc">Select any text on a page to get AI-powered translation, summary, explanation, or improvement.</div>
+
+  <div class="divider"></div>
+
+  <div class="desc">Select text on any page for AI actions — translate, summarize, explain, improve.</div>
+
   <div class="status-row">
     <span class="dot" id="statusDot"></span>
-    <span id="statusText">Checking...</span>
+    <span id="statusText">Checking…</span>
   </div>
-  <button class="settings-btn" id="settingsBtn">⚙ Settings</button>
+
+  <button class="settings-btn" id="settingsBtn">
+    <span>⚙</span> Settings
+  </button>
+
   <script src="popup.js"></script>
 </body>
 </html>

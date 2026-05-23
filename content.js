@@ -8,6 +8,24 @@
   let dropdown = null;
   let panel = null;
   let lastSelection = '';
+  let currentTheme = 'dark';
+
+  // Apply theme to all OmniPilot elements
+  function applyTheme(theme) {
+    currentTheme = theme;
+    const attr = theme === 'light' ? 'light' : null;
+    [bubble, dropdown, panel].forEach(el => {
+      if (!el) return;
+      if (attr) el.setAttribute('data-op-theme', attr);
+      else el.removeAttribute('data-op-theme');
+    });
+  }
+
+  // Load theme from storage
+  chrome.storage.sync.get({ theme: 'dark' }, cfg => applyTheme(cfg.theme));
+  chrome.storage.onChanged.addListener(changes => {
+    if (changes.theme) applyTheme(changes.theme.newValue);
+  });
 
   const ACTIONS = [
     { id: 'translate', label: 'Translate', icon: '🌍' },
@@ -119,7 +137,7 @@
     panel.style.display = 'block';
 
     if (isLoading) {
-      body.innerHTML = '<div class="omnipilot-spinner"></div><span class="omnipilot-loading-text">Thinking...</span>';
+      body.innerHTML = '<div class="omnipilot-loading"><div class="omnipilot-spinner"></div><span class="omnipilot-loading-text">Thinking…</span></div>';
     } else if (isError) {
       body.innerHTML = `<div class="omnipilot-error">⚠ ${escapeHtml(content)}</div>`;
     } else {

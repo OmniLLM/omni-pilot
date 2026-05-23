@@ -5,136 +5,261 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>OmniPilot Settings</title>
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0e0e16;
+      --bg2: #17171f;
+      --bg3: #1f1f2c;
+      --border: rgba(255,255,255,0.07);
+      --ink: #e4e4f0;
+      --ink2: #7a7a92;
+      --ink3: #44445a;
+      --accent: #6c6cff;
+      --accent-hover: #8080ff;
+      --success: #3ecf8e;
+      --danger: #f87171;
+      --radius: 10px;
+    }
+
+    [data-theme="light"] {
+      --bg: #f5f5f8;
+      --bg2: #ffffff;
+      --bg3: #eeeef4;
+      --border: rgba(0,0,0,0.08);
+      --ink: #111118;
+      --ink2: #666677;
+      --ink3: #aaaabc;
+      --accent: #4a4aff;
+      --accent-hover: #3535e0;
+    }
+
     body {
-      font-family: system-ui, -apple-system, sans-serif;
-      background: #0f0f1e;
-      color: #d0d0f0;
+      font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+      background: var(--bg);
+      color: var(--ink);
       min-height: 100vh;
       display: flex;
       justify-content: center;
-      padding: 40px 20px;
+      padding: 48px 20px 64px;
     }
-    .container {
-      width: 100%;
-      max-width: 480px;
-    }
+
+    .container { width: 100%; max-width: 440px; }
+
+    /* Header */
     .header {
       display: flex;
       align-items: center;
-      gap: 12px;
+      justify-content: space-between;
       margin-bottom: 32px;
     }
+    .header-left { display: flex; align-items: center; gap: 10px; }
     .logo {
-      font-size: 24px;
-      color: #7878ff;
+      width: 30px; height: 30px;
+      background: var(--accent);
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px; color: #fff;
+      flex-shrink: 0;
     }
-    h1 {
-      font-size: 20px;
-      font-weight: 600;
-      color: #e0e0ff;
+    .title { font-size: 16px; font-weight: 600; letter-spacing: -0.01em; }
+    .subtitle { font-size: 12px; color: var(--ink2); margin-top: 1px; }
+
+    /* Theme toggle */
+    .theme-toggle {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 100px;
+      padding: 3px;
     }
-    .subtitle {
+    .theme-btn {
+      background: none;
+      border: none;
+      cursor: pointer;
+      width: 28px; height: 24px;
+      border-radius: 100px;
       font-size: 12px;
-      color: #666688;
-      margin-top: 2px;
+      color: var(--ink2);
+      transition: background 0.15s, color 0.15s;
+      display: flex; align-items: center; justify-content: center;
     }
+    .theme-btn.active {
+      background: var(--bg3);
+      color: var(--ink);
+    }
+
+    /* Card */
     .card {
-      background: #1a1a2e;
-      border: 1px solid #2a2a4e;
-      border-radius: 12px;
-      padding: 24px;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 20px;
+      margin-bottom: 12px;
+    }
+    .card-title {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--ink2);
       margin-bottom: 16px;
     }
-    .field {
-      margin-bottom: 20px;
-    }
-    .field:last-child {
-      margin-bottom: 0;
-    }
+
+    /* Field */
+    .field { margin-bottom: 16px; }
+    .field:last-child { margin-bottom: 0; }
     label {
       display: block;
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 500;
-      color: #9090b0;
+      color: var(--ink2);
       margin-bottom: 6px;
     }
-    input {
+    input, select {
       width: 100%;
-      padding: 10px 12px;
-      background: #0f0f1e;
-      border: 1px solid #2a2a4e;
+      padding: 9px 11px;
+      background: var(--bg3);
+      border: 1px solid var(--border);
       border-radius: 8px;
-      color: #d0d0f0;
-      font-size: 14px;
+      color: var(--ink);
+      font-size: 13px;
       font-family: inherit;
-      transition: border-color 0.2s;
       outline: none;
+      transition: border-color 0.15s, box-shadow 0.15s;
+      appearance: none;
     }
-    input:focus {
-      border-color: #4a4aff;
+    input:focus, select:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(108,108,255,0.12);
     }
-    input::placeholder {
-      color: #44445a;
+    input::placeholder { color: var(--ink3); }
+    select {
+      display: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%236c6cff' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 11px center;
+      padding-right: 30px;
+      cursor: pointer;
     }
-    .hint {
+    select option { background: var(--bg2); color: var(--ink); }
+
+    .model-status {
       font-size: 11px;
-      color: #555570;
       margin-top: 5px;
+      min-height: 14px;
+      display: flex; align-items: center; gap: 4px;
     }
+    .model-status.loading { color: var(--accent); }
+    .model-status.ok      { color: var(--success); }
+    .model-status.warn    { color: #f59e0b; }
+    .model-status-dot {
+      width: 5px; height: 5px;
+      border-radius: 50%;
+      background: currentColor;
+      flex-shrink: 0;
+    }
+
+    /* Save button */
     .save-btn {
       width: 100%;
-      padding: 12px;
-      background: #4a4aff;
+      padding: 11px;
+      background: var(--accent);
       color: #ffffff;
       border: none;
-      border-radius: 8px;
-      font-size: 14px;
+      border-radius: 10px;
+      font-size: 13px;
       font-weight: 600;
       cursor: pointer;
-      transition: background 0.2s;
+      transition: background 0.15s, transform 0.1s;
       font-family: inherit;
+      letter-spacing: 0.01em;
     }
-    .save-btn:hover { background: #6060ff; }
-    .save-btn:active { background: #3838cc; }
+    .save-btn:hover  { background: var(--accent-hover); }
+    .save-btn:active { transform: scale(0.99); }
+
     .status {
-      margin-top: 12px;
-      font-size: 13px;
+      margin-top: 10px;
+      font-size: 12px;
       text-align: center;
-      min-height: 20px;
-      color: #44cc88;
+      min-height: 18px;
+      color: var(--success);
     }
-    .status.error { color: #ff7070; }
+    .status.error { color: var(--danger); }
+
+    /* Hint */
+    .hint { font-size: 11px; color: var(--ink3); margin-top: 5px; }
+
+    /* Refresh button inline */
+    .field-row {
+      display: flex; align-items: flex-start; gap: 8px;
+    }
+    .field-row > div { flex: 1; }
+    .refresh-btn {
+      margin-top: 23px;
+      width: 34px; height: 34px;
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      cursor: pointer;
+      color: var(--ink2);
+      font-size: 14px;
+      display: flex; align-items: center; justify-content: center;
+      transition: background 0.12s, color 0.12s;
+      flex-shrink: 0;
+    }
+    .refresh-btn:hover { background: var(--border); color: var(--accent); }
+    .refresh-btn.spinning { animation: spin 0.6s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
   </style>
 </head>
 <body>
   <div class="container">
     <div class="header">
-      <span class="logo">✦</span>
-      <div>
-        <h1>OmniPilot</h1>
-        <div class="subtitle">AI browser assistant settings</div>
+      <div class="header-left">
+        <div class="logo">✦</div>
+        <div>
+          <div class="title">OmniPilot</div>
+          <div class="subtitle">Settings</div>
+        </div>
+      </div>
+      <div class="theme-toggle">
+        <button class="theme-btn active" id="btnDark" title="Dark">🌙</button>
+        <button class="theme-btn" id="btnLight" title="Light">☀️</button>
       </div>
     </div>
 
     <div class="card">
+      <div class="card-title">Connection</div>
       <div class="field">
         <label>API Endpoint</label>
         <input type="text" id="endpoint" placeholder="https://api.omnillm.com/v1">
-        <div class="hint">Default: https://api.omnillm.com/v1 (OmniLLM compatible with Anthropic API format)</div>
+        <div class="hint">Compatible with Anthropic Messages API format</div>
       </div>
       <div class="field">
         <label>API Key</label>
-        <input type="password" id="apiKey" placeholder="sk-...">
-      </div>
-      <div class="field">
-        <label>Model</label>
-        <input type="text" id="model" placeholder="claude-sonnet-4-5">
-        <div class="hint">Any Anthropic-compatible model name</div>
+        <input type="password" id="apiKey" placeholder="sk-···">
       </div>
     </div>
 
-    <button class="save-btn" id="saveBtn">Save Settings</button>
+    <div class="card">
+      <div class="card-title">Model</div>
+      <div class="field">
+        <div class="field-row">
+          <div>
+            <label>Model</label>
+            <select id="modelSelect"></select>
+            <input type="text" id="model" placeholder="claude-sonnet-4-5">
+          </div>
+          <button class="refresh-btn" id="refreshBtn" title="Fetch models">↻</button>
+        </div>
+        <div class="model-status" id="modelStatus"></div>
+      </div>
+    </div>
+
+    <button class="save-btn" id="saveBtn">Save</button>
     <div class="status" id="status"></div>
   </div>
   <script src="options.js"></script>

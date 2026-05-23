@@ -1,171 +1,257 @@
-/* OmniPilot Styles */
+/* OmniPilot — Minimal UI, Dark/Light theme */
 
-/* Bubble */
+:root {
+  --op-bg: #111118;
+  --op-bg2: #1c1c26;
+  --op-border: rgba(255,255,255,0.08);
+  --op-ink: #e8e8f0;
+  --op-ink2: #888899;
+  --op-accent: #6c6cff;
+  --op-accent-dim: rgba(108,108,255,0.15);
+  --op-hover: rgba(255,255,255,0.05);
+  --op-shadow: 0 8px 32px rgba(0,0,0,0.5);
+  --op-radius: 10px;
+  --op-font: system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+/* ── Bubble ─────────────────────────────────────────────── */
+
 #omnipilot-bubble {
   position: absolute;
   display: none;
   align-items: center;
   gap: 5px;
-  padding: 5px 12px;
-  background: #1a1a2e;
-  color: #e0e0ff;
-  border: 1px solid #4a4aff;
-  border-radius: 20px;
-  font-family: system-ui, -apple-system, sans-serif;
+  padding: 4px 10px 4px 8px;
+  background: var(--op-bg2);
+  color: var(--op-ink);
+  border: 1px solid var(--op-border);
+  border-radius: 100px;
+  font-family: var(--op-font);
   font-size: 12px;
   font-weight: 500;
+  letter-spacing: 0.01em;
   cursor: pointer;
   z-index: 2147483646;
-  box-shadow: 0 2px 12px rgba(74, 74, 255, 0.3);
+  box-shadow: 0 2px 12px rgba(0,0,0,0.4), 0 0 0 1px rgba(108,108,255,0.2);
   user-select: none;
   white-space: nowrap;
-  transition: background 0.15s, box-shadow 0.15s;
+  transition: background 0.12s, box-shadow 0.12s, transform 0.12s;
+  animation: op-pop 0.15s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 #omnipilot-bubble:hover {
-  background: #252550;
-  box-shadow: 0 4px 16px rgba(74, 74, 255, 0.5);
+  background: #222235;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.5), 0 0 0 1px rgba(108,108,255,0.4);
+}
+
+@keyframes op-pop {
+  from { opacity: 0; transform: scale(0.88) translateY(4px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
 }
 
 .omnipilot-icon {
-  color: #7878ff;
-  font-size: 14px;
+  font-size: 11px;
+  color: var(--op-accent);
+  line-height: 1;
 }
 
-/* Dropdown */
+/* ── Dropdown ────────────────────────────────────────────── */
+
 #omnipilot-dropdown {
   position: absolute;
   display: none;
   flex-direction: column;
-  background: #1a1a2e;
-  border: 1px solid #333366;
-  border-radius: 10px;
+  background: var(--op-bg2);
+  border: 1px solid var(--op-border);
+  border-radius: var(--op-radius);
   overflow: hidden;
   z-index: 2147483647;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
-  min-width: 160px;
-  font-family: system-ui, -apple-system, sans-serif;
+  box-shadow: var(--op-shadow);
+  min-width: 152px;
+  font-family: var(--op-font);
+  padding: 4px;
+  animation: op-fade 0.12s ease;
+}
+
+@keyframes op-fade {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
 .omnipilot-dropdown-item {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 16px;
-  color: #d0d0f0;
+  gap: 9px;
+  padding: 7px 10px;
+  color: var(--op-ink);
   font-size: 13px;
   cursor: pointer;
-  transition: background 0.1s;
+  border-radius: 6px;
+  transition: background 0.08s;
   user-select: none;
 }
 
 .omnipilot-dropdown-item:hover {
-  background: #252550;
-  color: #ffffff;
+  background: var(--op-hover);
+  color: #fff;
 }
 
 .omnipilot-action-icon {
-  font-size: 15px;
-  width: 20px;
+  font-size: 13px;
+  width: 18px;
   text-align: center;
+  opacity: 0.75;
 }
 
-/* Result Panel */
+/* ── Result Panel ────────────────────────────────────────── */
+
 #omnipilot-panel {
   position: absolute;
   display: none;
-  background: #13132b;
-  border: 1px solid #333366;
+  background: var(--op-bg);
+  border: 1px solid var(--op-border);
   border-radius: 12px;
-  width: 420px;
-  max-width: calc(100vw - 20px);
+  width: 400px;
+  max-width: calc(100vw - 24px);
   z-index: 2147483645;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
-  font-family: system-ui, -apple-system, sans-serif;
+  box-shadow: var(--op-shadow);
+  font-family: var(--op-font);
   overflow: hidden;
+  animation: op-slide 0.16s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes op-slide {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
 .omnipilot-panel-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 14px;
-  background: #1a1a2e;
-  border-bottom: 1px solid #2a2a4e;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--op-border);
 }
 
 .omnipilot-panel-title {
-  color: #7878ff;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.5px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--op-ink2);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.omnipilot-panel-title-dot {
+  width: 5px; height: 5px;
+  background: var(--op-accent);
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.omnipilot-panel-actions {
+  display: flex;
+  gap: 2px;
 }
 
 .omnipilot-close-btn {
   background: none;
   border: none;
-  color: #666688;
+  color: var(--op-ink2);
   cursor: pointer;
   font-size: 13px;
-  padding: 2px 6px;
-  border-radius: 4px;
+  width: 22px; height: 22px;
+  border-radius: 5px;
   transition: color 0.1s, background 0.1s;
+  display: flex; align-items: center; justify-content: center;
   line-height: 1;
 }
-
-.omnipilot-close-btn:hover {
-  color: #d0d0f0;
-  background: #2a2a4e;
-}
+.omnipilot-close-btn:hover { color: var(--op-ink); background: var(--op-hover); }
 
 .omnipilot-panel-body {
   padding: 14px 16px;
-  max-height: 320px;
+  max-height: 280px;
   overflow-y: auto;
 }
 
 .omnipilot-result {
-  color: #d8d8f0;
-  font-size: 14px;
-  line-height: 1.6;
+  color: var(--op-ink);
+  font-size: 13.5px;
+  line-height: 1.65;
 }
 
 .omnipilot-error {
-  color: #ff7070;
+  color: #f87171;
   font-size: 13px;
   line-height: 1.5;
 }
 
-.omnipilot-spinner {
-  width: 20px;
-  height: 20px;
-  border: 2px solid #333366;
-  border-top-color: #7878ff;
-  border-radius: 50%;
-  animation: omnipilot-spin 0.7s linear infinite;
-  display: inline-block;
-  vertical-align: middle;
-  margin-right: 10px;
+/* Loading */
+.omnipilot-loading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
+
+.omnipilot-spinner {
+  width: 16px; height: 16px;
+  border: 1.5px solid rgba(108,108,255,0.2);
+  border-top-color: var(--op-accent);
+  border-radius: 50%;
+  animation: op-spin 0.65s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes op-spin { to { transform: rotate(360deg); } }
 
 .omnipilot-loading-text {
-  color: #888899;
+  color: var(--op-ink2);
   font-size: 13px;
-  vertical-align: middle;
-}
-
-@keyframes omnipilot-spin {
-  to { transform: rotate(360deg); }
 }
 
 /* Scrollbar */
-.omnipilot-panel-body::-webkit-scrollbar {
-  width: 4px;
-}
-.omnipilot-panel-body::-webkit-scrollbar-track {
-  background: #1a1a2e;
-}
+.omnipilot-panel-body::-webkit-scrollbar { width: 3px; }
+.omnipilot-panel-body::-webkit-scrollbar-track { background: transparent; }
 .omnipilot-panel-body::-webkit-scrollbar-thumb {
-  background: #333366;
+  background: rgba(255,255,255,0.1);
   border-radius: 2px;
+}
+
+/* ── Light Theme ─────────────────────────────────────────── */
+/* Applied when data-op-theme="light" on <html> or <body>    */
+
+[data-op-theme="light"] #omnipilot-bubble,
+.omnipilot-light #omnipilot-bubble {
+  --op-bg2: #ffffff;
+  --op-border: rgba(0,0,0,0.1);
+  --op-ink: #111118;
+  --op-accent: #4a4aff;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.12), 0 0 0 1px rgba(74,74,255,0.2);
+}
+
+[data-op-theme="light"] #omnipilot-bubble:hover,
+.omnipilot-light #omnipilot-bubble:hover {
+  background: #f5f5ff;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.14), 0 0 0 1px rgba(74,74,255,0.35);
+}
+
+[data-op-theme="light"] #omnipilot-dropdown,
+.omnipilot-light #omnipilot-dropdown {
+  --op-bg2: #ffffff;
+  --op-border: rgba(0,0,0,0.1);
+  --op-ink: #111118;
+  --op-hover: rgba(0,0,0,0.04);
+  --op-shadow: 0 8px 28px rgba(0,0,0,0.15);
+}
+
+[data-op-theme="light"] #omnipilot-panel,
+.omnipilot-light #omnipilot-panel {
+  --op-bg: #ffffff;
+  --op-border: rgba(0,0,0,0.1);
+  --op-ink: #111118;
+  --op-ink2: #666677;
+  --op-hover: rgba(0,0,0,0.04);
+  --op-shadow: 0 8px 28px rgba(0,0,0,0.15);
 }
