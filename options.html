@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OmniPilot Settings</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #0f0f1e;
+      color: #d0d0f0;
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      padding: 40px 20px;
+    }
+    .container {
+      width: 100%;
+      max-width: 480px;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 32px;
+    }
+    .logo {
+      font-size: 24px;
+      color: #7878ff;
+    }
+    h1 {
+      font-size: 20px;
+      font-weight: 600;
+      color: #e0e0ff;
+    }
+    .subtitle {
+      font-size: 12px;
+      color: #666688;
+      margin-top: 2px;
+    }
+    .card {
+      background: #1a1a2e;
+      border: 1px solid #2a2a4e;
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 16px;
+    }
+    .field {
+      margin-bottom: 20px;
+    }
+    .field:last-child {
+      margin-bottom: 0;
+    }
+    label {
+      display: block;
+      font-size: 13px;
+      font-weight: 500;
+      color: #9090b0;
+      margin-bottom: 6px;
+    }
+    input {
+      width: 100%;
+      padding: 10px 12px;
+      background: #0f0f1e;
+      border: 1px solid #2a2a4e;
+      border-radius: 8px;
+      color: #d0d0f0;
+      font-size: 14px;
+      font-family: inherit;
+      transition: border-color 0.2s;
+      outline: none;
+    }
+    input:focus {
+      border-color: #4a4aff;
+    }
+    input::placeholder {
+      color: #44445a;
+    }
+    .hint {
+      font-size: 11px;
+      color: #555570;
+      margin-top: 5px;
+    }
+    .save-btn {
+      width: 100%;
+      padding: 12px;
+      background: #4a4aff;
+      color: #ffffff;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+      font-family: inherit;
+    }
+    .save-btn:hover { background: #6060ff; }
+    .save-btn:active { background: #3838cc; }
+    .status {
+      margin-top: 12px;
+      font-size: 13px;
+      text-align: center;
+      min-height: 20px;
+      color: #44cc88;
+    }
+    .status.error { color: #ff7070; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <span class="logo">✦</span>
+      <div>
+        <h1>OmniPilot</h1>
+        <div class="subtitle">AI browser assistant settings</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="field">
+        <label>API Endpoint</label>
+        <input type="text" id="endpoint" placeholder="https://api.omnillm.com/v1">
+        <div class="hint">Default: https://api.omnillm.com/v1 (OmniLLM compatible with Anthropic API format)</div>
+      </div>
+      <div class="field">
+        <label>API Key</label>
+        <input type="password" id="apiKey" placeholder="sk-...">
+      </div>
+      <div class="field">
+        <label>Model</label>
+        <input type="text" id="model" placeholder="claude-sonnet-4-5">
+        <div class="hint">Any Anthropic-compatible model name</div>
+      </div>
+    </div>
+
+    <button class="save-btn" id="saveBtn">Save Settings</button>
+    <div class="status" id="status"></div>
+  </div>
+  <script src="options.js"></script>
+</body>
+</html>

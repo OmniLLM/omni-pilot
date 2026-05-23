@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #13132b;
+      color: #d0d0f0;
+      width: 240px;
+      padding: 16px;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+    .logo { color: #7878ff; font-size: 18px; }
+    .title { font-size: 15px; font-weight: 600; color: #e0e0ff; }
+    .desc {
+      font-size: 12px;
+      color: #666688;
+      line-height: 1.5;
+      margin-bottom: 14px;
+    }
+    .status-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: #888899;
+      margin-bottom: 12px;
+    }
+    .dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: #ff7070;
+      flex-shrink: 0;
+    }
+    .dot.ok { background: #44cc88; }
+    .settings-btn {
+      display: block;
+      width: 100%;
+      padding: 9px;
+      background: #4a4aff;
+      color: #fff;
+      border: none;
+      border-radius: 7px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      font-family: inherit;
+      transition: background 0.2s;
+    }
+    .settings-btn:hover { background: #6060ff; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <span class="logo">✦</span>
+    <span class="title">OmniPilot</span>
+  </div>
+  <div class="desc">Select any text on a page to get AI-powered translation, summary, explanation, or improvement.</div>
+  <div class="status-row">
+    <span class="dot" id="statusDot"></span>
+    <span id="statusText">Checking...</span>
+  </div>
+  <button class="settings-btn" id="settingsBtn">⚙ Settings</button>
+  <script src="popup.js"></script>
+</body>
+</html>

@@ -1,0 +1,171 @@
+/* OmniPilot Styles */
+
+/* Bubble */
+#omnipilot-bubble {
+  position: absolute;
+  display: none;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  background: #1a1a2e;
+  color: #e0e0ff;
+  border: 1px solid #4a4aff;
+  border-radius: 20px;
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  z-index: 2147483646;
+  box-shadow: 0 2px 12px rgba(74, 74, 255, 0.3);
+  user-select: none;
+  white-space: nowrap;
+  transition: background 0.15s, box-shadow 0.15s;
+}
+
+#omnipilot-bubble:hover {
+  background: #252550;
+  box-shadow: 0 4px 16px rgba(74, 74, 255, 0.5);
+}
+
+.omnipilot-icon {
+  color: #7878ff;
+  font-size: 14px;
+}
+
+/* Dropdown */
+#omnipilot-dropdown {
+  position: absolute;
+  display: none;
+  flex-direction: column;
+  background: #1a1a2e;
+  border: 1px solid #333366;
+  border-radius: 10px;
+  overflow: hidden;
+  z-index: 2147483647;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  min-width: 160px;
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+.omnipilot-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  color: #d0d0f0;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.1s;
+  user-select: none;
+}
+
+.omnipilot-dropdown-item:hover {
+  background: #252550;
+  color: #ffffff;
+}
+
+.omnipilot-action-icon {
+  font-size: 15px;
+  width: 20px;
+  text-align: center;
+}
+
+/* Result Panel */
+#omnipilot-panel {
+  position: absolute;
+  display: none;
+  background: #13132b;
+  border: 1px solid #333366;
+  border-radius: 12px;
+  width: 420px;
+  max-width: calc(100vw - 20px);
+  z-index: 2147483645;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+  font-family: system-ui, -apple-system, sans-serif;
+  overflow: hidden;
+}
+
+.omnipilot-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: #1a1a2e;
+  border-bottom: 1px solid #2a2a4e;
+}
+
+.omnipilot-panel-title {
+  color: #7878ff;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+.omnipilot-close-btn {
+  background: none;
+  border: none;
+  color: #666688;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: color 0.1s, background 0.1s;
+  line-height: 1;
+}
+
+.omnipilot-close-btn:hover {
+  color: #d0d0f0;
+  background: #2a2a4e;
+}
+
+.omnipilot-panel-body {
+  padding: 14px 16px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.omnipilot-result {
+  color: #d8d8f0;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.omnipilot-error {
+  color: #ff7070;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.omnipilot-spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid #333366;
+  border-top-color: #7878ff;
+  border-radius: 50%;
+  animation: omnipilot-spin 0.7s linear infinite;
+  display: inline-block;
+  vertical-align: middle;
+  margin-right: 10px;
+}
+
+.omnipilot-loading-text {
+  color: #888899;
+  font-size: 13px;
+  vertical-align: middle;
+}
+
+@keyframes omnipilot-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Scrollbar */
+.omnipilot-panel-body::-webkit-scrollbar {
+  width: 4px;
+}
+.omnipilot-panel-body::-webkit-scrollbar-track {
+  background: #1a1a2e;
+}
+.omnipilot-panel-body::-webkit-scrollbar-thumb {
+  background: #333366;
+  border-radius: 2px;
+}
