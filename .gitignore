@@ -1,0 +1,7 @@
+node_modules/
+package-lock.json
+package.json
+gen_icons.py
+test_extension.js
+*.log
+.DS_Store
