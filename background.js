@@ -37,7 +37,31 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     chrome.storage.sync.get(DEFAULT_CONFIG, config => sendResponse(config));
     return true;
   }
+  if (request.type === 'GET_MODELS') {
+    handleGetModels()
+      .then(models => sendResponse({ models }))
+      .catch(() => sendResponse({ models: [] }));
+    return true;
+  }
 });
+
+async function handleGetModels() {
+  const config = await new Promise(resolve =>
+    chrome.storage.sync.get(DEFAULT_CONFIG, resolve)
+  );
+  if (!config.apiKey || !config.endpoint) return [];
+
+  const endpoint = config.endpoint.replace(/\/$/, '');
+  const url = `${endpoint}/models`;
+  const headers = { 'Content-Type': 'application/json' };
+  if (endpoint.includes('omnillm.com')) headers['x-api-key'] = config.apiKey;
+  else headers['Authorization'] = `Bearer ${config.apiKey}`;
+
+  const resp = await fetch(url, { headers });
+  if (!resp.ok) return [];
+  const data = await resp.json();
+  return (data.data || data.models || []).map(m => m.id || m.name).filter(Boolean).sort();
+}
 
 async function handleAIChat(messages) {
   const config = await new Promise(resolve =>

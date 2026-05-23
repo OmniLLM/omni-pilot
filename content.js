@@ -11,6 +11,12 @@
   let lastSelectionRect = null;
   let currentTheme = 'dark';
   let conversationHistory = []; // stores {role, content} for multi-turn chat
+  let currentModel = '';
+  let currentProvider = '';
+  let currentAction = ''; // tracks which action is running
+  let panelPositionFixed = false; // true once panel has been positioned or dragged
+  let abortController = null; // for cancelling in-flight requests
+  let hasApiKey = false; // tracks whether API key is configured
 
   function applyThemeTo(el) {
     if (!el) return;
@@ -23,11 +29,48 @@
     [bubble, dropdown, panel].forEach(applyThemeTo);
   }
 
-  // Load theme from storage
-  chrome.storage.sync.get({ theme: 'dark' }, cfg => applyTheme(cfg.theme));
+  // Load config from storage
+  chrome.storage.sync.get({ theme: 'dark', model: 'claude-sonnet-4-5', endpoint: 'https://api.omnillm.com/v1', apiKey: '' }, cfg => {
+    applyTheme(cfg.theme);
+    currentModel = cfg.model || 'claude-sonnet-4-5';
+    currentProvider = detectProvider(cfg.endpoint || '');
+    hasApiKey = Boolean(cfg.apiKey);
+    updatePanelMeta();
+  });
   chrome.storage.onChanged.addListener(changes => {
     if (changes.theme) applyTheme(changes.theme.newValue);
+    if (changes.model) { currentModel = changes.model.newValue; updatePanelMeta(); }
+    if (changes.endpoint) { currentProvider = detectProvider(changes.endpoint.newValue || ''); updatePanelMeta(); }
+    if (changes.apiKey) hasApiKey = Boolean(changes.apiKey.newValue);
   });
+
+  function detectProvider(endpoint) {
+    if (endpoint.includes('omnillm.com')) return 'OmniLLM';
+    if (endpoint.includes('anthropic.com')) return 'Anthropic';
+    if (endpoint.includes('openai.com')) return 'OpenAI';
+    if (endpoint.includes('localhost') || endpoint.includes('127.0.0.1')) return 'Local';
+    try { return new URL(endpoint).hostname.split('.').slice(-2, -1)[0] || 'Custom'; } catch { return 'Custom'; }
+  }
+
+  function updatePanelMeta() {
+    if (!panel) return;
+    const modelEl = panel.querySelector('.omnipilot-meta-model');
+    const providerEl = panel.querySelector('.omnipilot-meta-provider');
+    const titleEl = panel.querySelector('.omnipilot-panel-title');
+    const actionEl = panel.querySelector('.omnipilot-meta-action');
+    if (modelEl) modelEl.textContent = currentModel;
+    if (providerEl) providerEl.textContent = currentProvider;
+    if (actionEl) {
+      const label = currentAction ? (ACTIONS.find(a => a.id === currentAction)?.label || 'Chat') : 'Chat';
+      actionEl.textContent = label;
+    }
+    if (titleEl && currentAction) {
+      const actionLabels = { translate: 'Translating', summarize: 'Summarizing', explain: 'Explaining', improve: 'Improving' };
+      titleEl.textContent = `✦ ${actionLabels[currentAction] || 'OmniPilot'}`;
+    } else if (titleEl) {
+      titleEl.textContent = '✦ OmniPilot';
+    }
+  }
 
   const ACTIONS = [
     { id: 'translate', label: 'Translate', icon: '🌍' },
@@ -82,25 +125,44 @@
   function createDropdown() {
     const el = document.createElement('div');
     el.id = 'omnipilot-dropdown';
-    ACTIONS.forEach(action => {
+
+    if (!hasApiKey) {
       const item = document.createElement('div');
-      item.className = 'omnipilot-dropdown-item';
-      item.innerHTML = `<span class="omnipilot-action-icon">${action.icon}</span>${action.label}`;
+      item.className = 'omnipilot-dropdown-item omnipilot-setup-item';
+      item.innerHTML = `<span class="omnipilot-action-icon">⚙</span>Set up API key`;
       item.addEventListener('mousedown', e => { e.preventDefault(); e.stopPropagation(); });
       item.addEventListener('click', e => {
         e.preventDefault();
         e.stopPropagation();
-        runAction(action.id);
+        chrome.runtime.openOptionsPage();
+        hideDropdown();
+        hideBubble();
       });
       el.appendChild(item);
-    });
+    } else {
+      ACTIONS.forEach(action => {
+        const item = document.createElement('div');
+        item.className = 'omnipilot-dropdown-item';
+        item.innerHTML = `<span class="omnipilot-action-icon">${action.icon}</span>${action.label}`;
+        item.addEventListener('mousedown', e => { e.preventDefault(); e.stopPropagation(); });
+        item.addEventListener('click', e => {
+          e.preventDefault();
+          e.stopPropagation();
+          runAction(action.id);
+        });
+        el.appendChild(item);
+      });
+    }
+
     document.body.appendChild(el);
     applyThemeTo(el);
     return el;
   }
 
   function showDropdown(anchorEl) {
-    if (!dropdown) dropdown = createDropdown();
+    // Recreate dropdown if it exists (API key state may have changed)
+    if (dropdown) { dropdown.remove(); dropdown = null; }
+    dropdown = createDropdown();
     const rect = anchorEl.getBoundingClientRect();
     const scrollX = window.scrollX;
     const scrollY = window.scrollY;
@@ -131,7 +193,34 @@
 
       const header = document.createElement('div');
       header.className = 'omnipilot-panel-header';
-      header.innerHTML = '<span class="omnipilot-panel-title">✦ OmniPilot</span>';
+      header.innerHTML = `<span class="omnipilot-panel-title">✦ OmniPilot</span>
+        <div class="omnipilot-meta">
+          <span class="omnipilot-meta-action-wrap">
+            <span class="omnipilot-meta-action">${currentAction ? ACTIONS.find(a => a.id === currentAction)?.label || 'Chat' : 'Chat'}</span>
+            <span class="omnipilot-meta-arrow">▾</span>
+          </span>
+          <span class="omnipilot-meta-sep">·</span>
+          <span class="omnipilot-meta-provider">${escapeHtml(currentProvider)}</span>
+          <span class="omnipilot-meta-sep">·</span>
+          <span class="omnipilot-meta-model-wrap">
+            <span class="omnipilot-meta-model">${escapeHtml(currentModel)}</span>
+            <span class="omnipilot-meta-arrow">▾</span>
+          </span>
+        </div>`;
+
+      // Action selector dropdown
+      const actionWrap = header.querySelector('.omnipilot-meta-action-wrap');
+      actionWrap.addEventListener('click', e => {
+        e.stopPropagation();
+        showActionSelector(actionWrap);
+      });
+
+      // Model selector dropdown
+      const modelWrap = header.querySelector('.omnipilot-meta-model-wrap');
+      modelWrap.addEventListener('click', e => {
+        e.stopPropagation();
+        showModelSelector(modelWrap);
+      });
 
       const closeBtn = document.createElement('button');
       closeBtn.className = 'omnipilot-close-btn';
@@ -139,6 +228,7 @@
       closeBtn.addEventListener('click', () => {
         panel.style.display = 'none';
         conversationHistory = [];
+        panelPositionFixed = false;
       });
       header.appendChild(closeBtn);
 
@@ -148,19 +238,21 @@
       let dragOffsetY = 0;
 
       header.addEventListener('mousedown', e => {
-        if (e.target === closeBtn) return;
+        if (e.target === closeBtn || e.target.closest('.omnipilot-meta-action-wrap') || e.target.closest('.omnipilot-meta-model-wrap')) return;
         dragging = true;
-        const rect = panel.getBoundingClientRect();
-        dragOffsetX = e.clientX - rect.left;
-        dragOffsetY = e.clientY - rect.top;
+        // panel.style.left/top are page-absolute, so offset must include scroll
+        const panelLeft = parseFloat(panel.style.left) || 0;
+        const panelTop = parseFloat(panel.style.top) || 0;
+        dragOffsetX = (e.clientX + window.scrollX) - panelLeft;
+        dragOffsetY = (e.clientY + window.scrollY) - panelTop;
         panel.style.transition = 'none';
         e.preventDefault();
       });
 
       document.addEventListener('mousemove', e => {
         if (!dragging) return;
-        const left = e.clientX - dragOffsetX;
-        const top = e.clientY - dragOffsetY;
+        const left = e.clientX - dragOffsetX + window.scrollX;
+        const top = e.clientY - dragOffsetY + window.scrollY;
         panel.style.left = `${left}px`;
         panel.style.top = `${top}px`;
       });
@@ -248,16 +340,18 @@
     panel.style.display = 'flex';
 
     if (isLoading) {
-      body.innerHTML = '<div class="omnipilot-loading"><div class="omnipilot-spinner"></div><span class="omnipilot-loading-text">Thinking…</span></div>';
+      body.innerHTML = '<div class="omnipilot-loading"><div class="omnipilot-spinner"></div><span class="omnipilot-loading-text">Thinking…</span><button class="omnipilot-cancel-btn" title="Cancel">✕</button></div>';
+      body.querySelector('.omnipilot-cancel-btn')?.addEventListener('click', cancelRequest);
     } else if (isError) {
       body.innerHTML = `<div class="omnipilot-error">${escapeHtml(content)}</div>`;
     } else {
       body.innerHTML = `<div class="omnipilot-result">${formatResult(content)}</div>`;
     }
 
-    // Only position on first show (not after drag)
-    if (!panel.dataset.dragged) {
+    // Only position on first show (not after drag or previously positioned)
+    if (!panel.dataset.dragged && !panelPositionFixed) {
       positionPanel();
+      panelPositionFixed = true;
     }
   }
 
@@ -267,27 +361,32 @@
     // Append user message to panel body
     const body = panel.querySelector('.omnipilot-panel-body');
     body.innerHTML += `<div class="omnipilot-msg omnipilot-msg-user">${escapeHtml(question)}</div>`;
-    body.innerHTML += '<div class="omnipilot-loading"><div class="omnipilot-spinner"></div><span class="omnipilot-loading-text">Thinking…</span></div>';
+    body.innerHTML += '<div class="omnipilot-loading"><div class="omnipilot-spinner"></div><span class="omnipilot-loading-text">Thinking…</span><button class="omnipilot-cancel-btn" title="Cancel">✕</button></div>';
+    body.querySelector('.omnipilot-loading .omnipilot-cancel-btn')?.addEventListener('click', cancelRequest);
     body.scrollTop = body.scrollHeight;
 
     const runtime = globalThis.chrome?.runtime;
     if (!runtime?.sendMessage) {
       body.querySelector('.omnipilot-loading')?.remove();
-      body.innerHTML += '<div class="omnipilot-error">Extension context unavailable. Refresh page.</div>';
+      body.innerHTML += '<div class="omnipilot-error">Extension context unavailable. Refresh the page.</div>';
       return;
     }
+
+    abortController = new AbortController();
+    const signal = abortController.signal;
 
     runtime.sendMessage(
       { type: 'AI_CHAT', messages: conversationHistory },
       response => {
+        if (signal.aborted) return;
         // Remove loading indicator
         body.querySelector('.omnipilot-loading')?.remove();
         if (runtime.lastError) {
-          body.innerHTML += `<div class="omnipilot-error">${escapeHtml(runtime.lastError.message)}</div>`;
+          body.innerHTML += `<div class="omnipilot-error">${humanizeError(runtime.lastError.message)}</div>`;
           return;
         }
         if (!response || !response.success) {
-          body.innerHTML += `<div class="omnipilot-error">${escapeHtml(response?.error || 'Unknown error')}</div>`;
+          body.innerHTML += `<div class="omnipilot-error">${humanizeError(response?.error)}</div>`;
           return;
         }
         conversationHistory.push({ role: 'assistant', content: response.result });
@@ -317,6 +416,136 @@
     // Focus the input
     const input = panel.querySelector('.omnipilot-panel-input');
     if (input) setTimeout(() => input.focus(), 50);
+  }
+
+  function showModelSelector(anchorEl) {
+    // Remove existing selector if any
+    const existing = document.getElementById('omnipilot-model-selector');
+    if (existing) { existing.remove(); return; }
+
+    const selector = document.createElement('div');
+    selector.id = 'omnipilot-model-selector';
+    applyThemeTo(selector);
+
+    // Filter input
+    const filterInput = document.createElement('input');
+    filterInput.className = 'omnipilot-model-filter';
+    filterInput.placeholder = 'Type to filter…';
+    filterInput.addEventListener('mousedown', e => e.stopPropagation());
+    filterInput.addEventListener('keydown', e => e.stopPropagation());
+    selector.appendChild(filterInput);
+
+    const listContainer = document.createElement('div');
+    listContainer.className = 'omnipilot-model-list';
+    selector.appendChild(listContainer);
+
+    document.body.appendChild(selector);
+
+    // Position below the anchor
+    const rect = anchorEl.getBoundingClientRect();
+    selector.style.left = `${rect.left + window.scrollX}px`;
+    selector.style.top = `${rect.bottom + window.scrollY + 4}px`;
+
+    // Fetch models from background
+    const runtime = globalThis.chrome?.runtime;
+    if (!runtime?.sendMessage) { selector.remove(); return; }
+
+    listContainer.innerHTML = '<div class="omnipilot-model-loading">Loading models…</div>';
+
+    let allModels = [];
+
+    function renderList(filter) {
+      const query = filter.toLowerCase();
+      const filtered = query ? allModels.filter(m => m.toLowerCase().includes(query)) : allModels;
+      listContainer.innerHTML = '';
+      if (!filtered.length) {
+        listContainer.innerHTML = '<div class="omnipilot-model-loading">No matches</div>';
+        return;
+      }
+      filtered.forEach(model => {
+        const item = document.createElement('div');
+        item.className = 'omnipilot-model-item' + (model === currentModel ? ' omnipilot-model-current' : '');
+        item.textContent = model;
+        item.addEventListener('click', e => {
+          e.stopPropagation();
+          currentModel = model;
+          chrome.storage.sync.set({ model });
+          updatePanelMeta();
+          selector.remove();
+        });
+        listContainer.appendChild(item);
+      });
+    }
+
+    filterInput.addEventListener('input', () => renderList(filterInput.value));
+
+    runtime.sendMessage({ type: 'GET_MODELS' }, response => {
+      if (!response || !response.models || !response.models.length) {
+        allModels = [currentModel];
+      } else {
+        allModels = response.models;
+      }
+      renderList(filterInput.value);
+      filterInput.focus();
+    });
+
+    // Close on click outside
+    const closeHandler = e => {
+      if (!selector.contains(e.target) && !anchorEl.contains(e.target)) {
+        selector.remove();
+        document.removeEventListener('mousedown', closeHandler);
+      }
+    };
+    setTimeout(() => document.addEventListener('mousedown', closeHandler), 0);
+  }
+
+  function showActionSelector(anchorEl) {
+    // Remove existing selector if any
+    const existing = document.getElementById('omnipilot-action-selector');
+    if (existing) { existing.remove(); return; }
+
+    const selector = document.createElement('div');
+    selector.id = 'omnipilot-action-selector';
+    applyThemeTo(selector);
+
+    const allActions = [
+      { id: '', label: 'Chat', icon: '💬' },
+      ...ACTIONS
+    ];
+
+    allActions.forEach(action => {
+      const item = document.createElement('div');
+      item.className = 'omnipilot-model-item' + (action.id === currentAction ? ' omnipilot-model-current' : '');
+      item.innerHTML = `<span style="margin-right:6px">${action.icon}</span>${action.label}`;
+      item.addEventListener('click', e => {
+        e.stopPropagation();
+        currentAction = action.id;
+        updatePanelMeta();
+        selector.remove();
+
+        // If an action is selected and there's text in context, re-run
+        if (action.id && lastSelection) {
+          runAction(action.id);
+        }
+      });
+      selector.appendChild(item);
+    });
+
+    document.body.appendChild(selector);
+
+    // Position below the anchor
+    const rect = anchorEl.getBoundingClientRect();
+    selector.style.left = `${rect.left + window.scrollX}px`;
+    selector.style.top = `${rect.bottom + window.scrollY + 4}px`;
+
+    // Close on click outside
+    const closeHandler = e => {
+      if (!selector.contains(e.target) && !anchorEl.contains(e.target)) {
+        selector.remove();
+        document.removeEventListener('mousedown', closeHandler);
+      }
+    };
+    setTimeout(() => document.addEventListener('mousedown', closeHandler), 0);
   }
 
   function positionPanel() {
@@ -373,6 +602,33 @@
     return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   }
 
+  function humanizeError(msg) {
+    if (!msg) return 'Something went wrong. Try again.';
+    const s = escapeHtml(msg);
+    if (/401|403|api key/i.test(s)) return 'Your API key was rejected. <a class="omnipilot-error-link" href="#">Check Settings</a>';
+    if (/429|rate.?limit|quota/i.test(s)) return 'Rate limit reached. Wait a moment and try again.';
+    if (/network|fetch|timeout|ECONNREFUSED/i.test(s)) return 'Network error. Check your connection and endpoint.';
+    if (/empty.*response/i.test(s)) return 'The model returned an empty response. Try a different model.';
+    return s;
+  }
+
+  // ── Cancel Support ─────────────────────────────────────────────────────────────
+
+  function cancelRequest() {
+    if (abortController) {
+      abortController.abort();
+      abortController = null;
+    }
+    if (panel) {
+      const body = panel.querySelector('.omnipilot-panel-body');
+      const loading = body?.querySelector('.omnipilot-loading');
+      if (loading) {
+        loading.remove();
+        body.innerHTML += '<div class="omnipilot-cancelled">Cancelled</div>';
+      }
+    }
+  }
+
   // ── Action Runner ─────────────────────────────────────────────────────────────
 
   function runAction(actionId) {
@@ -382,31 +638,41 @@
     const text = lastSelection;
     if (!text) return;
 
+    // Set current action and update panel title
+    currentAction = actionId;
+
     // Initialize conversation with the selected text context
     conversationHistory = [{ role: 'user', content: text }];
 
     // Show panel immediately with loading state
     showPanelForConversation(text);
+    updatePanelMeta();
     const body = panel.querySelector('.omnipilot-panel-body');
-    body.innerHTML += '<div class="omnipilot-loading"><div class="omnipilot-spinner"></div><span class="omnipilot-loading-text">Thinking…</span></div>';
+    body.innerHTML += '<div class="omnipilot-loading"><div class="omnipilot-spinner"></div><span class="omnipilot-loading-text">Thinking…</span><button class="omnipilot-cancel-btn" title="Cancel">✕</button></div>';
+    body.querySelector('.omnipilot-cancel-btn')?.addEventListener('click', cancelRequest);
 
     const runtime = globalThis.chrome?.runtime;
     if (!runtime?.sendMessage) {
       body.querySelector('.omnipilot-loading')?.remove();
-      body.innerHTML += '<div class="omnipilot-error">Extension context unavailable. Refresh page.</div>';
+      body.innerHTML += '<div class="omnipilot-error">Extension context unavailable. Refresh the page.</div>';
       return;
     }
+
+    // Create abort controller for this request
+    abortController = new AbortController();
+    const signal = abortController.signal;
 
     runtime.sendMessage(
       { type: 'AI_ACTION', action: actionId, text },
       response => {
+        if (signal.aborted) return; // cancelled
         body.querySelector('.omnipilot-loading')?.remove();
         if (runtime.lastError) {
-          body.innerHTML += `<div class="omnipilot-error">${escapeHtml(runtime.lastError.message)}</div>`;
+          body.innerHTML += `<div class="omnipilot-error">${humanizeError(runtime.lastError.message)}</div>`;
           return;
         }
         if (!response) {
-          body.innerHTML += '<div class="omnipilot-error">No response from background service worker.</div>';
+          body.innerHTML += '<div class="omnipilot-error">No response. Try refreshing the page.</div>';
           return;
         }
         if (response.success) {
@@ -414,8 +680,10 @@
           body.innerHTML += `<div class="omnipilot-msg omnipilot-msg-assistant">${formatResult(response.result)}</div>`;
           body.scrollTop = body.scrollHeight;
         } else {
-          body.innerHTML += `<div class="omnipilot-error">${escapeHtml(response.error || 'Unknown error')}</div>`;
+          body.innerHTML += `<div class="omnipilot-error">${humanizeError(response.error || 'Unknown error')}</div>`;
         }
+        currentAction = '';
+        updatePanelMeta();
       }
     );
   }
@@ -453,7 +721,7 @@
     if (e.key === 'Escape') {
       hideBubble();
       hideDropdown();
-      if (panel) panel.style.display = 'none';
+      if (panel) { panel.style.display = 'none'; panelPositionFixed = false; }
     }
   });
 
