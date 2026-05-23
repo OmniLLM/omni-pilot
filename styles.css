@@ -108,17 +108,22 @@
 #omnipilot-panel {
   position: absolute;
   display: none;
+  flex-direction: column;
   background: var(--op-bg);
   border: 1px solid var(--op-border);
   border-radius: 12px;
-  width: 400px;
+  min-width: 280px;
+  min-height: 160px;
   max-width: calc(100vw - 24px);
+  max-height: calc(100vh - 24px);
   z-index: 2147483645;
   box-shadow: var(--op-shadow);
   font-family: var(--op-font);
   overflow: hidden;
   animation: op-slide 0.16s cubic-bezier(0.22, 1, 0.36, 1);
 }
+
+/* When visible (set by JS) the panel uses flex column layout */
 
 @keyframes op-slide {
   from { opacity: 0; transform: translateY(6px); }
@@ -131,6 +136,12 @@
   justify-content: space-between;
   padding: 10px 12px;
   border-bottom: 1px solid var(--op-border);
+  cursor: grab;
+  user-select: none;
+  flex-shrink: 0;
+}
+.omnipilot-panel-header:active {
+  cursor: grabbing;
 }
 
 .omnipilot-panel-title {
@@ -142,18 +153,6 @@
   font-weight: 500;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-}
-
-.omnipilot-panel-title-dot {
-  width: 5px; height: 5px;
-  background: var(--op-accent);
-  border-radius: 50%;
-  display: inline-block;
-}
-
-.omnipilot-panel-actions {
-  display: flex;
-  gap: 2px;
 }
 
 .omnipilot-close-btn {
@@ -172,8 +171,36 @@
 
 .omnipilot-panel-body {
   padding: 14px 16px;
-  max-height: 280px;
   overflow-y: auto;
+  flex: 1;
+}
+
+/* Resize handle styling */
+#omnipilot-panel .omnipilot-resize-handle {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 16px;
+  height: 16px;
+  cursor: nwse-resize;
+  opacity: 0.4;
+  transition: opacity 0.15s;
+}
+
+#omnipilot-panel .omnipilot-resize-handle:hover {
+  opacity: 0.8;
+}
+
+#omnipilot-panel .omnipilot-resize-handle::before {
+  content: '';
+  position: absolute;
+  bottom: 4px;
+  right: 4px;
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid var(--op-ink2);
+  border-bottom: 2px solid var(--op-ink2);
+  border-radius: 0 0 2px 0;
 }
 
 .omnipilot-result {
@@ -217,6 +244,122 @@
 .omnipilot-panel-body::-webkit-scrollbar-thumb {
   background: rgba(255,255,255,0.1);
   border-radius: 2px;
+}
+
+/* ── Conversation Input ──────────────────────────────────── */
+
+.omnipilot-panel-input-area {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--op-border);
+  flex-shrink: 0;
+}
+
+.omnipilot-panel-input {
+  flex: 1;
+  background: var(--op-bg2, #1c1c26);
+  border: 1px solid var(--op-border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  color: var(--op-ink);
+  font-family: var(--op-font);
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.12s;
+}
+
+.omnipilot-panel-input:focus {
+  border-color: var(--op-accent);
+}
+
+.omnipilot-panel-input::placeholder {
+  color: var(--op-ink2);
+  opacity: 0.7;
+}
+
+.omnipilot-send-btn {
+  background: var(--op-accent);
+  border: none;
+  border-radius: 6px;
+  width: 28px;
+  height: 28px;
+  color: #fff;
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.1s;
+}
+
+.omnipilot-send-btn:hover {
+  opacity: 0.85;
+}
+
+/* ── Chat Messages ───────────────────────────────────────── */
+
+.omnipilot-msg {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.omnipilot-msg-user {
+  background: var(--op-accent-dim);
+  color: var(--op-ink);
+  align-self: flex-end;
+  margin-left: 20%;
+}
+
+.omnipilot-msg-assistant {
+  color: var(--op-ink);
+}
+
+/* ── Selected Text Context ───────────────────────────────── */
+
+.omnipilot-selected-context {
+  color: var(--op-ink2);
+  font-size: 12.5px;
+  line-height: 1.5;
+  padding: 8px 10px;
+  background: var(--op-accent-dim);
+  border-radius: 6px;
+  border-left: 3px solid var(--op-accent);
+}
+
+.omnipilot-context-label {
+  font-weight: 600;
+  color: var(--op-ink);
+}
+
+/* ── Quick Action Buttons ────────────────────────────────── */
+
+.omnipilot-quick-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.omnipilot-quick-action {
+  background: var(--op-bg2, #1c1c26);
+  border: 1px solid var(--op-border);
+  border-radius: 6px;
+  padding: 5px 10px;
+  color: var(--op-ink);
+  font-family: var(--op-font);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.1s, border-color 0.1s;
+}
+
+.omnipilot-quick-action:hover {
+  background: var(--op-accent-dim);
+  border-color: var(--op-accent);
 }
 
 /* ── Light Theme ─────────────────────────────────────────── */

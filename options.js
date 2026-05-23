@@ -30,7 +30,10 @@ async function fetchModels(endpoint, apiKey) {
   try {
     const url = endpoint.replace(/\/$/, '') + '/models';
     const headers = { 'Content-Type': 'application/json' };
-    if (apiKey) headers['x-api-key'] = apiKey;
+    if (apiKey) {
+      if (endpoint.includes('omnillm.com')) headers['x-api-key'] = apiKey;
+      else headers['Authorization'] = `Bearer ${apiKey}`;
+    }
 
     const resp = await fetch(url, { headers });
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);

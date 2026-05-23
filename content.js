@@ -8,17 +8,19 @@
   let dropdown = null;
   let panel = null;
   let lastSelection = '';
+  let lastSelectionRect = null;
   let currentTheme = 'dark';
+  let conversationHistory = []; // stores {role, content} for multi-turn chat
 
-  // Apply theme to all OmniPilot elements
+  function applyThemeTo(el) {
+    if (!el) return;
+    if (currentTheme === 'light') el.setAttribute('data-op-theme', 'light');
+    else el.removeAttribute('data-op-theme');
+  }
+
   function applyTheme(theme) {
     currentTheme = theme;
-    const attr = theme === 'light' ? 'light' : null;
-    [bubble, dropdown, panel].forEach(el => {
-      if (!el) return;
-      if (attr) el.setAttribute('data-op-theme', attr);
-      else el.removeAttribute('data-op-theme');
-    });
+    [bubble, dropdown, panel].forEach(applyThemeTo);
   }
 
   // Load theme from storage
@@ -47,6 +49,7 @@
       toggleDropdown(el);
     });
     document.body.appendChild(el);
+    applyThemeTo(el);
     return el;
   }
 
@@ -54,6 +57,7 @@
     if (!bubble) bubble = createBubble();
     const scrollX = window.scrollX;
     const scrollY = window.scrollY;
+    lastSelectionRect = { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom };
     const x = rect.left + scrollX + rect.width / 2 - 55;
     const y = rect.top + scrollY - 44;
     bubble.style.left = `${Math.max(4, x)}px`;
@@ -91,6 +95,7 @@
       el.appendChild(item);
     });
     document.body.appendChild(el);
+    applyThemeTo(el);
     return el;
   }
 
@@ -110,6 +115,15 @@
 
   // ── Result Panel ─────────────────────────────────────────────────────────────
 
+  function calcInitialPanelSize() {
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    // Rectangular: wider than tall
+    const w = Math.max(420, Math.min(640, Math.round(vw * 0.4)));
+    const h = Math.max(220, Math.min(400, Math.round(vh * 0.32)));
+    return { w, h };
+  }
+
   function showPanel(content, isLoading = false, isError = false) {
     if (!panel) {
       panel = document.createElement('div');
@@ -122,42 +136,228 @@
       const closeBtn = document.createElement('button');
       closeBtn.className = 'omnipilot-close-btn';
       closeBtn.innerHTML = '✕';
-      closeBtn.addEventListener('click', () => { panel.style.display = 'none'; });
+      closeBtn.addEventListener('click', () => {
+        panel.style.display = 'none';
+        conversationHistory = [];
+      });
       header.appendChild(closeBtn);
+
+      // Drag support on header
+      let dragging = false;
+      let dragOffsetX = 0;
+      let dragOffsetY = 0;
+
+      header.addEventListener('mousedown', e => {
+        if (e.target === closeBtn) return;
+        dragging = true;
+        const rect = panel.getBoundingClientRect();
+        dragOffsetX = e.clientX - rect.left;
+        dragOffsetY = e.clientY - rect.top;
+        panel.style.transition = 'none';
+        e.preventDefault();
+      });
+
+      document.addEventListener('mousemove', e => {
+        if (!dragging) return;
+        const left = e.clientX - dragOffsetX;
+        const top = e.clientY - dragOffsetY;
+        panel.style.left = `${left}px`;
+        panel.style.top = `${top}px`;
+      });
+
+      document.addEventListener('mouseup', () => {
+        if (dragging) {
+          panel.dataset.dragged = '1';
+        }
+        dragging = false;
+        panel.style.transition = '';
+      });
+
+      // Resize handle (custom, more reliable than CSS resize)
+      const resizeHandle = document.createElement('div');
+      resizeHandle.className = 'omnipilot-resize-handle';
+      let resizing = false;
+      let resizeStartX, resizeStartY, resizeStartW, resizeStartH;
+
+      resizeHandle.addEventListener('mousedown', e => {
+        e.preventDefault();
+        e.stopPropagation();
+        resizing = true;
+        resizeStartX = e.clientX;
+        resizeStartY = e.clientY;
+        resizeStartW = panel.offsetWidth;
+        resizeStartH = panel.offsetHeight;
+        panel.style.transition = 'none';
+      });
+
+      document.addEventListener('mousemove', e => {
+        if (!resizing) return;
+        const newW = Math.max(280, resizeStartW + (e.clientX - resizeStartX));
+        const newH = Math.max(160, resizeStartH + (e.clientY - resizeStartY));
+        panel.style.width = `${newW}px`;
+        panel.style.height = `${newH}px`;
+      });
+
+      document.addEventListener('mouseup', () => {
+        if (resizing) {
+          resizing = false;
+          panel.style.transition = '';
+          panel.dataset.userResized = '1';
+        }
+      });
 
       const body = document.createElement('div');
       body.className = 'omnipilot-panel-body';
 
+      const inputArea = document.createElement('div');
+      inputArea.className = 'omnipilot-panel-input-area';
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.className = 'omnipilot-panel-input';
+      input.placeholder = 'Ask a follow-up question...';
+      input.addEventListener('keydown', e => {
+        if (e.key === 'Enter' && input.value.trim()) {
+          e.stopPropagation();
+          sendFollowUp(input.value.trim());
+          input.value = '';
+        }
+        if (e.key === 'Escape') e.stopPropagation();
+      });
+      input.addEventListener('mousedown', e => e.stopPropagation());
+      const sendBtn = document.createElement('button');
+      sendBtn.className = 'omnipilot-send-btn';
+      sendBtn.textContent = '→';
+      sendBtn.addEventListener('click', () => {
+        if (input.value.trim()) {
+          sendFollowUp(input.value.trim());
+          input.value = '';
+        }
+      });
+      inputArea.appendChild(input);
+      inputArea.appendChild(sendBtn);
+
       panel.appendChild(header);
       panel.appendChild(body);
+      panel.appendChild(inputArea);
+      panel.appendChild(resizeHandle);
       document.body.appendChild(panel);
+      applyThemeTo(panel);
     }
 
     const body = panel.querySelector('.omnipilot-panel-body');
-    panel.style.display = 'block';
+    panel.style.display = 'flex';
 
     if (isLoading) {
       body.innerHTML = '<div class="omnipilot-loading"><div class="omnipilot-spinner"></div><span class="omnipilot-loading-text">Thinking…</span></div>';
     } else if (isError) {
-      body.innerHTML = `<div class="omnipilot-error">⚠ ${escapeHtml(content)}</div>`;
+      body.innerHTML = `<div class="omnipilot-error">${escapeHtml(content)}</div>`;
     } else {
       body.innerHTML = `<div class="omnipilot-result">${formatResult(content)}</div>`;
     }
 
-    // Position near bubble or viewport center
-    positionPanel();
+    // Only position on first show (not after drag)
+    if (!panel.dataset.dragged) {
+      positionPanel();
+    }
+  }
+
+  function sendFollowUp(question) {
+    conversationHistory.push({ role: 'user', content: question });
+
+    // Append user message to panel body
+    const body = panel.querySelector('.omnipilot-panel-body');
+    body.innerHTML += `<div class="omnipilot-msg omnipilot-msg-user">${escapeHtml(question)}</div>`;
+    body.innerHTML += '<div class="omnipilot-loading"><div class="omnipilot-spinner"></div><span class="omnipilot-loading-text">Thinking…</span></div>';
+    body.scrollTop = body.scrollHeight;
+
+    const runtime = globalThis.chrome?.runtime;
+    if (!runtime?.sendMessage) {
+      body.querySelector('.omnipilot-loading')?.remove();
+      body.innerHTML += '<div class="omnipilot-error">Extension context unavailable. Refresh page.</div>';
+      return;
+    }
+
+    runtime.sendMessage(
+      { type: 'AI_CHAT', messages: conversationHistory },
+      response => {
+        // Remove loading indicator
+        body.querySelector('.omnipilot-loading')?.remove();
+        if (runtime.lastError) {
+          body.innerHTML += `<div class="omnipilot-error">${escapeHtml(runtime.lastError.message)}</div>`;
+          return;
+        }
+        if (!response || !response.success) {
+          body.innerHTML += `<div class="omnipilot-error">${escapeHtml(response?.error || 'Unknown error')}</div>`;
+          return;
+        }
+        conversationHistory.push({ role: 'assistant', content: response.result });
+        body.innerHTML += `<div class="omnipilot-msg omnipilot-msg-assistant">${formatResult(response.result)}</div>`;
+        body.scrollTop = body.scrollHeight;
+      }
+    );
+  }
+
+  function showPanelForConversation(selectedText) {
+    // Show panel immediately with selected text displayed and input ready
+    if (!panel) {
+      showPanel('', false, false); // creates the panel
+    } else {
+      panel.style.display = 'flex';
+    }
+    const body = panel.querySelector('.omnipilot-panel-body');
+    // Show the selected text as context
+    const truncated = selectedText.length > 200 ? selectedText.slice(0, 200) + '…' : selectedText;
+    body.innerHTML = `<div class="omnipilot-selected-context"><span class="omnipilot-context-label">Selected text:</span> ${escapeHtml(truncated)}</div>`;
+
+    // Only position when opening fresh (not dragged)
+    if (!panel.dataset.dragged) {
+      positionPanel();
+    }
+
+    // Focus the input
+    const input = panel.querySelector('.omnipilot-panel-input');
+    if (input) setTimeout(() => input.focus(), 50);
   }
 
   function positionPanel() {
     if (!panel) return;
     const scrollX = window.scrollX;
     const scrollY = window.scrollY;
-    if (bubble && bubble.style.display !== 'none') {
+    const { w: panelW, h: panelH } = calcInitialPanelSize();
+
+    // Set initial size (only if not already resized by user)
+    if (!panel.dataset.userResized) {
+      panel.style.width = `${panelW}px`;
+      panel.style.height = `${panelH}px`;
+    }
+
+    const actualW = panel.offsetWidth || panelW;
+    const actualH = panel.offsetHeight || panelH;
+    const gap = 12;
+    const margin = 16;
+
+    if (lastSelectionRect) {
+      // Try right side of selection first
+      let left = lastSelectionRect.right + scrollX + gap;
+      let top = lastSelectionRect.top + scrollY;
+
+      // If right side overflows, try left side
+      if (left + actualW > window.innerWidth + scrollX - margin) {
+        left = lastSelectionRect.left + scrollX - actualW - gap;
+      }
+
+      // Clamp to viewport
+      left = Math.max(scrollX + margin, Math.min(left, window.innerWidth + scrollX - actualW - margin));
+      top = Math.max(scrollY + margin, Math.min(top, window.innerHeight + scrollY - actualH - margin));
+
+      panel.style.left = `${left}px`;
+      panel.style.top = `${top}px`;
+    } else if (bubble && bubble.style.display !== 'none') {
       const bRect = bubble.getBoundingClientRect();
-      panel.style.left = `${Math.min(bRect.left + scrollX, window.innerWidth - 450)}px`;
-      panel.style.top = `${bRect.bottom + scrollY + 10}px`;
+      panel.style.left = `${Math.min(bRect.left + scrollX, window.innerWidth + scrollX - actualW - margin)}px`;
+      panel.style.top = `${bRect.bottom + scrollY + gap}px`;
     } else {
-      panel.style.left = `${Math.max(10, (window.innerWidth - 440) / 2)}px`;
+      panel.style.left = `${Math.max(scrollX + margin, (window.innerWidth - actualW) / 2 + scrollX)}px`;
       panel.style.top = `${scrollY + 80}px`;
     }
   }
@@ -182,19 +382,39 @@
     const text = lastSelection;
     if (!text) return;
 
-    showPanel('', true);
+    // Initialize conversation with the selected text context
+    conversationHistory = [{ role: 'user', content: text }];
 
-    chrome.runtime.sendMessage(
+    // Show panel immediately with loading state
+    showPanelForConversation(text);
+    const body = panel.querySelector('.omnipilot-panel-body');
+    body.innerHTML += '<div class="omnipilot-loading"><div class="omnipilot-spinner"></div><span class="omnipilot-loading-text">Thinking…</span></div>';
+
+    const runtime = globalThis.chrome?.runtime;
+    if (!runtime?.sendMessage) {
+      body.querySelector('.omnipilot-loading')?.remove();
+      body.innerHTML += '<div class="omnipilot-error">Extension context unavailable. Refresh page.</div>';
+      return;
+    }
+
+    runtime.sendMessage(
       { type: 'AI_ACTION', action: actionId, text },
       response => {
-        if (chrome.runtime.lastError) {
-          showPanel('Extension error: ' + chrome.runtime.lastError.message, false, true);
+        body.querySelector('.omnipilot-loading')?.remove();
+        if (runtime.lastError) {
+          body.innerHTML += `<div class="omnipilot-error">${escapeHtml(runtime.lastError.message)}</div>`;
+          return;
+        }
+        if (!response) {
+          body.innerHTML += '<div class="omnipilot-error">No response from background service worker.</div>';
           return;
         }
         if (response.success) {
-          showPanel(response.result);
+          conversationHistory.push({ role: 'assistant', content: response.result });
+          body.innerHTML += `<div class="omnipilot-msg omnipilot-msg-assistant">${formatResult(response.result)}</div>`;
+          body.scrollTop = body.scrollHeight;
         } else {
-          showPanel(response.error || 'Unknown error', false, true);
+          body.innerHTML += `<div class="omnipilot-error">${escapeHtml(response.error || 'Unknown error')}</div>`;
         }
       }
     );
@@ -208,17 +428,22 @@
       const selection = window.getSelection();
       const text = selection?.toString().trim();
 
-      if (text && text.length > 1) {
+      if (text && text.length > 1 && selection.rangeCount > 0) {
         lastSelection = text;
         const range = selection.getRangeAt(0);
         const rect = range.getBoundingClientRect();
-        showBubble(rect);
+        lastSelectionRect = { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom };
+        // Only show bubble if panel is not visible
+        if (!panel || panel.style.display === 'none') {
+          showBubble(rect);
+        }
       } else {
         // Check if click was on our UI elements
         if (!isOmniPilotElement(e.target)) {
           hideBubble();
           hideDropdown();
           lastSelection = '';
+          lastSelectionRect = null;
         }
       }
     }, 10);

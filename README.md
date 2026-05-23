@@ -32,11 +32,11 @@ Click the OmniPilot toolbar icon → **Settings**, or go to the extension option
 
 | Field | Default | Description |
 |-------|---------|-------------|
-| API Endpoint | `https://api.omnillm.com/v1` | Anthropic-compatible API endpoint |
+| API Endpoint | `https://api.omnillm.com/v1` | OmniLLM/Anthropic-compatible API endpoint |
 | API Key | — | Your API key |
-| Model | `claude-sonnet-4-5` | Any Anthropic-compatible model |
+| Model | `claude-sonnet-4-5` | Any model available to your API key |
 
-OmniPilot works with [OmniLLM](https://omnillm.com) by default, and any Anthropic API-compatible provider.
+OmniPilot works with [OmniLLM](https://github.com/OmniLLM) by default. It also supports OpenAI-compatible providers when configured with an OpenAI-style endpoint.
 
 ## Usage
 
