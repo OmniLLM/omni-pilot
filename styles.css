@@ -1,20 +1,21 @@
-/* OmniPilot — Minimal UI, Dark/Light theme */
-/* Spacing scale: 4, 6, 8, 12, 16, 24, 32, 48 */
+/* OmniPilot — Google Material Design style */
+/* Palette: Google Blue #1a73e8, Surface #fff, Grey #f8f9fa, Text #202124 */
 
 :root {
-  --op-bg: #111118;
-  --op-bg2: #1c1c26;
-  --op-border: rgba(255,255,255,0.08);
-  --op-ink: #e8e8f0;
-  --op-ink2: #888899;
-  --op-accent: #6c6cff;
-  --op-accent-dim: rgba(108,108,255,0.15);
-  --op-hover: rgba(255,255,255,0.05);
-  --op-shadow-sm: 0 2px 8px rgba(0,0,0,0.3);
-  --op-shadow-md: 0 4px 16px rgba(0,0,0,0.4);
-  --op-shadow-lg: 0 8px 32px rgba(0,0,0,0.5);
-  --op-radius: 10px;
-  --op-font: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --op-bg: #ffffff;
+  --op-bg2: #f8f9fa;
+  --op-border: #dadce0;
+  --op-ink: #202124;
+  --op-ink2: #5f6368;
+  --op-accent: #1a73e8;
+  --op-accent-dim: rgba(26,115,232,0.08);
+  --op-accent-hover: rgba(26,115,232,0.12);
+  --op-hover: rgba(60,64,67,0.05);
+  --op-shadow-sm: 0 1px 3px rgba(60,64,67,0.15), 0 1px 2px rgba(60,64,67,0.1);
+  --op-shadow-md: 0 2px 6px rgba(60,64,67,0.2), 0 1px 3px rgba(60,64,67,0.12);
+  --op-shadow-lg: 0 4px 12px rgba(60,64,67,0.18), 0 2px 6px rgba(60,64,67,0.1);
+  --op-radius: 8px;
+  --op-font: 'Google Sans', Roboto, 'Noto Sans', Arial, sans-serif;
 }
 
 /* ── Bubble ─────────────────────────────────────────────── */
@@ -24,27 +25,27 @@
   display: none;
   align-items: center;
   gap: 6px;
-  padding: 4px 12px 4px 8px;
-  background: var(--op-bg2);
-  color: var(--op-ink);
+  padding: 6px 14px 6px 10px;
+  background: var(--op-bg);
+  color: var(--op-accent);
   border: 1px solid var(--op-border);
   border-radius: 100px;
   font-family: var(--op-font);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 500;
   letter-spacing: 0.01em;
   cursor: pointer;
   z-index: 2147483646;
-  box-shadow: var(--op-shadow-sm), 0 0 0 1px var(--op-accent-dim);
+  box-shadow: var(--op-shadow-md);
   user-select: none;
   white-space: nowrap;
-  transition: background 0.12s, box-shadow 0.12s, transform 0.12s;
+  transition: background 0.1s, box-shadow 0.1s;
   animation: op-pop 0.15s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 #omnipilot-bubble:hover {
-  background: #222235;
-  box-shadow: var(--op-shadow-md), 0 0 0 1px var(--op-accent-dim);
+  background: var(--op-accent-dim);
+  box-shadow: var(--op-shadow-lg);
 }
 
 @keyframes op-pop {
@@ -53,7 +54,7 @@
 }
 
 .omnipilot-icon {
-  font-size: 11px;
+  font-size: 14px;
   color: var(--op-accent);
   line-height: 1;
 }
@@ -64,16 +65,16 @@
   position: fixed;
   display: none;
   flex-direction: column;
-  background: var(--op-bg2);
+  background: var(--op-bg);
   border: 1px solid var(--op-border);
   border-radius: var(--op-radius);
   overflow: hidden;
   z-index: 2147483647;
   box-shadow: var(--op-shadow-lg);
-  min-width: 152px;
+  min-width: 164px;
   font-family: var(--op-font);
-  padding: 4px;
-  animation: op-fade 0.12s ease;
+  padding: 8px 0;
+  animation: op-fade 0.1s ease;
 }
 
 @keyframes op-fade {
@@ -84,26 +85,25 @@
 .omnipilot-dropdown-item {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
+  gap: 10px;
+  padding: 10px 16px;
   color: var(--op-ink);
-  font-size: 13px;
+  font-size: 14px;
   cursor: pointer;
-  border-radius: 6px;
   transition: background 0.08s;
   user-select: none;
 }
 
 .omnipilot-dropdown-item:hover {
   background: var(--op-hover);
-  color: #fff;
 }
 
 .omnipilot-action-icon {
-  font-size: 13px;
-  width: 18px;
+  font-size: 16px;
+  width: 20px;
   text-align: center;
-  opacity: 0.75;
+  color: var(--op-ink2);
+  flex-shrink: 0;
 }
 
 /* ── Result Panel ────────────────────────────────────────── */
@@ -123,10 +123,8 @@
   box-shadow: var(--op-shadow-lg);
   font-family: var(--op-font);
   overflow: hidden;
-  animation: op-slide 0.16s cubic-bezier(0.22, 1, 0.36, 1);
+  animation: op-slide 0.15s cubic-bezier(0.22, 1, 0.36, 1);
 }
-
-/* When visible (set by JS) the panel uses flex column layout */
 
 @keyframes op-slide {
   from { opacity: 0; transform: translateY(6px); }
@@ -137,11 +135,12 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 16px;
+  padding: 12px 16px 12px 16px;
   border-bottom: 1px solid var(--op-border);
   cursor: grab;
   user-select: none;
   flex-shrink: 0;
+  background: var(--op-bg);
 }
 .omnipilot-panel-header:active {
   cursor: grabbing;
@@ -150,12 +149,12 @@
 .omnipilot-panel-title {
   display: flex;
   align-items: center;
-  gap: 6px;
-  color: var(--op-ink2);
-  font-size: 12px;
+  gap: 8px;
+  color: var(--op-accent);
+  font-size: 14px;
   font-weight: 500;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
 /* ── Panel Meta (provider + model) ─────────────────────── */
@@ -163,23 +162,23 @@
 .omnipilot-meta {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   font-size: 12px;
   color: var(--op-ink2);
 }
 
 .omnipilot-meta-provider {
-  opacity: 0.7;
+  opacity: 0.8;
 }
 
 .omnipilot-meta-sep {
-  opacity: 0.4;
+  opacity: 0.45;
 }
 
 .omnipilot-meta-model-wrap {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
   cursor: pointer;
   padding: 2px 6px;
   border-radius: 4px;
@@ -188,8 +187,8 @@
 }
 
 .omnipilot-meta-model-wrap:hover {
-  background: var(--op-hover);
-  border-color: var(--op-border);
+  background: var(--op-accent-dim);
+  border-color: rgba(26,115,232,0.2);
 }
 
 .omnipilot-meta-model {
@@ -199,7 +198,7 @@
 
 .omnipilot-meta-arrow {
   font-size: 9px;
-  opacity: 0.6;
+  opacity: 0.65;
 }
 
 /* ── Model Selector Dropdown ───────────────────────────── */
@@ -207,38 +206,38 @@
 #omnipilot-model-selector {
   position: fixed;
   z-index: 2147483647;
-  background: var(--op-bg2, #1c1c26);
+  background: var(--op-bg);
   border: 1px solid var(--op-border);
-  border-radius: 8px;
+  border-radius: var(--op-radius);
   box-shadow: var(--op-shadow-lg);
-  padding: 4px;
+  padding: 8px 0 4px;
   min-width: 200px;
   max-width: 320px;
   font-family: var(--op-font);
-  animation: op-fade 0.12s ease;
+  animation: op-fade 0.1s ease;
 }
 
 .omnipilot-model-filter {
-  width: calc(100% - 8px);
-  margin: 4px;
-  padding: 6px 8px;
-  background: var(--op-bg, #111118);
+  width: calc(100% - 24px);
+  margin: 0 12px 4px;
+  padding: 8px 12px;
+  background: var(--op-bg2);
   border: 1px solid var(--op-border);
-  border-radius: 5px;
+  border-radius: 24px;
   color: var(--op-ink);
   font-family: var(--op-font);
-  font-size: 12px;
+  font-size: 13px;
   outline: none;
-  transition: border-color 0.12s;
+  transition: border-color 0.12s, box-shadow 0.12s;
 }
 
 .omnipilot-model-filter:focus {
   border-color: var(--op-accent);
+  box-shadow: 0 0 0 2px var(--op-accent-dim);
 }
 
 .omnipilot-model-filter::placeholder {
   color: var(--op-ink2);
-  opacity: 0.7;
 }
 
 .omnipilot-model-list {
@@ -247,10 +246,9 @@
 }
 
 .omnipilot-model-item {
-  padding: 6px 10px;
-  font-size: 12px;
+  padding: 8px 16px;
+  font-size: 13px;
   color: var(--op-ink);
-  border-radius: 5px;
   cursor: pointer;
   transition: background 0.08s;
   white-space: nowrap;
@@ -268,17 +266,9 @@
 }
 
 .omnipilot-model-loading {
-  padding: 8px 10px;
-  font-size: 11px;
+  padding: 10px 16px;
+  font-size: 12px;
   color: var(--op-ink2);
-}
-
-[data-op-theme="light"] #omnipilot-model-selector {
-  --op-bg2: #ffffff;
-  --op-border: rgba(0,0,0,0.1);
-  --op-ink: #111118;
-  --op-hover: rgba(0,0,0,0.04);
-  --op-shadow-lg: 0 8px 28px rgba(0,0,0,0.15);
 }
 
 /* ── Action Selector Dropdown ─────────────────────────── */
@@ -286,7 +276,7 @@
 .omnipilot-meta-action-wrap {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
   cursor: pointer;
   padding: 2px 6px;
   border-radius: 4px;
@@ -307,22 +297,14 @@
 #omnipilot-action-selector {
   position: fixed;
   z-index: 2147483647;
-  background: var(--op-bg2, #1c1c26);
+  background: var(--op-bg);
   border: 1px solid var(--op-border);
-  border-radius: 8px;
+  border-radius: var(--op-radius);
   box-shadow: var(--op-shadow-lg);
-  padding: 4px;
-  min-width: 140px;
+  padding: 8px 0;
+  min-width: 148px;
   font-family: var(--op-font);
-  animation: op-fade 0.12s ease;
-}
-
-[data-op-theme="light"] #omnipilot-action-selector {
-  --op-bg2: #ffffff;
-  --op-border: rgba(0,0,0,0.1);
-  --op-ink: #111118;
-  --op-hover: rgba(0,0,0,0.04);
-  --op-shadow-lg: 0 8px 28px rgba(0,0,0,0.15);
+  animation: op-fade 0.1s ease;
 }
 
 /* ── Error link ───────────────────────────────────────── */
@@ -345,9 +327,9 @@
   border: none;
   color: var(--op-ink2);
   cursor: pointer;
-  font-size: 13px;
-  width: 22px; height: 22px;
-  border-radius: 5px;
+  font-size: 16px;
+  width: 28px; height: 28px;
+  border-radius: 50%;
   transition: color 0.1s, background 0.1s;
   display: flex; align-items: center; justify-content: center;
   line-height: 1;
@@ -368,12 +350,12 @@
   width: 16px;
   height: 16px;
   cursor: nwse-resize;
-  opacity: 0.4;
+  opacity: 0.35;
   transition: opacity 0.15s;
 }
 
 #omnipilot-panel .omnipilot-resize-handle:hover {
-  opacity: 0.8;
+  opacity: 0.7;
 }
 
 #omnipilot-panel .omnipilot-resize-handle::before {
@@ -391,12 +373,12 @@
 .omnipilot-result {
   color: var(--op-ink);
   font-size: 14px;
-  line-height: 1.65;
+  line-height: 1.7;
   max-width: 60ch;
 }
 
 .omnipilot-error {
-  color: #f87171;
+  color: #d93025;
   font-size: 13px;
   line-height: 1.5;
 }
@@ -405,15 +387,15 @@
 .omnipilot-loading {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
 }
 
 .omnipilot-spinner {
   width: 16px; height: 16px;
-  border: 1.5px solid rgba(108,108,255,0.2);
+  border: 2px solid rgba(26,115,232,0.2);
   border-top-color: var(--op-accent);
   border-radius: 50%;
-  animation: op-spin 0.65s linear infinite;
+  animation: op-spin 0.7s linear infinite;
   flex-shrink: 0;
 }
 
@@ -431,8 +413,8 @@
   color: var(--op-ink2);
   cursor: pointer;
   font-size: 11px;
-  width: 24px; height: 24px;
-  border-radius: 4px;
+  width: 26px; height: 26px;
+  border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
   transition: color 0.1s, background 0.1s, border-color 0.1s;
 }
@@ -449,11 +431,11 @@
 }
 
 /* Scrollbar */
-.omnipilot-panel-body::-webkit-scrollbar { width: 3px; }
+.omnipilot-panel-body::-webkit-scrollbar { width: 4px; }
 .omnipilot-panel-body::-webkit-scrollbar-track { background: transparent; }
 .omnipilot-panel-body::-webkit-scrollbar-thumb {
-  background: rgba(255,255,255,0.1);
-  border-radius: 2px;
+  background: rgba(60,64,67,0.18);
+  border-radius: 4px;
 }
 
 /* ── Conversation Input ──────────────────────────────────── */
@@ -462,60 +444,65 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 16px;
+  padding: 10px 16px;
   border-top: 1px solid var(--op-border);
+  background: var(--op-bg);
   flex-shrink: 0;
 }
 
 .omnipilot-panel-input {
   flex: 1;
-  background: var(--op-bg2, #1c1c26);
+  background: var(--op-bg2);
   border: 1px solid var(--op-border);
-  border-radius: 6px;
-  padding: 8px 12px;
+  border-radius: 24px;
+  padding: 8px 14px;
   color: var(--op-ink);
   font-family: var(--op-font);
   font-size: 13px;
   outline: none;
-  transition: border-color 0.12s;
+  transition: border-color 0.12s, box-shadow 0.12s;
 }
 
 .omnipilot-panel-input:focus {
   border-color: var(--op-accent);
+  box-shadow: 0 0 0 2px var(--op-accent-dim);
+  background: var(--op-bg);
 }
 
 .omnipilot-panel-input::placeholder {
   color: var(--op-ink2);
-  opacity: 0.7;
 }
 
 .omnipilot-send-btn {
   background: var(--op-accent);
   border: none;
-  border-radius: 6px;
-  width: 28px;
-  height: 28px;
+  border-radius: 50%;
+  width: 32px;
+  height: 32px;
   color: #fff;
-  font-size: 14px;
+  font-size: 15px;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: opacity 0.1s;
+  transition: background 0.1s, box-shadow 0.1s;
+  flex-shrink: 0;
+  box-shadow: 0 1px 3px rgba(26,115,232,0.3);
 }
 
 .omnipilot-send-btn:hover {
-  opacity: 0.85;
+  background: #1557b0;
+  box-shadow: 0 2px 6px rgba(26,115,232,0.4);
 }
 
 /* ── Chat Messages ───────────────────────────────────────── */
 
 .omnipilot-msg {
-  margin-top: 12px;
+  margin-top: 10px;
   padding: 8px 12px;
   border-radius: 8px;
-  font-size: 13px;
-  line-height: 1.55;
+  font-size: 14px;
+  line-height: 1.6;
   max-width: 60ch;
 }
 
@@ -524,6 +511,7 @@
   color: var(--op-ink);
   align-self: flex-end;
   margin-left: 20%;
+  border-radius: 18px 18px 4px 18px;
 }
 
 .omnipilot-msg-assistant {
@@ -537,7 +525,7 @@
   font-size: 13px;
   line-height: 1.5;
   padding: 8px 12px;
-  background: var(--op-accent-dim);
+  background: var(--op-bg2);
   border-radius: 6px;
   border-left: 3px solid var(--op-accent);
 }
@@ -557,57 +545,59 @@
 }
 
 .omnipilot-quick-action {
-  background: var(--op-bg2, #1c1c26);
+  background: var(--op-bg);
   border: 1px solid var(--op-border);
-  border-radius: 6px;
-  padding: 6px 12px;
-  color: var(--op-ink);
+  border-radius: 24px;
+  padding: 6px 14px;
+  color: var(--op-accent);
   font-family: var(--op-font);
-  font-size: 12px;
+  font-size: 13px;
+  font-weight: 500;
   cursor: pointer;
-  transition: background 0.1s, border-color 0.1s;
+  transition: background 0.1s, border-color 0.1s, box-shadow 0.1s;
 }
 
 .omnipilot-quick-action:hover {
   background: var(--op-accent-dim);
-  border-color: var(--op-accent);
+  border-color: rgba(26,115,232,0.3);
+  box-shadow: 0 1px 3px rgba(26,115,232,0.15);
 }
 
-/* ── Light Theme ─────────────────────────────────────────── */
-/* Applied when data-op-theme="light" on <html> or <body>    */
+/* ── Dark Theme ──────────────────────────────────────────── */
+/* Applied when data-op-theme="dark" on <html> or <body>     */
+
+[data-op-theme="dark"] #omnipilot-bubble,
+[data-op-theme="dark"] #omnipilot-dropdown,
+[data-op-theme="dark"] #omnipilot-panel,
+[data-op-theme="dark"] #omnipilot-model-selector,
+[data-op-theme="dark"] #omnipilot-action-selector {
+  --op-bg: #202124;
+  --op-bg2: #303134;
+  --op-border: rgba(255,255,255,0.1);
+  --op-ink: #e8eaed;
+  --op-ink2: #9aa0a6;
+  --op-accent: #8ab4f8;
+  --op-accent-dim: rgba(138,180,248,0.12);
+  --op-hover: rgba(255,255,255,0.06);
+  --op-shadow-lg: 0 4px 16px rgba(0,0,0,0.5);
+}
+
+[data-op-theme="dark"] .omnipilot-error { color: #f28b82; }
+
+/* ── Light Theme (explicit override) ────────────────────── */
 
 [data-op-theme="light"] #omnipilot-bubble,
-.omnipilot-light #omnipilot-bubble {
-  --op-bg2: #ffffff;
-  --op-border: rgba(0,0,0,0.1);
-  --op-ink: #111118;
-  --op-accent: #4a4aff;
-  --op-accent-dim: rgba(74,74,255,0.12);
-  box-shadow: var(--op-shadow-sm), 0 0 0 1px rgba(74,74,255,0.2);
-}
-
-[data-op-theme="light"] #omnipilot-bubble:hover,
-.omnipilot-light #omnipilot-bubble:hover {
-  background: #f5f5ff;
-  box-shadow: var(--op-shadow-md), 0 0 0 1px rgba(74,74,255,0.35);
-}
-
 [data-op-theme="light"] #omnipilot-dropdown,
-.omnipilot-light #omnipilot-dropdown {
-  --op-bg2: #ffffff;
-  --op-border: rgba(0,0,0,0.1);
-  --op-ink: #111118;
-  --op-hover: rgba(0,0,0,0.04);
-  --op-shadow-lg: 0 8px 28px rgba(0,0,0,0.15);
-}
-
 [data-op-theme="light"] #omnipilot-panel,
-.omnipilot-light #omnipilot-panel {
+[data-op-theme="light"] #omnipilot-model-selector,
+[data-op-theme="light"] #omnipilot-action-selector {
   --op-bg: #ffffff;
-  --op-bg2: #f0f0f6;
-  --op-border: rgba(0,0,0,0.1);
-  --op-ink: #111118;
-  --op-ink2: #666677;
-  --op-hover: rgba(0,0,0,0.04);
-  --op-shadow-lg: 0 8px 28px rgba(0,0,0,0.15);
+  --op-bg2: #f8f9fa;
+  --op-border: #dadce0;
+  --op-ink: #202124;
+  --op-ink2: #5f6368;
+  --op-accent: #1a73e8;
+  --op-accent-dim: rgba(26,115,232,0.08);
+  --op-hover: rgba(60,64,67,0.05);
+  --op-shadow-lg: 0 4px 12px rgba(60,64,67,0.18);
 }
