@@ -98,12 +98,11 @@
 
   function showBubble(rect) {
     if (!bubble) bubble = createBubble();
-    const scrollX = window.scrollX;
-    const scrollY = window.scrollY;
     lastSelectionRect = { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom };
-    const x = rect.left + scrollX + rect.width / 2 - 55;
-    const y = rect.top + scrollY - 44;
-    bubble.style.left = `${Math.max(4, x)}px`;
+    // position:fixed — viewport coords, no scroll offset
+    const x = rect.left + rect.width + 8;
+    const y = rect.top + rect.height / 2 - 16;
+    bubble.style.left = `${Math.min(Math.max(4, x), window.innerWidth - 130)}px`;
     bubble.style.top = `${Math.max(4, y)}px`;
     bubble.style.display = 'flex';
   }
@@ -164,10 +163,9 @@
     if (dropdown) { dropdown.remove(); dropdown = null; }
     dropdown = createDropdown();
     const rect = anchorEl.getBoundingClientRect();
-    const scrollX = window.scrollX;
-    const scrollY = window.scrollY;
-    dropdown.style.left = `${rect.left + scrollX}px`;
-    dropdown.style.top = `${rect.bottom + scrollY + 6}px`;
+    // position:fixed — viewport coords
+    dropdown.style.left = `${rect.left}px`;
+    dropdown.style.top = `${rect.bottom + 6}px`;
     dropdown.style.display = 'block';
   }
 
@@ -240,19 +238,19 @@
       header.addEventListener('mousedown', e => {
         if (e.target === closeBtn || e.target.closest('.omnipilot-meta-action-wrap') || e.target.closest('.omnipilot-meta-model-wrap')) return;
         dragging = true;
-        // panel.style.left/top are page-absolute, so offset must include scroll
         const panelLeft = parseFloat(panel.style.left) || 0;
         const panelTop = parseFloat(panel.style.top) || 0;
-        dragOffsetX = (e.clientX + window.scrollX) - panelLeft;
-        dragOffsetY = (e.clientY + window.scrollY) - panelTop;
+        // position:fixed — viewport coords only
+        dragOffsetX = e.clientX - panelLeft;
+        dragOffsetY = e.clientY - panelTop;
         panel.style.transition = 'none';
         e.preventDefault();
       });
 
       document.addEventListener('mousemove', e => {
         if (!dragging) return;
-        const left = e.clientX - dragOffsetX + window.scrollX;
-        const top = e.clientY - dragOffsetY + window.scrollY;
+        const left = e.clientX - dragOffsetX;
+        const top = e.clientY - dragOffsetY;
         panel.style.left = `${left}px`;
         panel.style.top = `${top}px`;
       });
@@ -443,8 +441,8 @@
 
     // Position below the anchor
     const rect = anchorEl.getBoundingClientRect();
-    selector.style.left = `${rect.left + window.scrollX}px`;
-    selector.style.top = `${rect.bottom + window.scrollY + 4}px`;
+    selector.style.left = `${rect.left}px`;
+    selector.style.top = `${rect.bottom + 4}px`;
 
     // Fetch models from background
     const runtime = globalThis.chrome?.runtime;
@@ -535,8 +533,8 @@
 
     // Position below the anchor
     const rect = anchorEl.getBoundingClientRect();
-    selector.style.left = `${rect.left + window.scrollX}px`;
-    selector.style.top = `${rect.bottom + window.scrollY + 4}px`;
+    selector.style.left = `${rect.left}px`;
+    selector.style.top = `${rect.bottom + 4}px`;
 
     // Close on click outside
     const closeHandler = e => {
@@ -550,8 +548,6 @@
 
   function positionPanel() {
     if (!panel) return;
-    const scrollX = window.scrollX;
-    const scrollY = window.scrollY;
     const { w: panelW, h: panelH } = calcInitialPanelSize();
 
     // Set initial size (only if not already resized by user)
@@ -567,27 +563,28 @@
 
     if (lastSelectionRect) {
       // Try right side of selection first
-      let left = lastSelectionRect.right + scrollX + gap;
-      let top = lastSelectionRect.top + scrollY;
+      // position:fixed — viewport coords
+      let left = lastSelectionRect.right + gap;
+      let top = lastSelectionRect.top;
 
       // If right side overflows, try left side
-      if (left + actualW > window.innerWidth + scrollX - margin) {
-        left = lastSelectionRect.left + scrollX - actualW - gap;
+      if (left + actualW > window.innerWidth - margin) {
+        left = lastSelectionRect.left - actualW - gap;
       }
 
       // Clamp to viewport
-      left = Math.max(scrollX + margin, Math.min(left, window.innerWidth + scrollX - actualW - margin));
-      top = Math.max(scrollY + margin, Math.min(top, window.innerHeight + scrollY - actualH - margin));
+      left = Math.max(margin, Math.min(left, window.innerWidth - actualW - margin));
+      top = Math.max(margin, Math.min(top, window.innerHeight - actualH - margin));
 
       panel.style.left = `${left}px`;
       panel.style.top = `${top}px`;
     } else if (bubble && bubble.style.display !== 'none') {
       const bRect = bubble.getBoundingClientRect();
-      panel.style.left = `${Math.min(bRect.left + scrollX, window.innerWidth + scrollX - actualW - margin)}px`;
-      panel.style.top = `${bRect.bottom + scrollY + gap}px`;
+      panel.style.left = `${Math.min(bRect.left, window.innerWidth - actualW - margin)}px`;
+      panel.style.top = `${bRect.bottom + gap}px`;
     } else {
-      panel.style.left = `${Math.max(scrollX + margin, (window.innerWidth - actualW) / 2 + scrollX)}px`;
-      panel.style.top = `${scrollY + 80}px`;
+      panel.style.left = `${Math.max(margin, (window.innerWidth - actualW) / 2)}px`;
+      panel.style.top = `80px`;
     }
   }
 
@@ -691,6 +688,8 @@
   // ── Selection Detection ───────────────────────────────────────────────────────
 
   document.addEventListener('mouseup', e => {
+    const mouseX = e.clientX;
+    const mouseY = e.clientY;
     // Small delay to let selection finalize
     setTimeout(() => {
       const selection = window.getSelection();
@@ -699,7 +698,11 @@
       if (text && text.length > 1 && selection.rangeCount > 0) {
         lastSelection = text;
         const range = selection.getRangeAt(0);
-        const rect = range.getBoundingClientRect();
+        let rect = range.getBoundingClientRect();
+        // Fallback: Edge sometimes returns zero rect for cross-element selections
+        if (!rect || (rect.width === 0 && rect.height === 0 && rect.top === 0)) {
+          rect = { left: mouseX, top: mouseY, right: mouseX, bottom: mouseY, width: 0, height: 0 };
+        }
         lastSelectionRect = { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom };
         // Only show bubble if panel is not visible
         if (!panel || panel.style.display === 'none') {

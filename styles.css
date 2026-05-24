@@ -20,7 +20,7 @@
 /* ── Bubble ─────────────────────────────────────────────── */
 
 #omnipilot-bubble {
-  position: absolute;
+  position: fixed;
   display: none;
   align-items: center;
   gap: 6px;
@@ -61,7 +61,7 @@
 /* ── Dropdown ────────────────────────────────────────────── */
 
 #omnipilot-dropdown {
-  position: absolute;
+  position: fixed;
   display: none;
   flex-direction: column;
   background: var(--op-bg2);
@@ -109,7 +109,7 @@
 /* ── Result Panel ────────────────────────────────────────── */
 
 #omnipilot-panel {
-  position: absolute;
+  position: fixed;
   display: none;
   flex-direction: column;
   background: var(--op-bg);
@@ -205,7 +205,7 @@
 /* ── Model Selector Dropdown ───────────────────────────── */
 
 #omnipilot-model-selector {
-  position: absolute;
+  position: fixed;
   z-index: 2147483647;
   background: var(--op-bg2, #1c1c26);
   border: 1px solid var(--op-border);
@@ -305,7 +305,7 @@
 }
 
 #omnipilot-action-selector {
-  position: absolute;
+  position: fixed;
   z-index: 2147483647;
   background: var(--op-bg2, #1c1c26);
   border: 1px solid var(--op-border);
