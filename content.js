@@ -29,16 +29,26 @@
     [bubble, dropdown, panel].forEach(applyThemeTo);
   }
 
+  // Auto-detect theme from the page's color scheme
+  function detectAndApplyTheme() {
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    currentTheme = prefersDark ? 'dark' : 'light';
+    [bubble, dropdown, panel].forEach(applyThemeTo);
+  }
+
   // Load config from storage
-  chrome.storage.sync.get({ theme: 'dark', model: 'claude-sonnet-4-5', endpoint: 'https://api.omnillm.com/v1', apiKey: '' }, cfg => {
-    applyTheme(cfg.theme);
+  chrome.storage.sync.get({ model: 'claude-sonnet-4-5', endpoint: 'https://api.omnillm.com/v1', apiKey: '' }, cfg => {
     currentModel = cfg.model || 'claude-sonnet-4-5';
     currentProvider = detectProvider(cfg.endpoint || '');
     hasApiKey = Boolean(cfg.apiKey);
     updatePanelMeta();
   });
+
+  // Detect theme on load and listen for OS changes
+  detectAndApplyTheme();
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', detectAndApplyTheme);
+
   chrome.storage.onChanged.addListener(changes => {
-    if (changes.theme) applyTheme(changes.theme.newValue);
     if (changes.model) { currentModel = changes.model.newValue; updatePanelMeta(); }
     if (changes.endpoint) { currentProvider = detectProvider(changes.endpoint.newValue || ''); updatePanelMeta(); }
     if (changes.apiKey) hasApiKey = Boolean(changes.apiKey.newValue);
@@ -301,17 +311,23 @@
 
       const inputArea = document.createElement('div');
       inputArea.className = 'omnipilot-panel-input-area';
-      const input = document.createElement('input');
-      input.type = 'text';
+      const input = document.createElement('textarea');
       input.className = 'omnipilot-panel-input';
       input.placeholder = 'Ask a follow-up question...';
+      input.rows = 1;
       input.addEventListener('keydown', e => {
-        if (e.key === 'Enter' && input.value.trim()) {
+        if (e.key === 'Enter' && !e.shiftKey && input.value.trim()) {
+          e.preventDefault();
           e.stopPropagation();
           sendFollowUp(input.value.trim());
           input.value = '';
+          input.style.height = 'auto';
         }
         if (e.key === 'Escape') e.stopPropagation();
+      });
+      input.addEventListener('input', () => {
+        input.style.height = 'auto';
+        input.style.height = Math.min(input.scrollHeight, 120) + 'px';
       });
       input.addEventListener('mousedown', e => e.stopPropagation());
       const sendBtn = document.createElement('button');

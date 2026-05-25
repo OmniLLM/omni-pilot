@@ -2,7 +2,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const dot  = document.getElementById('statusDot');
   const text = document.getElementById('statusText');
 
-  document.documentElement.setAttribute('data-theme', 'dark');
+  // Auto-detect theme from OS/browser preference
+  document.documentElement.setAttribute('data-theme',
+    window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
 
   chrome.storage.sync.get({ apiKey: '' }, config => {
     if (config.apiKey) {

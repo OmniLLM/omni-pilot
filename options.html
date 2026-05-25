@@ -4,6 +4,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>OmniPilot Settings</title>
+  <script>
+    // Auto-detect theme from OS/browser preference
+    document.documentElement.setAttribute('data-theme',
+      window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  </script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -64,32 +69,6 @@
     }
     .title { font-size: 16px; font-weight: 600; letter-spacing: -0.01em; }
     .subtitle { font-size: 12px; color: var(--ink2); margin-top: 1px; }
-
-    /* Theme toggle */
-    .theme-toggle {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      background: var(--bg2);
-      border: 1px solid var(--border);
-      border-radius: 100px;
-      padding: 3px;
-    }
-    .theme-btn {
-      background: none;
-      border: none;
-      cursor: pointer;
-      width: 28px; height: 24px;
-      border-radius: 100px;
-      font-size: 12px;
-      color: var(--ink2);
-      transition: background 0.15s, color 0.15s;
-      display: flex; align-items: center; justify-content: center;
-    }
-    .theme-btn.active {
-      background: var(--bg3);
-      color: var(--ink);
-    }
 
     /* Card */
     .card {
@@ -224,10 +203,6 @@
           <div class="title">OmniPilot</div>
           <div class="subtitle">Settings</div>
         </div>
-      </div>
-      <div class="theme-toggle">
-        <button class="theme-btn active" id="btnDark" title="Dark">🌙</button>
-        <button class="theme-btn" id="btnLight" title="Light">☀️</button>
       </div>
     </div>
 

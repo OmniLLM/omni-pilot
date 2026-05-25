@@ -583,6 +583,9 @@
   font-size: 13px;
   line-height: 1.4;
   outline: none;
+  resize: none;
+  overflow-y: auto;
+  max-height: 120px;
   transition:
     border-color 0.15s var(--op-ease-standard),
     background   0.15s var(--op-ease-standard),

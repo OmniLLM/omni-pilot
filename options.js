@@ -1,19 +1,10 @@
 const DEFAULT_CONFIG = {
   endpoint: 'https://api.omnillm.com/v1',
   apiKey: '',
-  model: 'claude-sonnet-4-5',
-  theme: 'dark'
+  model: 'claude-sonnet-4-5'
 };
 
 let fetchModelTimer = null;
-
-// ── Theme ────────────────────────────────────────────────────────────────────
-
-function applyTheme(theme) {
-  document.documentElement.setAttribute('data-theme', theme);
-  document.getElementById('btnDark').classList.toggle('active', theme === 'dark');
-  document.getElementById('btnLight').classList.toggle('active', theme === 'light');
-}
 
 // ── Model Fetch ──────────────────────────────────────────────────────────────
 
@@ -98,18 +89,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('endpoint').value = config.endpoint;
     document.getElementById('apiKey').value   = config.apiKey;
     document.getElementById('model').value    = config.model;
-    applyTheme(config.theme || 'dark');
     if (config.endpoint) fetchModels(config.endpoint, config.apiKey);
-  });
-
-  // Theme toggle
-  document.getElementById('btnDark').addEventListener('click', () => {
-    applyTheme('dark');
-    chrome.storage.sync.set({ theme: 'dark' });
-  });
-  document.getElementById('btnLight').addEventListener('click', () => {
-    applyTheme('light');
-    chrome.storage.sync.set({ theme: 'light' });
   });
 
   // Auto-fetch on change
@@ -128,8 +108,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const config = {
       endpoint: document.getElementById('endpoint').value.trim() || DEFAULT_CONFIG.endpoint,
       apiKey:   document.getElementById('apiKey').value.trim(),
-      model:    document.getElementById('model').value.trim() || DEFAULT_CONFIG.model,
-      theme:    document.documentElement.getAttribute('data-theme') || 'dark'
+      model:    document.getElementById('model').value.trim() || DEFAULT_CONFIG.model
     };
 
     chrome.storage.sync.set(config, () => {
