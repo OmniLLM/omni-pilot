@@ -1,65 +1,108 @@
-/* OmniPilot — Google Material Design style */
+/* OmniPilot — Google Material Design 3 */
 /* Palette: Google Blue #1a73e8, Surface #fff, Grey #f8f9fa, Text #202124 */
 
 :root {
-  --op-bg: #ffffff;
-  --op-bg2: #f8f9fa;
-  --op-border: #dadce0;
-  --op-ink: #202124;
-  --op-ink2: #5f6368;
-  --op-accent: #1a73e8;
-  --op-accent-dim: rgba(26,115,232,0.08);
-  --op-accent-hover: rgba(26,115,232,0.12);
-  --op-hover: rgba(60,64,67,0.05);
-  --op-shadow-sm: 0 1px 3px rgba(60,64,67,0.15), 0 1px 2px rgba(60,64,67,0.1);
-  --op-shadow-md: 0 2px 6px rgba(60,64,67,0.2), 0 1px 3px rgba(60,64,67,0.12);
-  --op-shadow-lg: 0 4px 12px rgba(60,64,67,0.18), 0 2px 6px rgba(60,64,67,0.1);
-  --op-radius: 8px;
+  /* Surfaces */
+  --op-bg:           #ffffff;
+  --op-bg2:          #f8f9fa;
+  --op-border:       #dadce0;
+
+  /* Typography */
+  --op-ink:          #202124;
+  --op-ink2:         #5f6368;
+
+  /* Accent */
+  --op-accent:       #1a73e8;
+  --op-accent-dark:  #1557b0;
+  --op-accent-dim:   rgba(26, 115, 232, 0.08);
+  --op-accent-hover: rgba(26, 115, 232, 0.12);
+  --op-accent-ring:  rgba(26, 115, 232, 0.30);
+
+  /* Neutral hover */
+  --op-hover:        rgba(60, 64, 67, 0.06);
+  --op-pressed:      rgba(60, 64, 67, 0.10);
+
+  /* Elevation — Google Material shadow system */
+  --op-shadow-1:
+    0 1px 2px  rgba(60, 64, 67, 0.30),
+    0 1px 3px  rgba(60, 64, 67, 0.15);
+  --op-shadow-2:
+    0 1px 3px  rgba(60, 64, 67, 0.20),
+    0 2px 6px  rgba(60, 64, 67, 0.15);
+  --op-shadow-3:
+    0 2px 6px  rgba(60, 64, 67, 0.15),
+    0 4px 12px rgba(60, 64, 67, 0.12);
+  --op-shadow-4:
+    0 4px 8px  rgba(60, 64, 67, 0.20),
+    0 8px 24px rgba(60, 64, 67, 0.15);
+
+  /* Shape */
+  --op-radius-xs:    4px;
+  --op-radius-sm:    8px;
+  --op-radius-md:    12px;
+  --op-radius-pill:  100px;
+
+  /* Typography */
   --op-font: 'Google Sans', Roboto, 'Noto Sans', Arial, sans-serif;
+
+  /* Timing */
+  --op-ease-standard: cubic-bezier(0.4, 0.0, 0.2, 1);
+  --op-ease-decel:    cubic-bezier(0.0, 0.0, 0.2, 1);
+  --op-ease-spring:   cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
-/* ── Bubble ─────────────────────────────────────────────── */
+/* ── Bubble ──────────────────────────────────────────────── */
 
 #omnipilot-bubble {
   position: fixed;
   display: none;
   align-items: center;
-  gap: 6px;
-  padding: 6px 14px 6px 10px;
+  gap: 5px;
+  padding: 5px 14px 5px 10px;
   background: var(--op-bg);
   color: var(--op-accent);
-  border: 1px solid var(--op-border);
-  border-radius: 100px;
+  border: 1.5px solid var(--op-border);
+  border-radius: var(--op-radius-pill);
   font-family: var(--op-font);
   font-size: 13px;
   font-weight: 500;
   letter-spacing: 0.01em;
   cursor: pointer;
   z-index: 2147483646;
-  box-shadow: var(--op-shadow-md);
+  box-shadow: var(--op-shadow-2);
   user-select: none;
   white-space: nowrap;
-  transition: background 0.1s, box-shadow 0.1s;
-  animation: op-pop 0.15s cubic-bezier(0.34, 1.56, 0.64, 1);
+  transition:
+    background 0.15s var(--op-ease-standard),
+    border-color 0.15s var(--op-ease-standard),
+    box-shadow 0.15s var(--op-ease-standard);
+  animation: op-pop 0.18s var(--op-ease-spring) both;
 }
 
 #omnipilot-bubble:hover {
   background: var(--op-accent-dim);
-  box-shadow: var(--op-shadow-lg);
+  border-color: rgba(26, 115, 232, 0.35);
+  box-shadow: var(--op-shadow-3);
+}
+
+#omnipilot-bubble:active {
+  background: var(--op-accent-hover);
+  box-shadow: var(--op-shadow-1);
 }
 
 @keyframes op-pop {
-  from { opacity: 0; transform: scale(0.88) translateY(4px); }
-  to   { opacity: 1; transform: scale(1) translateY(0); }
+  from { opacity: 0; transform: scale(0.85) translateY(5px); }
+  to   { opacity: 1; transform: scale(1)    translateY(0); }
 }
 
 .omnipilot-icon {
   font-size: 14px;
   color: var(--op-accent);
   line-height: 1;
+  flex-shrink: 0;
 }
 
-/* ── Dropdown ────────────────────────────────────────────── */
+/* ── Dropdown (context menu) ─────────────────────────────── */
 
 #omnipilot-dropdown {
   position: fixed;
@@ -67,35 +110,44 @@
   flex-direction: column;
   background: var(--op-bg);
   border: 1px solid var(--op-border);
-  border-radius: var(--op-radius);
+  border-radius: var(--op-radius-sm);
   overflow: hidden;
   z-index: 2147483647;
-  box-shadow: var(--op-shadow-lg);
-  min-width: 164px;
+  box-shadow: var(--op-shadow-4);
+  min-width: 168px;
   font-family: var(--op-font);
   padding: 8px 0;
-  animation: op-fade 0.1s ease;
+  animation: op-menu-in 0.12s var(--op-ease-decel) both;
+  transform-origin: top left;
 }
 
-@keyframes op-fade {
-  from { opacity: 0; transform: translateY(-4px); }
-  to   { opacity: 1; transform: translateY(0); }
+@keyframes op-menu-in {
+  from { opacity: 0; transform: scale(0.92) translateY(-6px); }
+  to   { opacity: 1; transform: scale(1)    translateY(0); }
 }
 
 .omnipilot-dropdown-item {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   padding: 10px 16px;
   color: var(--op-ink);
   font-size: 14px;
+  font-weight: 400;
+  line-height: 1.4;
   cursor: pointer;
-  transition: background 0.08s;
+  transition: background 0.10s var(--op-ease-standard);
   user-select: none;
+  position: relative;
+  border-radius: 0;        /* Material menus: no per-item radius */
 }
 
 .omnipilot-dropdown-item:hover {
   background: var(--op-hover);
+}
+
+.omnipilot-dropdown-item:active {
+  background: var(--op-pressed);
 }
 
 .omnipilot-action-icon {
@@ -104,6 +156,7 @@
   text-align: center;
   color: var(--op-ink2);
   flex-shrink: 0;
+  line-height: 1;
 }
 
 /* ── Result Panel ────────────────────────────────────────── */
@@ -114,34 +167,39 @@
   flex-direction: column;
   background: var(--op-bg);
   border: 1px solid var(--op-border);
-  border-radius: 12px;
-  min-width: 280px;
-  min-height: 160px;
+  border-radius: var(--op-radius-md);
+  min-width: 300px;
+  min-height: 180px;
   max-width: calc(100vw - 24px);
   max-height: calc(100vh - 24px);
   z-index: 2147483645;
-  box-shadow: var(--op-shadow-lg);
+  box-shadow: var(--op-shadow-4);
   font-family: var(--op-font);
   overflow: hidden;
-  animation: op-slide 0.15s cubic-bezier(0.22, 1, 0.36, 1);
+  animation: op-panel-in 0.18s var(--op-ease-decel) both;
 }
 
-@keyframes op-slide {
-  from { opacity: 0; transform: translateY(6px); }
-  to   { opacity: 1; transform: translateY(0); }
+@keyframes op-panel-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0)   scale(1); }
 }
+
+/* ── Panel Header ───────────────────────────────────────── */
 
 .omnipilot-panel-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 16px 12px 16px;
+  padding: 10px 12px 10px 16px;
   border-bottom: 1px solid var(--op-border);
   cursor: grab;
   user-select: none;
   flex-shrink: 0;
   background: var(--op-bg);
+  min-height: 48px;   /* MD3 standard toolbar height */
+  box-sizing: border-box;
 }
+
 .omnipilot-panel-header:active {
   cursor: grabbing;
 }
@@ -153,11 +211,10 @@
   color: var(--op-accent);
   font-size: 14px;
   font-weight: 500;
-  letter-spacing: 0;
-  text-transform: none;
+  letter-spacing: 0.01em;
 }
 
-/* ── Panel Meta (provider + model) ─────────────────────── */
+/* ── Panel Meta (provider · model) ─────────────────────── */
 
 .omnipilot-meta {
   display: flex;
@@ -165,30 +222,35 @@
   gap: 4px;
   font-size: 12px;
   color: var(--op-ink2);
+  font-family: var(--op-font);
 }
 
 .omnipilot-meta-provider {
   opacity: 0.8;
+  letter-spacing: 0.01em;
 }
 
 .omnipilot-meta-sep {
-  opacity: 0.45;
+  opacity: 0.4;
+  font-size: 11px;
 }
 
 .omnipilot-meta-model-wrap {
   display: flex;
   align-items: center;
-  gap: 3px;
+  gap: 2px;
   cursor: pointer;
   padding: 2px 6px;
-  border-radius: 4px;
+  border-radius: var(--op-radius-xs);
   border: 1px solid transparent;
-  transition: background 0.1s, border-color 0.1s;
+  transition:
+    background    0.12s var(--op-ease-standard),
+    border-color  0.12s var(--op-ease-standard);
 }
 
 .omnipilot-meta-model-wrap:hover {
   background: var(--op-accent-dim);
-  border-color: rgba(26,115,232,0.2);
+  border-color: rgba(26, 115, 232, 0.25);
 }
 
 .omnipilot-meta-model {
@@ -198,7 +260,8 @@
 
 .omnipilot-meta-arrow {
   font-size: 9px;
-  opacity: 0.65;
+  opacity: 0.60;
+  color: var(--op-accent);
 }
 
 /* ── Model Selector Dropdown ───────────────────────────── */
@@ -208,19 +271,20 @@
   z-index: 2147483647;
   background: var(--op-bg);
   border: 1px solid var(--op-border);
-  border-radius: var(--op-radius);
-  box-shadow: var(--op-shadow-lg);
+  border-radius: var(--op-radius-sm);
+  box-shadow: var(--op-shadow-4);
   padding: 8px 0 4px;
   min-width: 200px;
   max-width: 320px;
   font-family: var(--op-font);
-  animation: op-fade 0.1s ease;
+  animation: op-menu-in 0.12s var(--op-ease-decel) both;
 }
 
 .omnipilot-model-filter {
+  display: block;
   width: calc(100% - 24px);
   margin: 0 12px 4px;
-  padding: 8px 12px;
+  padding: 7px 12px;
   background: var(--op-bg2);
   border: 1px solid var(--op-border);
   border-radius: 24px;
@@ -228,12 +292,17 @@
   font-family: var(--op-font);
   font-size: 13px;
   outline: none;
-  transition: border-color 0.12s, box-shadow 0.12s;
+  box-sizing: border-box;
+  transition:
+    border-color 0.15s var(--op-ease-standard),
+    box-shadow   0.15s var(--op-ease-standard),
+    background   0.15s var(--op-ease-standard);
 }
 
 .omnipilot-model-filter:focus {
   border-color: var(--op-accent);
-  box-shadow: 0 0 0 2px var(--op-accent-dim);
+  background: var(--op-bg);
+  box-shadow: 0 0 0 2px var(--op-accent-ring);
 }
 
 .omnipilot-model-filter::placeholder {
@@ -241,19 +310,21 @@
 }
 
 .omnipilot-model-list {
-  max-height: 200px;
+  max-height: 220px;
   overflow-y: auto;
 }
 
 .omnipilot-model-item {
-  padding: 8px 16px;
+  padding: 9px 16px;
   font-size: 13px;
+  font-family: var(--op-font);
   color: var(--op-ink);
   cursor: pointer;
-  transition: background 0.08s;
+  transition: background 0.10s var(--op-ease-standard);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  border-radius: 0;
 }
 
 .omnipilot-model-item:hover {
@@ -263,25 +334,29 @@
 .omnipilot-model-item.omnipilot-model-current {
   color: var(--op-accent);
   font-weight: 500;
+  background: var(--op-accent-dim);
 }
 
 .omnipilot-model-loading {
   padding: 10px 16px;
   font-size: 12px;
   color: var(--op-ink2);
+  font-family: var(--op-font);
 }
 
-/* ── Action Selector Dropdown ─────────────────────────── */
+/* ── Action Selector ──────────────────────────────────── */
 
 .omnipilot-meta-action-wrap {
   display: flex;
   align-items: center;
-  gap: 3px;
+  gap: 2px;
   cursor: pointer;
   padding: 2px 6px;
-  border-radius: 4px;
+  border-radius: var(--op-radius-xs);
   border: 1px solid transparent;
-  transition: background 0.1s, border-color 0.1s;
+  transition:
+    background   0.12s var(--op-ease-standard),
+    border-color 0.12s var(--op-ease-standard);
 }
 
 .omnipilot-meta-action-wrap:hover {
@@ -292,6 +367,7 @@
 .omnipilot-meta-action {
   font-weight: 500;
   color: var(--op-ink);
+  font-size: 12px;
 }
 
 #omnipilot-action-selector {
@@ -299,15 +375,15 @@
   z-index: 2147483647;
   background: var(--op-bg);
   border: 1px solid var(--op-border);
-  border-radius: var(--op-radius);
-  box-shadow: var(--op-shadow-lg);
+  border-radius: var(--op-radius-sm);
+  box-shadow: var(--op-shadow-4);
   padding: 8px 0;
-  min-width: 148px;
+  min-width: 156px;
   font-family: var(--op-font);
-  animation: op-fade 0.1s ease;
+  animation: op-menu-in 0.12s var(--op-ease-decel) both;
 }
 
-/* ── Error link ───────────────────────────────────────── */
+/* ── Misc inline elements ─────────────────────────────── */
 
 .omnipilot-error-link {
   color: var(--op-accent);
@@ -315,12 +391,12 @@
   cursor: pointer;
 }
 
-/* ── Setup prompt item ────────────────────────────────── */
-
 .omnipilot-setup-item {
   color: var(--op-accent);
   font-weight: 500;
 }
+
+/* ── Icon buttons (close, cancel) ────────────────────── */
 
 .omnipilot-close-btn {
   background: none;
@@ -328,13 +404,30 @@
   color: var(--op-ink2);
   cursor: pointer;
   font-size: 16px;
-  width: 28px; height: 28px;
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
-  transition: color 0.1s, background 0.1s;
-  display: flex; align-items: center; justify-content: center;
+  transition:
+    color      0.12s var(--op-ease-standard),
+    background 0.12s var(--op-ease-standard);
+  display: flex;
+  align-items: center;
+  justify-content: center;
   line-height: 1;
+  flex-shrink: 0;
+  margin: -4px -4px -4px 0;   /* optical alignment */
 }
-.omnipilot-close-btn:hover { color: var(--op-ink); background: var(--op-hover); }
+
+.omnipilot-close-btn:hover {
+  color: var(--op-ink);
+  background: var(--op-hover);
+}
+
+.omnipilot-close-btn:active {
+  background: var(--op-pressed);
+}
+
+/* ── Panel Body ─────────────────────────────────────── */
 
 .omnipilot-panel-body {
   padding: 16px;
@@ -342,20 +435,21 @@
   flex: 1;
 }
 
-/* Resize handle styling */
+/* ── Resize handle ──────────────────────────────────── */
+
 #omnipilot-panel .omnipilot-resize-handle {
   position: absolute;
   bottom: 0;
   right: 0;
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
   cursor: nwse-resize;
-  opacity: 0.35;
-  transition: opacity 0.15s;
+  opacity: 0.28;
+  transition: opacity 0.15s var(--op-ease-standard);
 }
 
 #omnipilot-panel .omnipilot-resize-handle:hover {
-  opacity: 0.7;
+  opacity: 0.65;
 }
 
 #omnipilot-panel .omnipilot-resize-handle::before {
@@ -363,27 +457,32 @@
   position: absolute;
   bottom: 4px;
   right: 4px;
-  width: 8px;
-  height: 8px;
+  width: 9px;
+  height: 9px;
   border-right: 2px solid var(--op-ink2);
   border-bottom: 2px solid var(--op-ink2);
   border-radius: 0 0 2px 0;
 }
 
+/* ── Result & error text ────────────────────────────── */
+
 .omnipilot-result {
   color: var(--op-ink);
   font-size: 14px;
-  line-height: 1.7;
+  line-height: 1.75;
   max-width: 60ch;
+  font-family: var(--op-font);
 }
 
 .omnipilot-error {
-  color: #d93025;
+  color: #c5221f;
   font-size: 13px;
-  line-height: 1.5;
+  line-height: 1.55;
+  font-family: var(--op-font);
 }
 
-/* Loading */
+/* ── Loading indicator ──────────────────────────────── */
+
 .omnipilot-loading {
   display: flex;
   align-items: center;
@@ -391,11 +490,12 @@
 }
 
 .omnipilot-spinner {
-  width: 16px; height: 16px;
-  border: 2px solid rgba(26,115,232,0.2);
+  width: 18px;
+  height: 18px;
+  border: 2.5px solid rgba(26, 115, 232, 0.18);
   border-top-color: var(--op-accent);
   border-radius: 50%;
-  animation: op-spin 0.7s linear infinite;
+  animation: op-spin 0.75s linear infinite;
   flex-shrink: 0;
 }
 
@@ -404,6 +504,7 @@
 .omnipilot-loading-text {
   color: var(--op-ink2);
   font-size: 13px;
+  font-family: var(--op-font);
 }
 
 .omnipilot-cancel-btn {
@@ -412,12 +513,20 @@
   border: 1px solid var(--op-border);
   color: var(--op-ink2);
   cursor: pointer;
-  font-size: 11px;
-  width: 26px; height: 26px;
+  font-size: 12px;
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
-  display: flex; align-items: center; justify-content: center;
-  transition: color 0.1s, background 0.1s, border-color 0.1s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    color        0.12s var(--op-ease-standard),
+    background   0.12s var(--op-ease-standard),
+    border-color 0.12s var(--op-ease-standard);
+  flex-shrink: 0;
 }
+
 .omnipilot-cancel-btn:hover {
   color: var(--op-ink);
   background: var(--op-hover);
@@ -428,176 +537,259 @@
   color: var(--op-ink2);
   font-size: 13px;
   font-style: italic;
+  font-family: var(--op-font);
 }
 
-/* Scrollbar */
-.omnipilot-panel-body::-webkit-scrollbar { width: 4px; }
-.omnipilot-panel-body::-webkit-scrollbar-track { background: transparent; }
+/* ── Scrollbar (panel body) ─────────────────────────── */
+
+.omnipilot-panel-body::-webkit-scrollbar {
+  width: 5px;
+}
+
+.omnipilot-panel-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
 .omnipilot-panel-body::-webkit-scrollbar-thumb {
-  background: rgba(60,64,67,0.18);
-  border-radius: 4px;
+  background: rgba(60, 64, 67, 0.22);
+  border-radius: 10px;
 }
 
-/* ── Conversation Input ──────────────────────────────────── */
+.omnipilot-panel-body::-webkit-scrollbar-thumb:hover {
+  background: rgba(60, 64, 67, 0.40);
+}
+
+/* ── Conversation Input ──────────────────────────────── */
 
 .omnipilot-panel-input-area {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 16px;
+  padding: 10px 12px;
   border-top: 1px solid var(--op-border);
   background: var(--op-bg);
   flex-shrink: 0;
 }
 
+/* Google Search–style pill input */
 .omnipilot-panel-input {
   flex: 1;
   background: var(--op-bg2);
-  border: 1px solid var(--op-border);
+  border: 1.5px solid var(--op-border);
   border-radius: 24px;
-  padding: 8px 14px;
+  padding: 8px 16px;
   color: var(--op-ink);
   font-family: var(--op-font);
   font-size: 13px;
+  line-height: 1.4;
   outline: none;
-  transition: border-color 0.12s, box-shadow 0.12s;
+  transition:
+    border-color 0.15s var(--op-ease-standard),
+    background   0.15s var(--op-ease-standard),
+    box-shadow   0.15s var(--op-ease-standard);
 }
 
 .omnipilot-panel-input:focus {
   border-color: var(--op-accent);
-  box-shadow: 0 0 0 2px var(--op-accent-dim);
   background: var(--op-bg);
+  box-shadow: 0 0 0 2px var(--op-accent-ring);
 }
 
 .omnipilot-panel-input::placeholder {
   color: var(--op-ink2);
+  opacity: 0.85;
 }
 
+/* Circular FAB send button */
 .omnipilot-send-btn {
   background: var(--op-accent);
   border: none;
   border-radius: 50%;
-  width: 32px;
-  height: 32px;
-  color: #fff;
-  font-size: 15px;
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  color: #ffffff;
+  font-size: 16px;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.1s, box-shadow 0.1s;
+  transition:
+    background  0.15s var(--op-ease-standard),
+    box-shadow  0.15s var(--op-ease-standard),
+    transform   0.10s var(--op-ease-standard);
   flex-shrink: 0;
-  box-shadow: 0 1px 3px rgba(26,115,232,0.3);
+  box-shadow:
+    0 1px 3px rgba(26, 115, 232, 0.35),
+    0 2px 6px rgba(26, 115, 232, 0.20);
 }
 
 .omnipilot-send-btn:hover {
-  background: #1557b0;
-  box-shadow: 0 2px 6px rgba(26,115,232,0.4);
+  background: var(--op-accent-dark);
+  box-shadow:
+    0 2px 4px rgba(26, 115, 232, 0.40),
+    0 4px 10px rgba(26, 115, 232, 0.25);
 }
 
-/* ── Chat Messages ───────────────────────────────────────── */
+.omnipilot-send-btn:active {
+  transform: scale(0.93);
+  box-shadow:
+    0 1px 2px rgba(26, 115, 232, 0.30);
+}
+
+/* ── Chat Messages ───────────────────────────────────── */
 
 .omnipilot-msg {
   margin-top: 10px;
-  padding: 8px 12px;
-  border-radius: 8px;
+  padding: 9px 13px;
   font-size: 14px;
-  line-height: 1.6;
-  max-width: 60ch;
+  font-family: var(--op-font);
+  line-height: 1.65;
+  max-width: 62ch;
 }
 
 .omnipilot-msg-user {
   background: var(--op-accent-dim);
   color: var(--op-ink);
   align-self: flex-end;
-  margin-left: 20%;
+  margin-left: 18%;
   border-radius: 18px 18px 4px 18px;
+  border: 1px solid rgba(26, 115, 232, 0.15);
 }
 
 .omnipilot-msg-assistant {
   color: var(--op-ink);
+  border-radius: 4px 18px 18px 18px;
 }
 
-/* ── Selected Text Context ───────────────────────────────── */
+/* ── Selected Text Context ───────────────────────────── */
 
 .omnipilot-selected-context {
   color: var(--op-ink2);
   font-size: 13px;
-  line-height: 1.5;
-  padding: 8px 12px;
+  line-height: 1.55;
+  padding: 10px 12px;
   background: var(--op-bg2);
-  border-radius: 6px;
+  border-radius: var(--op-radius-xs) var(--op-radius-sm) var(--op-radius-sm) var(--op-radius-xs);
   border-left: 3px solid var(--op-accent);
+  font-family: var(--op-font);
 }
 
 .omnipilot-context-label {
   font-weight: 600;
   color: var(--op-ink);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  display: block;
+  margin-bottom: 4px;
 }
 
-/* ── Quick Action Buttons ────────────────────────────────── */
+/* ── Quick Action Chips ──────────────────────────────── */
 
 .omnipilot-quick-actions {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
-  margin-top: 12px;
+  margin-top: 14px;
 }
 
+/* MD3 Assist Chip */
 .omnipilot-quick-action {
   background: var(--op-bg);
-  border: 1px solid var(--op-border);
-  border-radius: 24px;
+  border: 1.5px solid var(--op-border);
+  border-radius: var(--op-radius-pill);
   padding: 6px 14px;
   color: var(--op-accent);
   font-family: var(--op-font);
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
-  transition: background 0.1s, border-color 0.1s, box-shadow 0.1s;
+  transition:
+    background    0.12s var(--op-ease-standard),
+    border-color  0.12s var(--op-ease-standard),
+    box-shadow    0.12s var(--op-ease-standard);
+  letter-spacing: 0.01em;
 }
 
 .omnipilot-quick-action:hover {
   background: var(--op-accent-dim);
-  border-color: rgba(26,115,232,0.3);
-  box-shadow: 0 1px 3px rgba(26,115,232,0.15);
+  border-color: rgba(26, 115, 232, 0.38);
+  box-shadow: 0 1px 3px rgba(26, 115, 232, 0.18);
 }
 
-/* ── Dark Theme ──────────────────────────────────────────── */
-/* Applied when data-op-theme="dark" on <html> or <body>     */
+.omnipilot-quick-action:active {
+  background: var(--op-accent-hover);
+  box-shadow: none;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   DARK THEME
+   Applied when data-op-theme="dark" on <html> or <body>
+   ═══════════════════════════════════════════════════════════ */
 
 [data-op-theme="dark"] #omnipilot-bubble,
 [data-op-theme="dark"] #omnipilot-dropdown,
 [data-op-theme="dark"] #omnipilot-panel,
 [data-op-theme="dark"] #omnipilot-model-selector,
 [data-op-theme="dark"] #omnipilot-action-selector {
-  --op-bg: #202124;
-  --op-bg2: #303134;
-  --op-border: rgba(255,255,255,0.1);
-  --op-ink: #e8eaed;
-  --op-ink2: #9aa0a6;
-  --op-accent: #8ab4f8;
-  --op-accent-dim: rgba(138,180,248,0.12);
-  --op-hover: rgba(255,255,255,0.06);
-  --op-shadow-lg: 0 4px 16px rgba(0,0,0,0.5);
+  --op-bg:           #202124;
+  --op-bg2:          #2d2e30;
+  --op-border:       rgba(255, 255, 255, 0.12);
+  --op-ink:          #e8eaed;
+  --op-ink2:         #9aa0a6;
+
+  --op-accent:       #8ab4f8;
+  --op-accent-dark:  #aecbfa;
+  --op-accent-dim:   rgba(138, 180, 248, 0.12);
+  --op-accent-hover: rgba(138, 180, 248, 0.18);
+  --op-accent-ring:  rgba(138, 180, 248, 0.35);
+
+  --op-hover:        rgba(255, 255, 255, 0.06);
+  --op-pressed:      rgba(255, 255, 255, 0.10);
+
+  --op-shadow-1:  0 1px 2px  rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.30);
+  --op-shadow-2:  0 1px 4px  rgba(0, 0, 0, 0.40), 0 2px 6px rgba(0, 0, 0, 0.25);
+  --op-shadow-3:  0 2px 8px  rgba(0, 0, 0, 0.45), 0 4px 12px rgba(0, 0, 0, 0.30);
+  --op-shadow-4:  0 4px 12px rgba(0, 0, 0, 0.55), 0 8px 28px rgba(0, 0, 0, 0.40);
 }
 
-[data-op-theme="dark"] .omnipilot-error { color: #f28b82; }
+[data-op-theme="dark"] .omnipilot-error {
+  color: #f28b82;
+}
 
-/* ── Light Theme (explicit override) ────────────────────── */
+[data-op-theme="dark"] .omnipilot-send-btn {
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.50),
+    0 2px 6px rgba(0, 0, 0, 0.30);
+}
+
+[data-op-theme="dark"] .omnipilot-send-btn:hover {
+  box-shadow:
+    0 2px 6px rgba(0, 0, 0, 0.55),
+    0 4px 12px rgba(0, 0, 0, 0.35);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   LIGHT THEME (explicit override)
+   ═══════════════════════════════════════════════════════════ */
 
 [data-op-theme="light"] #omnipilot-bubble,
 [data-op-theme="light"] #omnipilot-dropdown,
 [data-op-theme="light"] #omnipilot-panel,
 [data-op-theme="light"] #omnipilot-model-selector,
 [data-op-theme="light"] #omnipilot-action-selector {
-  --op-bg: #ffffff;
-  --op-bg2: #f8f9fa;
-  --op-border: #dadce0;
-  --op-ink: #202124;
-  --op-ink2: #5f6368;
-  --op-accent: #1a73e8;
-  --op-accent-dim: rgba(26,115,232,0.08);
-  --op-hover: rgba(60,64,67,0.05);
-  --op-shadow-lg: 0 4px 12px rgba(60,64,67,0.18);
+  --op-bg:           #ffffff;
+  --op-bg2:          #f8f9fa;
+  --op-border:       #dadce0;
+  --op-ink:          #202124;
+  --op-ink2:         #5f6368;
+  --op-accent:       #1a73e8;
+  --op-accent-dark:  #1557b0;
+  --op-accent-dim:   rgba(26, 115, 232, 0.08);
+  --op-accent-hover: rgba(26, 115, 232, 0.12);
+  --op-accent-ring:  rgba(26, 115, 232, 0.30);
+  --op-hover:        rgba(60, 64, 67, 0.06);
+  --op-pressed:      rgba(60, 64, 67, 0.10);
+  --op-shadow-4:     0 4px 8px rgba(60, 64, 67, 0.20), 0 8px 24px rgba(60, 64, 67, 0.15);
 }
