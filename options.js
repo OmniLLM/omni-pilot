@@ -1,7 +1,8 @@
 const DEFAULT_CONFIG = {
   endpoint: 'https://api.omnillm.com/v1',
   apiKey: '',
-  model: 'claude-sonnet-4-5'
+  model: 'claude-sonnet-4-5',
+  themePreference: 'dark'
 };
 
 let fetchModelTimer = null;
@@ -86,6 +87,7 @@ function scheduleFetch() {
 
 document.addEventListener('DOMContentLoaded', () => {
   chrome.storage.sync.get(DEFAULT_CONFIG, config => {
+    document.documentElement.setAttribute('data-theme', config.themePreference);
     document.getElementById('endpoint').value = config.endpoint;
     document.getElementById('apiKey').value   = config.apiKey;
     document.getElementById('model').value    = config.model;

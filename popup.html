@@ -74,6 +74,80 @@
       color: var(--ink2);
       margin-bottom: 12px;
     }
+
+    .theme-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+      padding: 10px 12px;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+    }
+
+    .theme-copy {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .theme-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--ink);
+    }
+
+    .theme-value {
+      font-size: 11px;
+      color: var(--ink2);
+    }
+
+    .theme-toggle {
+      position: relative;
+      width: 42px;
+      height: 24px;
+      flex-shrink: 0;
+    }
+
+    .theme-toggle input {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      cursor: pointer;
+    }
+
+    .theme-toggle-track {
+      width: 100%;
+      height: 100%;
+      border-radius: 999px;
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      transition: background 0.12s, border-color 0.12s;
+    }
+
+    .theme-toggle-thumb {
+      position: absolute;
+      top: 3px;
+      left: 3px;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: var(--ink);
+      transition: transform 0.12s, background 0.12s;
+      pointer-events: none;
+    }
+
+    .theme-toggle input:checked + .theme-toggle-track {
+      background: rgba(108,108,255,0.18);
+      border-color: var(--accent);
+    }
+
+    .theme-toggle input:checked + .theme-toggle-track + .theme-toggle-thumb {
+      transform: translateX(18px);
+      background: var(--accent);
+    }
     .dot {
       width: 6px; height: 6px;
       border-radius: 50%;
@@ -121,6 +195,18 @@
   <div class="status-row">
     <span class="dot" id="statusDot"></span>
     <span id="statusText">Checking…</span>
+  </div>
+
+  <div class="theme-row">
+    <div class="theme-copy">
+      <span class="theme-label">Theme</span>
+      <span class="theme-value" id="themeValue">Dark</span>
+    </div>
+    <label class="theme-toggle" aria-label="Toggle dark mode">
+      <input type="checkbox" id="themeToggle" checked>
+      <span class="theme-toggle-track"></span>
+      <span class="theme-toggle-thumb"></span>
+    </label>
   </div>
 
   <button class="settings-btn" id="settingsBtn">

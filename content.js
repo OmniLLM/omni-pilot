@@ -26,56 +26,15 @@
 
   function applyTheme(theme) {
     currentTheme = theme;
+    document.documentElement.setAttribute('data-op-theme', theme);
+    document.body?.setAttribute('data-op-theme', theme);
     [bubble, dropdown, panel].forEach(applyThemeTo);
   }
 
-  // Detect the page's actual visual theme (not just OS preference)
-  function detectPageTheme() {
-    const root = document.documentElement;
-    const body = document.body;
-
-    // 1. Check common dark-mode data-attributes on <html>
-    const attrs = ['data-theme', 'data-color-scheme', 'color-scheme', 'data-bs-theme', 'data-mode', 'data-dark-mode'];
-    for (const attr of attrs) {
-      const val = (root.getAttribute(attr) || '').toLowerCase();
-      if (val.includes('dark')) return 'dark';
-      if (val.includes('light')) return 'light';
-    }
-
-    // 2. Check common dark-mode class names on <html> or <body>
-    const darkClasses = ['dark', 'dark-mode', 'darkmode', 'theme-dark', 'dark-theme'];
-    for (const cls of darkClasses) {
-      if (root.classList.contains(cls) || body?.classList.contains(cls)) return 'dark';
-    }
-
-    // 3. Check CSS color-scheme property
-    try {
-      const cs = getComputedStyle(root).colorScheme || '';
-      if (cs.includes('dark')) return 'dark';
-      if (cs.includes('light')) return 'light';
-    } catch {}
-
-    // 4. Measure luminance of body background-color
-    try {
-      const bg = getComputedStyle(body || root).backgroundColor;
-      const m = bg.match(/\d+/g);
-      if (m && m.length >= 3) {
-        const lum = (0.299 * +m[0] + 0.587 * +m[1] + 0.114 * +m[2]) / 255;
-        // transparent / white-ish backgrounds return near 1; dark returns near 0
-        if (lum > 0.01) return lum < 0.5 ? 'dark' : 'light';
-      }
-    } catch {}
-
-    // 5. Fall back to OS preference
-    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-  }
-
-  // Auto-detect theme from the page's actual color scheme, then persist for popup
-  function detectAndApplyTheme() {
-    currentTheme = detectPageTheme();
-    [bubble, dropdown, panel].forEach(applyThemeTo);
-    // Store so the popup window can read the page's theme
-    chrome.storage.local.set({ pageTheme: currentTheme });
+  function loadThemePreference() {
+    chrome.storage.sync.get({ themePreference: 'dark' }, config => {
+      applyTheme(config.themePreference);
+    });
   }
 
   // Load config from storage
@@ -86,20 +45,13 @@
     updatePanelMeta();
   });
 
-  // Detect theme on load, on OS change, and watch for in-page theme attribute mutations
-  detectAndApplyTheme();
-  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', detectAndApplyTheme);
-
-  // Watch for sites that toggle dark mode dynamically (e.g. clicking a theme button)
-  new MutationObserver(detectAndApplyTheme).observe(document.documentElement, {
-    attributes: true,
-    attributeFilter: ['class', 'data-theme', 'data-color-scheme', 'data-bs-theme', 'data-mode', 'color-scheme']
-  });
+  loadThemePreference();
 
   chrome.storage.onChanged.addListener(changes => {
     if (changes.model) { currentModel = changes.model.newValue; updatePanelMeta(); }
     if (changes.endpoint) { currentProvider = detectProvider(changes.endpoint.newValue || ''); updatePanelMeta(); }
     if (changes.apiKey) hasApiKey = Boolean(changes.apiKey.newValue);
+    if (changes.themePreference) applyTheme(changes.themePreference.newValue || 'dark');
   });
 
   function detectProvider(endpoint) {

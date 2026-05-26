@@ -1,12 +1,17 @@
 document.addEventListener('DOMContentLoaded', () => {
   const dot  = document.getElementById('statusDot');
   const text = document.getElementById('statusText');
+  const themeToggle = document.getElementById('themeToggle');
+  const themeValue = document.getElementById('themeValue');
 
-  // Use the active tab's page theme (written by content.js) and fall back to OS
-  chrome.storage.local.get({ pageTheme: '' }, local => {
-    const theme = local.pageTheme ||
-      (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  function applyTheme(theme) {
     document.documentElement.setAttribute('data-theme', theme);
+    if (themeToggle) themeToggle.checked = theme === 'dark';
+    if (themeValue) themeValue.textContent = theme === 'dark' ? 'Dark' : 'Light';
+  }
+
+  chrome.storage.sync.get({ themePreference: 'dark' }, config => {
+    applyTheme(config.themePreference);
   });
 
   chrome.storage.sync.get({ apiKey: '' }, config => {
@@ -20,5 +25,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
   document.getElementById('settingsBtn').addEventListener('click', () => {
     chrome.runtime.openOptionsPage();
+  });
+
+  themeToggle?.addEventListener('change', () => {
+    const themePreference = themeToggle.checked ? 'dark' : 'light';
+    applyTheme(themePreference);
+    chrome.storage.sync.set({ themePreference });
   });
 });
