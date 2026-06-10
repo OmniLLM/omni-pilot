@@ -4,7 +4,16 @@
 const DEFAULT_CONFIG = {
   endpoint: 'https://api.omnillm.com/v1',
   apiKey: '',
-  model: 'claude-sonnet-4-5'
+  model: 'claude-sonnet-4-5',
+  apiShape: 'openai-compatible'
+};
+
+const STORAGE_KEYS = ['endpoint', 'apiKey', 'model', 'apiShape'];
+
+const API_SHAPES = {
+  OPENAI_COMPATIBLE: 'openai-compatible',
+  ANTHROPIC_MESSAGES: 'anthropic-messages',
+  OPENAI_RESPONSES: 'openai-responses'
 };
 
 const ACTION_PROMPTS = {
@@ -34,7 +43,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
   if (request.type === 'GET_CONFIG') {
-    chrome.storage.sync.get(DEFAULT_CONFIG, config => sendResponse(config));
+    loadConfig().then(config => sendResponse(config));
     return true;
   }
   if (request.type === 'GET_MODELS') {
@@ -45,17 +54,134 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 });
 
-async function handleGetModels() {
-  const config = await new Promise(resolve =>
-    chrome.storage.sync.get(DEFAULT_CONFIG, resolve)
+async function loadConfig() {
+  const stored = await new Promise(resolve =>
+    chrome.storage.sync.get(STORAGE_KEYS, resolve)
   );
+
+  return {
+    ...DEFAULT_CONFIG,
+    ...stored,
+    apiShape: stored.apiShape || (stored.endpoint ? inferApiShape(stored.endpoint) : DEFAULT_CONFIG.apiShape)
+  };
+}
+
+function inferApiShape(endpoint) {
+  return endpoint && endpoint.includes('omnillm.com')
+    ? API_SHAPES.ANTHROPIC_MESSAGES
+    : API_SHAPES.OPENAI_COMPATIBLE;
+}
+
+function normalizeEndpoint(endpoint) {
+  const normalized = (endpoint || DEFAULT_CONFIG.endpoint).replace(/\/$/, '');
+  return /^https?:\/\/[^/]+$/i.test(normalized) ? `${normalized}/v1` : normalized;
+}
+
+function createAuthHeaders(apiShape, apiKey) {
+  const headers = { 'Content-Type': 'application/json' };
+
+  if (apiShape === API_SHAPES.ANTHROPIC_MESSAGES) {
+    headers['x-api-key'] = apiKey;
+    headers['anthropic-version'] = '2023-06-01';
+  } else {
+    headers['Authorization'] = `Bearer ${apiKey}`;
+  }
+
+  return headers;
+}
+
+function buildApiRequest({ config, messages, systemPrompt }) {
+  const endpoint = normalizeEndpoint(config.endpoint);
+  const apiShape = config.apiShape || inferApiShape(config.endpoint);
+  const requestHeaders = createAuthHeaders(apiShape, config.apiKey);
+
+  if (apiShape === API_SHAPES.ANTHROPIC_MESSAGES) {
+    return {
+      apiShape,
+      requestUrl: `${endpoint}/messages`,
+      requestHeaders,
+      requestBody: {
+        model: config.model,
+        max_tokens: 1024,
+        system: systemPrompt,
+        messages
+      },
+      parseContent: parseAnthropicText
+    };
+  }
+
+  if (apiShape === API_SHAPES.OPENAI_RESPONSES) {
+    return {
+      apiShape,
+      requestUrl: `${endpoint}/responses`,
+      requestHeaders,
+      requestBody: {
+        model: config.model,
+        instructions: systemPrompt,
+        input: messages
+      },
+      parseContent: parseOpenAIResponsesText
+    };
+  }
+
+  return {
+    apiShape: API_SHAPES.OPENAI_COMPATIBLE,
+    requestUrl: `${endpoint}/chat/completions`,
+    requestHeaders,
+    requestBody: {
+      model: config.model,
+      max_tokens: 1024,
+      messages: [{ role: 'system', content: systemPrompt }, ...messages]
+    },
+    parseContent: parseOpenAIChatText
+  };
+}
+
+function parseAnthropicText(data) {
+  const textBlock = data.content?.find?.(block => block.type === 'text' && block.text);
+  return textBlock?.text || data.content?.[0]?.text || null;
+}
+
+function parseOpenAIChatText(data) {
+  return data.choices?.[0]?.message?.content || null;
+}
+
+function parseOpenAIResponsesText(data) {
+  if (data.output_text) return data.output_text;
+
+  for (const item of data.output || []) {
+    for (const block of item.content || []) {
+      if (block.text) return block.text;
+    }
+  }
+
+  return null;
+}
+
+function redactHeaders(headers) {
+  return Object.fromEntries(Object.entries(headers).map(([key, value]) => {
+    const lowerKey = key.toLowerCase();
+    const redactedValue = lowerKey === 'authorization'
+      ? `${String(value).split(' ')[0]} <redacted>`
+      : '<redacted>';
+
+    return [
+      key,
+      lowerKey.includes('key') || lowerKey === 'authorization'
+        ? redactedValue
+        : value
+    ];
+  }));
+}
+
+async function handleGetModels() {
+  const config = await loadConfig();
   if (!config.apiKey || !config.endpoint) return [];
 
-  const endpoint = config.endpoint.replace(/\/$/, '');
+  const endpoint = normalizeEndpoint(config.endpoint);
   const url = `${endpoint}/models`;
-  const headers = { 'Content-Type': 'application/json' };
-  if (endpoint.includes('omnillm.com')) headers['x-api-key'] = config.apiKey;
-  else headers['Authorization'] = `Bearer ${config.apiKey}`;
+  const headers = createAuthHeaders(config.apiShape, config.apiKey);
+  delete headers['anthropic-version'];
 
   const resp = await fetch(url, { headers });
   if (!resp.ok) return [];
@@ -64,133 +190,51 @@ async function handleGetModels() {
 }
 
 async function handleAIChat(messages) {
-  const config = await new Promise(resolve =>
-    chrome.storage.sync.get(DEFAULT_CONFIG, resolve)
-  );
-
-  if (!config.apiKey) {
-    throw new Error('No API key configured. Click the OmniPilot icon to set up.');
-  }
-
-  const endpoint = config.endpoint.replace(/\/$/, '');
-  const usesMessagesApi = endpoint.includes('omnillm.com');
-  const requestUrl = usesMessagesApi
-    ? `${endpoint}/messages`
-    : `${endpoint}/chat/completions`;
-
-  const systemPrompt = 'You are a helpful assistant. Continue the conversation naturally.';
-
-  const requestHeaders = usesMessagesApi
-    ? {
-        'Content-Type': 'application/json',
-        'x-api-key': config.apiKey,
-        'anthropic-version': '2023-06-01'
-      }
-    : {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${config.apiKey}`
-      };
-
-  const requestBody = JSON.stringify(usesMessagesApi
-    ? {
-        model: config.model,
-        max_tokens: 1024,
-        system: systemPrompt,
-        messages
-      }
-    : {
-        model: config.model,
-        max_tokens: 1024,
-        messages: [{ role: 'system', content: systemPrompt }, ...messages]
-      });
-
-  const response = await fetch(requestUrl, {
-    method: 'POST',
-    headers: requestHeaders,
-    body: requestBody
+  return executeApiRequest({
+    messages,
+    systemPrompt: 'You are a helpful assistant. Continue the conversation naturally.'
   });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    let message = `API error: ${response.status}`;
-    try {
-      const err = JSON.parse(errorText);
-      message = err.error?.message || err.message || message;
-    } catch {}
-    throw new Error(message);
-  }
-
-  const data = await response.json();
-  const content = usesMessagesApi
-    ? data.content?.[0]?.text
-    : data.choices?.[0]?.message?.content;
-
-  if (!content) throw new Error('Empty response from API.');
-  return content;
 }
 
 async function handleAIAction(action, text) {
-  const config = await new Promise(resolve =>
-    chrome.storage.sync.get(DEFAULT_CONFIG, resolve)
-  );
+  const systemPrompt = ACTION_PROMPTS[action];
+  if (!systemPrompt) throw new Error(`Unknown action: ${action}`);
+
+  return executeApiRequest({
+    messages: [{ role: 'user', content: text }],
+    systemPrompt
+  });
+}
+
+async function executeApiRequest({ messages, systemPrompt }) {
+  const config = await loadConfig();
 
   if (!config.apiKey) {
     throw new Error('No API key configured. Click the OmniPilot icon to set up.');
   }
 
-  const systemPrompt = ACTION_PROMPTS[action];
-  if (!systemPrompt) throw new Error(`Unknown action: ${action}`);
+  const {
+    apiShape,
+    requestUrl,
+    requestHeaders,
+    requestBody,
+    parseContent
+  } = buildApiRequest({ config, messages, systemPrompt });
 
-  const endpoint = config.endpoint.replace(/\/$/, '');
-  const usesMessagesApi = endpoint.includes('omnillm.com');
-  const requestUrl = usesMessagesApi
-    ? `${endpoint}/messages`
-    : `${endpoint}/chat/completions`;
-
-  const requestHeaders = usesMessagesApi
-    ? {
-        'Content-Type': 'application/json',
-        'x-api-key': config.apiKey,
-        'anthropic-version': '2023-06-01'
-      }
-    : {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${config.apiKey}`
-      };
-  const requestBody = JSON.stringify(usesMessagesApi
-    ? {
-        model: config.model,
-        max_tokens: 1024,
-        system: systemPrompt,
-        messages: [{ role: 'user', content: text }]
-      }
-    : {
-        model: config.model,
-        max_tokens: 1024,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: text }
-        ]
-      });
+  const serializedBody = JSON.stringify(requestBody);
 
   console.info('OmniPilot API request', JSON.stringify({
     requestUrl,
-    apiFormat: usesMessagesApi ? 'anthropic-messages' : 'openai-chat-completions',
+    apiFormat: apiShape,
     model: config.model,
     hasApiKey: Boolean(config.apiKey),
-    requestHeaders: Object.fromEntries(Object.entries(requestHeaders).map(([key, value]) => [
-      key,
-      key.toLowerCase().includes('key') || key.toLowerCase() === 'authorization'
-        ? `${String(value).split(' ')[0]} <redacted>`
-        : value
-    ])),
-    requestBody
+    requestHeaders: redactHeaders(requestHeaders)
   }, null, 2));
 
   const response = await fetch(requestUrl, {
     method: 'POST',
     headers: requestHeaders,
-    body: requestBody
+    body: serializedBody
   });
 
   if (!response.ok) {
@@ -214,7 +258,7 @@ async function handleAIAction(action, text) {
       status: response.status,
       statusText: response.statusText,
       requestUrl,
-      apiFormat: usesMessagesApi ? 'anthropic-messages' : 'openai-chat-completions',
+      apiFormat: apiShape,
       model: config.model,
       responseHeaders: Object.fromEntries(response.headers.entries()),
       body: errorText
@@ -223,9 +267,7 @@ async function handleAIAction(action, text) {
   }
 
   const data = await response.json();
-  const content = usesMessagesApi
-    ? data.content?.[0]?.text
-    : data.choices?.[0]?.message?.content;
+  const content = parseContent(data);
 
   if (!content) {
     console.error('OmniPilot unexpected API response', data);
