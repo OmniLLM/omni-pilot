@@ -156,6 +156,21 @@
     }
     .dot.ok { background: var(--success); }
 
+    input, select {
+      font-family: inherit;
+    }
+
+    #languageSelect {
+      width: 92px;
+      padding: 6px 8px;
+      background: var(--bg3);
+      color: var(--ink);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 12px;
+      outline: none;
+    }
+
     .settings-btn {
       display: flex;
       align-items: center;
@@ -190,7 +205,7 @@
 
   <div class="divider"></div>
 
-  <div class="desc">Select text on any page for AI actions.</div>
+  <div class="desc" id="desc" data-i18n="selectTextDesc">Select text on any page for AI actions.</div>
 
   <div class="status-row">
     <span class="dot" id="statusDot"></span>
@@ -199,20 +214,31 @@
 
   <div class="theme-row">
     <div class="theme-copy">
-      <span class="theme-label">Theme</span>
+      <span class="theme-label" id="themeLabel" data-i18n="theme">Theme</span>
       <span class="theme-value" id="themeValue">Dark</span>
     </div>
-    <label class="theme-toggle" aria-label="Toggle dark mode">
+    <label class="theme-toggle" data-i18n-aria-label="toggleDarkMode" aria-label="Toggle dark mode">
       <input type="checkbox" id="themeToggle" checked>
       <span class="theme-toggle-track"></span>
       <span class="theme-toggle-thumb"></span>
     </label>
   </div>
 
+  <div class="theme-row">
+    <div class="theme-copy">
+      <span class="theme-label" id="languageLabel" data-i18n="language">Language</span>
+    </div>
+    <select id="languageSelect" aria-label="Language">
+      <option value="en">English</option>
+      <option value="zh">中文</option>
+    </select>
+  </div>
+
   <button class="settings-btn" id="settingsBtn">
-    <span>⚙</span> Settings
+    <span>⚙</span> <span id="settingsLabel" data-i18n="settings">Settings</span>
   </button>
 
+  <script src="i18n.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

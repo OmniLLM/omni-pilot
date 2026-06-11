@@ -10,6 +10,7 @@
   let lastSelection = '';
   let lastSelectionRect = null;
   let currentTheme = 'dark';
+  let currentLanguage = 'en';
   let conversationHistory = []; // stores {role, content} for multi-turn chat
   let currentModel = '';
   let currentProvider = '';
@@ -17,6 +18,16 @@
   let panelPositionFixed = false; // true once panel has been positioned or dragged
   let abortController = null; // for cancelling in-flight requests
   let hasApiKey = false; // tracks whether API key is configured
+
+  function label(key) {
+    return OmniPilotI18n.t(key, currentLanguage);
+  }
+
+  function applyLanguage(language) {
+    currentLanguage = OmniPilotI18n.normalizeLanguage(language);
+    document.documentElement.lang = currentLanguage;
+    updatePanelMeta();
+  }
 
   function applyThemeTo(el) {
     if (!el) return;
@@ -37,6 +48,12 @@
     });
   }
 
+  function loadLanguagePreference() {
+    chrome.storage.sync.get({ languagePreference: 'en' }, config => {
+      applyLanguage(config.languagePreference);
+    });
+  }
+
   // Load config from storage
   chrome.storage.sync.get({ model: 'claude-sonnet-4-5', endpoint: 'https://api.omnillm.com/v1', apiKey: '' }, cfg => {
     currentModel = cfg.model || 'claude-sonnet-4-5';
@@ -46,12 +63,14 @@
   });
 
   loadThemePreference();
+  loadLanguagePreference();
 
   chrome.storage.onChanged.addListener(changes => {
     if (changes.model) { currentModel = changes.model.newValue; updatePanelMeta(); }
     if (changes.endpoint) { currentProvider = detectProvider(changes.endpoint.newValue || ''); updatePanelMeta(); }
     if (changes.apiKey) hasApiKey = Boolean(changes.apiKey.newValue);
     if (changes.themePreference) applyTheme(changes.themePreference.newValue || 'dark');
+    if (changes.languagePreference) applyLanguage(changes.languagePreference.newValue || 'en');
   });
 
   function detectProvider(endpoint) {
@@ -71,11 +90,11 @@
     if (modelEl) modelEl.textContent = currentModel;
     if (providerEl) providerEl.textContent = currentProvider;
     if (actionEl) {
-      const label = currentAction ? (ACTIONS.find(a => a.id === currentAction)?.label || 'Chat') : 'Chat';
-      actionEl.textContent = label;
+      const action = ACTIONS.find(a => a.id === currentAction);
+      actionEl.textContent = action ? label(action.labelKey) : label('chat');
     }
     if (titleEl && currentAction) {
-      const actionLabels = { translate: 'Translating', summarize: 'Summarizing', explain: 'Explaining', improve: 'Improving' };
+      const actionLabels = { translate: label('translating'), summarize: label('summarizing'), explain: label('explaining'), improve: label('improving') };
       titleEl.textContent = `✦ ${actionLabels[currentAction] || 'OmniPilot'}`;
     } else if (titleEl) {
       titleEl.textContent = '✦ OmniPilot';
@@ -83,10 +102,10 @@
   }
 
   const ACTIONS = [
-    { id: 'translate', label: 'Translate', icon: '🌍' },
-    { id: 'summarize', label: 'Summarize', icon: '📝' },
-    { id: 'explain', label: 'Explain', icon: '💡' },
-    { id: 'improve', label: 'Improve', icon: '✨' }
+    { id: 'translate', labelKey: 'translate', icon: '🌍' },
+    { id: 'summarize', labelKey: 'summarize', icon: '📝' },
+    { id: 'explain', labelKey: 'explain', icon: '💡' },
+    { id: 'improve', labelKey: 'improve', icon: '✨' }
   ];
 
   // ── Bubble ──────────────────────────────────────────────────────────────────
@@ -138,7 +157,7 @@
     if (!hasApiKey) {
       const item = document.createElement('div');
       item.className = 'omnipilot-dropdown-item omnipilot-setup-item';
-      item.innerHTML = `<span class="omnipilot-action-icon">⚙</span>Set up API key`;
+      item.innerHTML = `<span class="omnipilot-action-icon">⚙</span>${label('setupApiKey')}`;
       item.addEventListener('mousedown', e => { e.preventDefault(); e.stopPropagation(); });
       item.addEventListener('click', e => {
         e.preventDefault();
@@ -152,7 +171,7 @@
       ACTIONS.forEach(action => {
         const item = document.createElement('div');
         item.className = 'omnipilot-dropdown-item';
-        item.innerHTML = `<span class="omnipilot-action-icon">${action.icon}</span>${action.label}`;
+        item.innerHTML = `<span class="omnipilot-action-icon">${action.icon}</span>${label(action.labelKey)}`;
         item.addEventListener('mousedown', e => { e.preventDefault(); e.stopPropagation(); });
         item.addEventListener('click', e => {
           e.preventDefault();
@@ -204,7 +223,7 @@
       header.innerHTML = `<span class="omnipilot-panel-title">✦ OmniPilot</span>
         <div class="omnipilot-meta">
           <span class="omnipilot-meta-action-wrap">
-            <span class="omnipilot-meta-action">${currentAction ? ACTIONS.find(a => a.id === currentAction)?.label || 'Chat' : 'Chat'}</span>
+            <span class="omnipilot-meta-action">${currentAction ? label(ACTIONS.find(a => a.id === currentAction)?.labelKey || 'chat') : label('chat')}</span>
             <span class="omnipilot-meta-arrow">▾</span>
           </span>
           <span class="omnipilot-meta-sep">·</span>
@@ -313,7 +332,7 @@
       inputArea.className = 'omnipilot-panel-input-area';
       const input = document.createElement('textarea');
       input.className = 'omnipilot-panel-input';
-      input.placeholder = 'Ask a follow-up question...';
+      input.placeholder = label('askFollowUp');
       input.rows = 1;
       input.addEventListener('keydown', e => {
         if (e.key === 'Enter' && !e.shiftKey && input.value.trim()) {
@@ -354,7 +373,7 @@
     panel.style.display = 'flex';
 
     if (isLoading) {
-      body.innerHTML = '<div class="omnipilot-loading"><div class="omnipilot-spinner"></div><span class="omnipilot-loading-text">Thinking…</span><button class="omnipilot-cancel-btn" title="Cancel">✕</button></div>';
+      body.innerHTML = `<div class="omnipilot-loading"><div class="omnipilot-spinner"></div><span class="omnipilot-loading-text">${label('thinking')}</span><button class="omnipilot-cancel-btn" title="${label('cancel')}">✕</button></div>`;
       body.querySelector('.omnipilot-cancel-btn')?.addEventListener('click', cancelRequest);
     } else if (isError) {
       body.innerHTML = `<div class="omnipilot-error">${escapeHtml(content)}</div>`;
@@ -375,14 +394,14 @@
     // Append user message to panel body
     const body = panel.querySelector('.omnipilot-panel-body');
     body.innerHTML += `<div class="omnipilot-msg omnipilot-msg-user">${escapeHtml(question)}</div>`;
-    body.innerHTML += '<div class="omnipilot-loading"><div class="omnipilot-spinner"></div><span class="omnipilot-loading-text">Thinking…</span><button class="omnipilot-cancel-btn" title="Cancel">✕</button></div>';
+    body.innerHTML += `<div class="omnipilot-loading"><div class="omnipilot-spinner"></div><span class="omnipilot-loading-text">${label('thinking')}</span><button class="omnipilot-cancel-btn" title="${label('cancel')}">✕</button></div>`;
     body.querySelector('.omnipilot-loading .omnipilot-cancel-btn')?.addEventListener('click', cancelRequest);
     body.scrollTop = body.scrollHeight;
 
     const runtime = globalThis.chrome?.runtime;
     if (!runtime?.sendMessage) {
       body.querySelector('.omnipilot-loading')?.remove();
-      body.innerHTML += '<div class="omnipilot-error">Extension context unavailable. Refresh the page.</div>';
+      body.innerHTML += `<div class="omnipilot-error">${label('extensionContextUnavailable')}</div>`;
       return;
     }
 
@@ -420,7 +439,7 @@
     const body = panel.querySelector('.omnipilot-panel-body');
     // Show the selected text as context
     const truncated = selectedText.length > 200 ? selectedText.slice(0, 200) + '…' : selectedText;
-    body.innerHTML = `<div class="omnipilot-selected-context"><span class="omnipilot-context-label">Selected text:</span> ${escapeHtml(truncated)}</div>`;
+    body.innerHTML = `<div class="omnipilot-selected-context"><span class="omnipilot-context-label">${label('selectedText')}</span> ${escapeHtml(truncated)}</div>`;
 
     // Only position when opening fresh (not dragged)
     if (!panel.dataset.dragged) {
@@ -444,7 +463,7 @@
     // Filter input
     const filterInput = document.createElement('input');
     filterInput.className = 'omnipilot-model-filter';
-    filterInput.placeholder = 'Type to filter…';
+    filterInput.placeholder = label('typeToFilter');
     filterInput.addEventListener('mousedown', e => e.stopPropagation());
     filterInput.addEventListener('keydown', e => e.stopPropagation());
     selector.appendChild(filterInput);
@@ -464,7 +483,7 @@
     const runtime = globalThis.chrome?.runtime;
     if (!runtime?.sendMessage) { selector.remove(); return; }
 
-    listContainer.innerHTML = '<div class="omnipilot-model-loading">Loading models…</div>';
+    listContainer.innerHTML = `<div class="omnipilot-model-loading">${label('loadingModels')}</div>`;
 
     let allModels = [];
 
@@ -473,7 +492,7 @@
       const filtered = query ? allModels.filter(m => m.toLowerCase().includes(query)) : allModels;
       listContainer.innerHTML = '';
       if (!filtered.length) {
-        listContainer.innerHTML = '<div class="omnipilot-model-loading">No matches</div>';
+        listContainer.innerHTML = `<div class="omnipilot-model-loading">${label('noMatches')}</div>`;
         return;
       }
       filtered.forEach(model => {
@@ -523,14 +542,14 @@
     applyThemeTo(selector);
 
     const allActions = [
-      { id: '', label: 'Chat', icon: '💬' },
+      { id: '', labelKey: 'chat', icon: '💬' },
       ...ACTIONS
     ];
 
     allActions.forEach(action => {
       const item = document.createElement('div');
       item.className = 'omnipilot-model-item' + (action.id === currentAction ? ' omnipilot-model-current' : '');
-      item.innerHTML = `<span style="margin-right:6px">${action.icon}</span>${action.label}`;
+      item.innerHTML = `<span style="margin-right:6px">${action.icon}</span>${label(action.labelKey)}`;
       item.addEventListener('click', e => {
         e.stopPropagation();
         currentAction = action.id;
@@ -616,12 +635,12 @@
   }
 
   function humanizeError(msg) {
-    if (!msg) return 'Something went wrong. Try again.';
+    if (!msg) return label('somethingWrong');
     const s = escapeHtml(msg);
-    if (/401|403|api key/i.test(s)) return 'Your API key was rejected. <a class="omnipilot-error-link" href="#">Check Settings</a>';
-    if (/429|rate.?limit|quota/i.test(s)) return 'Rate limit reached. Wait a moment and try again.';
-    if (/network|fetch|timeout|ECONNREFUSED/i.test(s)) return 'Network error. Check your connection and endpoint.';
-    if (/empty.*response/i.test(s)) return 'The model returned an empty response. Try a different model.';
+    if (/401|403|api key/i.test(s)) return `${label('apiKeyRejected')} <a class="omnipilot-error-link" href="#">${label('checkSettings')}</a>`;
+    if (/429|rate.?limit|quota/i.test(s)) return label('rateLimit');
+    if (/network|fetch|timeout|ECONNREFUSED/i.test(s)) return label('networkError');
+    if (/empty.*response/i.test(s)) return label('emptyResponseError');
     return s;
   }
 
@@ -637,7 +656,7 @@
       const loading = body?.querySelector('.omnipilot-loading');
       if (loading) {
         loading.remove();
-        body.innerHTML += '<div class="omnipilot-cancelled">Cancelled</div>';
+        body.innerHTML += `<div class="omnipilot-cancelled">${label('cancelled')}</div>`;
       }
     }
   }
@@ -661,13 +680,13 @@
     showPanelForConversation(text);
     updatePanelMeta();
     const body = panel.querySelector('.omnipilot-panel-body');
-    body.innerHTML += '<div class="omnipilot-loading"><div class="omnipilot-spinner"></div><span class="omnipilot-loading-text">Thinking…</span><button class="omnipilot-cancel-btn" title="Cancel">✕</button></div>';
+    body.innerHTML += `<div class="omnipilot-loading"><div class="omnipilot-spinner"></div><span class="omnipilot-loading-text">${label('thinking')}</span><button class="omnipilot-cancel-btn" title="${label('cancel')}">✕</button></div>`;
     body.querySelector('.omnipilot-cancel-btn')?.addEventListener('click', cancelRequest);
 
     const runtime = globalThis.chrome?.runtime;
     if (!runtime?.sendMessage) {
       body.querySelector('.omnipilot-loading')?.remove();
-      body.innerHTML += '<div class="omnipilot-error">Extension context unavailable. Refresh the page.</div>';
+      body.innerHTML += `<div class="omnipilot-error">${label('extensionContextUnavailable')}</div>`;
       return;
     }
 
@@ -685,7 +704,7 @@
           return;
         }
         if (!response) {
-          body.innerHTML += '<div class="omnipilot-error">No response. Try refreshing the page.</div>';
+          body.innerHTML += `<div class="omnipilot-error">${label('noResponse')}</div>`;
           return;
         }
         if (response.success) {
@@ -693,7 +712,7 @@
           body.innerHTML += `<div class="omnipilot-msg omnipilot-msg-assistant">${formatResult(response.result)}</div>`;
           body.scrollTop = body.scrollHeight;
         } else {
-          body.innerHTML += `<div class="omnipilot-error">${humanizeError(response.error || 'Unknown error')}</div>`;
+          body.innerHTML += `<div class="omnipilot-error">${humanizeError(response.error || label('unknownError'))}</div>`;
         }
         currentAction = '';
         updatePanelMeta();

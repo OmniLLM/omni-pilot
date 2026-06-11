@@ -200,51 +200,63 @@
         <div class="logo">✦</div>
         <div>
           <div class="title">OmniPilot</div>
-          <div class="subtitle">Settings</div>
+          <div class="subtitle" id="subtitle" data-i18n="settings">Settings</div>
         </div>
       </div>
     </div>
 
     <div class="card">
-      <div class="card-title">Connection</div>
+      <div class="card-title" id="connectionTitle" data-i18n="connection">Connection</div>
       <div class="field">
-        <label>API Endpoint</label>
+        <label id="apiEndpointLabel" data-i18n="apiEndpoint">API Endpoint</label>
         <input type="text" id="endpoint" placeholder="https://api.omnillm.com/v1">
-        <div class="hint">Use the provider base URL, such as http://localhost:5000/v1. The API format below controls the request shape.</div>
+        <div class="hint" data-i18n="endpointHint">Use the provider base URL, such as http://localhost:5000/v1. The API format below controls the request shape.</div>
       </div>
       <div class="field">
-        <label>API Key</label>
+        <label data-i18n="apiKey">API Key</label>
         <input type="password" id="apiKey" placeholder="sk-···">
       </div>
       <div class="field">
-        <label>API Format</label>
+        <label data-i18n="apiFormat">API Format</label>
         <select id="apiShape">
           <option value="openai-compatible">OpenAI-compatible / Chat Completions</option>
           <option value="anthropic-messages">Anthropic Messages</option>
           <option value="openai-responses">OpenAI Responses</option>
         </select>
-        <div class="hint">Default is OpenAI-compatible. Choose Anthropic or Responses only when your provider supports that API shape.</div>
+        <div class="hint" data-i18n="defaultApiShapeHint">Default is OpenAI-compatible. Choose Anthropic or Responses only when your provider supports that API shape.</div>
       </div>
     </div>
 
     <div class="card">
-      <div class="card-title">Model</div>
+      <div class="card-title" data-i18n="model">Model</div>
       <div class="field">
         <div class="field-row">
           <div>
-            <label>Model</label>
+            <label data-i18n="model">Model</label>
             <select id="modelSelect"></select>
             <input type="text" id="model" placeholder="claude-sonnet-4-5">
           </div>
-          <button class="refresh-btn" id="refreshBtn" title="Fetch models">↻</button>
+          <button class="refresh-btn" id="refreshBtn" data-i18n-title="fetchModels" title="Fetch models">↻</button>
         </div>
         <div class="model-status" id="modelStatus"></div>
       </div>
     </div>
 
-    <button class="save-btn" id="saveBtn">Save</button>
+    <div class="card">
+      <div class="card-title" data-i18n="language">Language</div>
+      <div class="field">
+        <label data-i18n="language">Language</label>
+        <select id="languageSelect">
+          <option value="en">English</option>
+          <option value="zh">中文</option>
+        </select>
+      </div>
+    </div>
+
+    <button class="save-btn" id="saveBtn"><span id="saveLabel" data-i18n="save">Save</span></button>
     <div class="status" id="status"></div>
   </div>
+  <script src="i18n.js"></script>
   <script src="options.js"></script>
 </body>
 </html>

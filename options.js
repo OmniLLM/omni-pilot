@@ -3,12 +3,25 @@ const DEFAULT_CONFIG = {
   apiKey: '',
   model: 'claude-sonnet-4-5',
   themePreference: 'dark',
+  languagePreference: 'en',
   apiShape: 'openai-compatible'
 };
 
-const STORAGE_KEYS = ['endpoint', 'apiKey', 'model', 'themePreference', 'apiShape'];
+const STORAGE_KEYS = ['endpoint', 'apiKey', 'model', 'themePreference', 'apiShape', 'languagePreference'];
 
 let fetchModelTimer = null;
+let currentLanguage = DEFAULT_CONFIG.languagePreference;
+
+function label(key) {
+  return OmniPilotI18n.t(key, currentLanguage);
+}
+
+function applyLanguage(language) {
+  currentLanguage = OmniPilotI18n.normalizeLanguage(language);
+  document.documentElement.lang = currentLanguage;
+  document.getElementById('languageSelect').value = currentLanguage;
+  OmniPilotI18n.applyTranslations(document, currentLanguage);
+}
 
 // ── Model Fetch ──────────────────────────────────────────────────────────────
 
@@ -28,14 +41,14 @@ function normalizeEndpoint(endpoint) {
   return /^https?:\/\/[^/]+$/i.test(normalized) ? `${normalized}/v1` : normalized;
 }
 
-async function fetchModels(endpoint, apiKey, apiShape = getSelectedApiShape(endpoint)) {
+async function fetchModels(endpoint, apiKey, apiShape) {
   const modelSelect = document.getElementById('modelSelect');
   const modelInput  = document.getElementById('model');
   const modelStatus = document.getElementById('modelStatus');
   const refreshBtn  = document.getElementById('refreshBtn');
 
   refreshBtn.classList.add('spinning');
-  modelStatus.innerHTML = '<span class="model-status-dot"></span> Fetching models…';
+  modelStatus.innerHTML = `<span class="model-status-dot"></span> ${label('fetchingModels')}`;
   modelStatus.className = 'model-status loading';
 
   try {
@@ -86,7 +99,7 @@ async function fetchModels(endpoint, apiKey, apiShape = getSelectedApiShape(endp
   } catch (e) {
     modelSelect.style.display = 'none';
     modelInput.style.display  = 'block';
-    modelStatus.innerHTML = '<span class="model-status-dot"></span> Enter model name manually';
+    modelStatus.innerHTML = `<span class="model-status-dot"></span> ${label('enterModelManually')}`;
     modelStatus.className = 'model-status warn';
   } finally {
     refreshBtn.classList.remove('spinning');
@@ -111,6 +124,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const apiShape = storedConfig.apiShape || (storedConfig.endpoint ? inferApiShape(storedConfig.endpoint) : DEFAULT_CONFIG.apiShape);
 
     document.documentElement.setAttribute('data-theme', config.themePreference);
+    applyLanguage(config.languagePreference);
     document.getElementById('endpoint').value = config.endpoint;
     document.getElementById('apiKey').value   = config.apiKey;
     document.getElementById('model').value    = config.model;
@@ -122,6 +136,11 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('endpoint').addEventListener('input', scheduleFetch);
   document.getElementById('apiKey').addEventListener('input', scheduleFetch);
   document.getElementById('apiShape').addEventListener('change', scheduleFetch);
+  document.getElementById('languageSelect').addEventListener('change', () => {
+    const languagePreference = OmniPilotI18n.normalizeLanguage(document.getElementById('languageSelect').value);
+    applyLanguage(languagePreference);
+    chrome.storage.sync.set({ languagePreference });
+  });
 
   // Manual refresh
   document.getElementById('refreshBtn').addEventListener('click', () => {
@@ -137,16 +156,17 @@ document.addEventListener('DOMContentLoaded', () => {
       endpoint: document.getElementById('endpoint').value.trim() || DEFAULT_CONFIG.endpoint,
       apiKey:   document.getElementById('apiKey').value.trim(),
       model:    document.getElementById('model').value.trim() || DEFAULT_CONFIG.model,
-      apiShape: document.getElementById('apiShape').value || DEFAULT_CONFIG.apiShape
+      apiShape: document.getElementById('apiShape').value || DEFAULT_CONFIG.apiShape,
+      languagePreference: OmniPilotI18n.normalizeLanguage(document.getElementById('languageSelect').value)
     };
 
     chrome.storage.sync.set(config, () => {
       const status = document.getElementById('status');
       if (chrome.runtime.lastError) {
-        status.textContent = 'Error: ' + chrome.runtime.lastError.message;
+        status.textContent = label('errorPrefix') + ' ' + chrome.runtime.lastError.message;
         status.className = 'status error';
       } else {
-        status.textContent = '✓ Saved';
+        status.textContent = label('saved');
         status.className = 'status';
         setTimeout(() => { status.textContent = ''; }, 2500);
       }

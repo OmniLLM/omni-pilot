@@ -3,6 +3,7 @@ const vm = require('vm');
 const assert = require('assert');
 
 const source = fs.readFileSync('options.js', 'utf8');
+const i18nSource = fs.readFileSync('i18n.js', 'utf8');
 
 function createElement(initialValue = '') {
   return {
@@ -29,7 +30,8 @@ async function main() {
     endpoint: createElement('http://localhost:5000'),
     apiKey: createElement('test-key'),
     saveBtn: createElement(),
-    status: createElement()
+    status: createElement(),
+    languageSelect: createElement('en')
   };
 
   const context = {
@@ -37,11 +39,13 @@ async function main() {
     setTimeout,
     clearTimeout,
     document: {
-      documentElement: { setAttribute() {} },
+      documentElement: { lang: '', setAttribute() {} },
       createElement: () => createElement(),
       getElementById: id => elements[id],
+      querySelectorAll: () => [],
       addEventListener() {}
     },
+    globalThis: {},
     chrome: {
       runtime: { lastError: null },
       storage: { sync: { get() {}, set() {} } }
@@ -54,8 +58,10 @@ async function main() {
       };
     }
   };
+  context.globalThis = context;
 
   vm.createContext(context);
+  vm.runInContext(i18nSource, context);
   vm.runInContext(source, context);
 
   await context.fetchModels('http://localhost:5000', 'test-key', 'openai-compatible');

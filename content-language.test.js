@@ -1,0 +1,149 @@
+const fs = require('fs');
+const vm = require('vm');
+const assert = require('assert');
+
+const i18nSource = fs.readFileSync('i18n.js', 'utf8');
+const contentSource = fs.readFileSync('content.js', 'utf8');
+
+function createElement(documentRef, tagName = 'div') {
+  const listeners = {};
+  const element = {
+    tagName,
+    children: [],
+    style: {},
+    dataset: {},
+    className: '',
+    _id: '',
+    _innerHTML: '',
+    textContent: '',
+    value: '',
+    placeholder: '',
+    rows: 0,
+    offsetWidth: 420,
+    offsetHeight: 220,
+    classList: { add() {}, remove() {} },
+    appendChild(child) {
+      child.parentNode = this;
+      this.children.push(child);
+      if (child.id) documentRef.elementsById[child.id] = child;
+      return child;
+    },
+    remove() {
+      if (this.parentNode) {
+        this.parentNode.children = this.parentNode.children.filter(child => child !== this);
+      }
+      if (this.id) delete documentRef.elementsById[this.id];
+    },
+    addEventListener(event, handler) { listeners[event] = handler; },
+    dispatch(event, payload = {}) { listeners[event]?.({ preventDefault() {}, stopPropagation() {}, ...payload }); },
+    setAttribute(name, value) { this[name] = value; },
+    removeAttribute(name) { delete this[name]; },
+    querySelector(selector) {
+      if (selector.startsWith('.')) return findByClass(this, selector.slice(1));
+      if (selector.startsWith('#')) return documentRef.elementsById[selector.slice(1)] || null;
+      return null;
+    },
+    contains(target) { return target === this || this.children.some(child => child.contains?.(target)); },
+    closest(selector) {
+      if (selector.startsWith('#') && this.id === selector.slice(1)) return this;
+      return null;
+    },
+    getBoundingClientRect() { return { left: 10, top: 10, right: 110, bottom: 40, width: 100, height: 30 }; },
+    get listeners() { return listeners; }
+  };
+
+  Object.defineProperty(element, 'id', {
+    get() { return this._id; },
+    set(value) {
+      this._id = value;
+      if (value) documentRef.elementsById[value] = this;
+    }
+  });
+
+  Object.defineProperty(element, 'innerHTML', {
+    get() { return this._innerHTML; },
+    set(value) {
+      this._innerHTML = value;
+      this.textContent = String(value).replace(/<[^>]*>/g, '');
+    }
+  });
+
+  return element;
+}
+
+function findByClass(root, className) {
+  for (const child of root.children) {
+    if (String(child.className).split(/\s+/).includes(className)) return child;
+    const nested = findByClass(child, className);
+    if (nested) return nested;
+  }
+  return null;
+}
+
+async function main() {
+  const documentRef = {
+    elementsById: {},
+    listeners: {},
+    documentElement: { setAttribute() {}, removeAttribute() {} },
+    createElement(tagName) { return createElement(documentRef, tagName); },
+    addEventListener(event, handler) { this.listeners[event] = handler; },
+    getElementById(id) { return this.elementsById[id] || null; },
+    querySelectorAll() { return []; }
+  };
+  documentRef.body = createElement(documentRef, 'body');
+  documentRef.body.setAttribute = function () {};
+
+  const storageListeners = [];
+  const context = {
+    globalThis: {},
+    document: documentRef,
+    window: {
+      innerWidth: 1024,
+      innerHeight: 768,
+      getSelection() {
+        return {
+          rangeCount: 1,
+          toString: () => 'selected text',
+          getRangeAt: () => ({
+            getBoundingClientRect: () => ({ left: 20, top: 30, right: 120, bottom: 50, width: 100, height: 20 })
+          })
+        };
+      }
+    },
+    chrome: {
+      runtime: { openOptionsPage() {}, sendMessage() {} },
+      storage: {
+        sync: {
+          get(defaults, cb) { cb({ ...defaults, apiKey: 'test-key', languagePreference: 'zh' }); },
+          set() {}
+        },
+        onChanged: { addListener(handler) { storageListeners.push(handler); } }
+      }
+    },
+    setTimeout,
+    URL
+  };
+  context.globalThis = context;
+  context.window.document = documentRef;
+
+  vm.createContext(context);
+  vm.runInContext(i18nSource, context);
+  vm.runInContext(contentSource, context);
+
+  documentRef.listeners.mouseup({ clientX: 20, clientY: 30, target: documentRef.body });
+  await new Promise(resolve => setTimeout(resolve, 20));
+
+  const bubble = documentRef.getElementById('omnipilot-bubble');
+  assert.ok(bubble, 'bubble should be created for selected text');
+  bubble.listeners.click({ preventDefault() {}, stopPropagation() {} });
+
+  const dropdown = documentRef.getElementById('omnipilot-dropdown');
+  assert.ok(dropdown, 'dropdown should be created after bubble click');
+  assert.ok(dropdown.children.some(child => child.textContent.includes('翻译')));
+  assert.ok(dropdown.children.some(child => child.textContent.includes('总结')));
+}
+
+main().catch(err => {
+  console.error(err);
+  process.exit(1);
+});
