@@ -5,3 +5,4 @@ gen_icons.py
 test_extension.js
 *.log
 .DS_Store
+.serena/
