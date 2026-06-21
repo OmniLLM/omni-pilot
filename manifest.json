@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
   "name": "OmniPilot",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Select text → AI actions: translate, summarize, explain, improve",
-  "permissions": ["activeTab", "storage", "scripting"],
+  "permissions": ["storage"],
   "host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "background.js"
