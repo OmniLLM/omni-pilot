@@ -11,4 +11,4 @@ $(ZIP_FILE): $(EXTENSION_FILES)
 	git archive --format=zip --output=$@ HEAD $(EXTENSION_FILES)
 
 clean-package:
-	rm -f $(PACKAGE_NAME)-*.zip
+	git clean -fX -- $(PACKAGE_NAME)-*.zip
