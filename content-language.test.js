@@ -131,6 +131,10 @@ async function createContentContext(storedConfig = {}) {
     },
     setTimeout,
     AbortController,
+    ResizeObserver: class {
+      observe() {}
+      disconnect() {}
+    },
     URL
   };
   context.globalThis = context;

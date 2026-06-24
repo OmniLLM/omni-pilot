@@ -4,6 +4,7 @@ const assert = require('assert');
 
 const source = fs.readFileSync('options.js', 'utf8');
 const i18nSource = fs.readFileSync('i18n.js', 'utf8');
+const htmlSource = fs.readFileSync('options.html', 'utf8');
 
 function createElement(initialValue = '') {
   return {
@@ -582,7 +583,172 @@ async function testGithubCopilotSlowDownKeepsPollingUiPending() {
   assert.notStrictEqual(elements.copilotPollStatus.textContent, 'Authorization failed. Please try again.');
 }
 
+async function testGithubCopilotPendingFlowRestoresCodeOnLoad() {
+  const { elements, domListeners } = createTestContext({
+    storageGetImpl(keys, callback) {
+      callback({
+        providerType: 'github-copilot',
+        model: 'gpt-5.4',
+        languagePreference: 'en'
+      });
+    },
+    localStorageGetImpl(keys, callback) {
+      callback({
+        copilotDeviceCode: 'device-code',
+        copilotUserCode: 'ABCD-EFGH',
+        copilotVerificationUri: 'https://github.com/login/device',
+        copilotUserExpiry: Date.now() + 60_000
+      });
+    },
+    sendMessageImpl(message, callback) {
+      if (message.type === 'GET_MODELS') {
+        callback({ models: ['gpt-5.4'] });
+        return;
+      }
+      callback({ status: 'pending' });
+    }
+  });
+
+  await domListeners.DOMContentLoaded();
+  await Promise.resolve();
+
+  assert.strictEqual(elements.copilotDeviceFlow.style.display, '');
+  assert.strictEqual(elements.copilotUserCode.textContent, 'ABCD-EFGH');
+  assert.strictEqual(elements.copilotVerifyLink.href, 'https://github.com/login/device');
+  assert.strictEqual(elements.copilotVerifyLink.textContent, 'https://github.com/login/device');
+}
+
+async function testGithubCopilotPollingUsesStoredInterval() {
+  const intervalCalls = [];
+  const { elements, domListeners } = createTestContext({
+    storageGetImpl(keys, callback) {
+      callback({
+        providerType: 'github-copilot',
+        model: 'gpt-5.4',
+        languagePreference: 'en'
+      });
+    },
+    localStorageGetImpl(keys, callback) {
+      callback({
+        copilotDeviceCode: 'device-code',
+        copilotUserCode: 'ABCD-EFGH',
+        copilotVerificationUri: 'https://github.com/login/device',
+        copilotUserExpiry: Date.now() + 60_000,
+        copilotPollInterval: 7
+      });
+    },
+    sendMessageImpl(message, callback) {
+      if (message.type === 'GET_MODELS') {
+        callback({ models: ['gpt-5.4'] });
+        return;
+      }
+      callback({ status: 'pending' });
+    },
+    setIntervalImpl(fn, delay) {
+      intervalCalls.push(delay);
+      return 1;
+    }
+  });
+
+  await domListeners.DOMContentLoaded();
+  await Promise.resolve();
+
+  assert.ok(intervalCalls.includes(7000));
+}
+
+async function testGithubCopilotSlowDownBacksOffPollingInterval() {
+  const intervalCalls = [];
+  let localState = {
+    copilotDeviceCode: 'device-code',
+    copilotUserCode: 'ABCD-EFGH',
+    copilotVerificationUri: 'https://github.com/login/device',
+    copilotUserExpiry: Date.now() + 60_000,
+    copilotPollInterval: 5
+  };
+
+  const { domListeners } = createTestContext({
+    storageGetImpl(keys, callback) {
+      callback({
+        providerType: 'github-copilot',
+        model: 'gpt-5.4',
+        languagePreference: 'en'
+      });
+    },
+    localStorageGetImpl(keys, callback) {
+      callback({ ...localState });
+    },
+    sendMessageImpl(message, callback) {
+      if (message.type === 'GET_MODELS') {
+        callback({ models: ['gpt-5.4'] });
+        return;
+      }
+      if (message.type === 'COPILOT_POLL_TOKEN') {
+        localState = { ...localState, copilotPollInterval: 10 };
+        callback({ status: 'pending', slowDown: true, interval: 10 });
+        return;
+      }
+      callback({ status: 'pending' });
+    },
+    setIntervalImpl(fn, delay) {
+      intervalCalls.push(delay);
+      fn();
+      return intervalCalls.length;
+    }
+  });
+
+  await domListeners.DOMContentLoaded();
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.deepStrictEqual(intervalCalls.slice(0, 2), [5000, 10000]);
+}
+
+async function testGithubCopilotFailureShowsRetryButton() {
+  const { context, elements, domListeners } = createTestContext({
+    storageGetImpl(keys, callback) {
+      callback({
+        providerType: 'github-copilot',
+        model: 'gpt-5.4',
+        languagePreference: 'en'
+      });
+    },
+    localStorageGetImpl(keys, callback) {
+      callback({
+        copilotDeviceCode: 'device-code',
+        copilotUserCode: 'ABCD-EFGH',
+        copilotVerificationUri: 'https://github.com/login/device',
+        copilotUserExpiry: Date.now() + 60_000,
+        copilotPollInterval: 5
+      });
+    },
+    sendMessageImpl(message, callback) {
+      if (message.type === 'GET_MODELS') {
+        callback({ models: ['gpt-5.4'] });
+        return;
+      }
+      callback({ status: 'failed', error: 'expired_token' });
+    },
+    setIntervalImpl(fn) {
+      fn();
+      return 1;
+    }
+  });
+
+  await domListeners.DOMContentLoaded();
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.strictEqual(elements.copilotAuthBtn.style.display, '');
+  assert.strictEqual(elements.copilotAuthBtn.disabled, false);
+  assert.strictEqual(elements.copilotAuthBtn.onclick, context.startCopilotAuth);
+}
+
+async function testOptionsHtmlDoesNotUseInlineScripts() {
+  assert.ok(!/<script(?:\s[^>]*)?>\s*[^<\s]/i.test(htmlSource), 'options.html must not include inline script because extension CSP blocks it');
+}
+
 async function main() {
+  await testOptionsHtmlDoesNotUseInlineScripts();
   await testStandardFetchUsesEndpointModels();
   await testGithubCopilotFetchUsesBackgroundModels();
   await testGithubCopilotEmptyModelsFallsBackToManualInput();
@@ -604,6 +770,10 @@ async function main() {
   await testProviderChangeLoadsProviderSpecificConfig();
   await testSaveWritesProviderTypeAndNotLegacyAuthMethod();
   await testGithubCopilotSlowDownKeepsPollingUiPending();
+  await testGithubCopilotPendingFlowRestoresCodeOnLoad();
+  await testGithubCopilotPollingUsesStoredInterval();
+  await testGithubCopilotSlowDownBacksOffPollingInterval();
+  await testGithubCopilotFailureShowsRetryButton();
 }
 
 main().catch(err => {

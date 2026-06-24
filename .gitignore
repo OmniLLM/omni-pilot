@@ -4,3 +4,4 @@ test_extension.js
 *.log
 .DS_Store
 .serena/
+test-results/
