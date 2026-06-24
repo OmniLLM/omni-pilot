@@ -1,0 +1,13 @@
+{
+  "name": "omni-pilot",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "test": "node background.test.js && node options.test.js && node popup.test.js && node i18n.test.js && node content-language.test.js && node options-language.test.js && npx playwright test",
+    "test:unit": "node background.test.js && node options.test.js && node popup.test.js && node i18n.test.js && node content-language.test.js && node options-language.test.js",
+    "test:playwright": "npx playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "latest"
+  }
+}

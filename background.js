@@ -194,6 +194,15 @@ function createAuthHeaders(apiShape, apiKey) {
   return headers;
 }
 
+function getOpenAIChatTokenLimitParams(config) {
+  const isAzureFoundryGpt54 = normalizeProviderType(config.providerType, config.authMethod) === PROVIDER_TYPES.AZURE_FOUNDRY
+    && config.model === 'gpt-5.4';
+
+  return isAzureFoundryGpt54
+    ? { max_completion_tokens: 1024 }
+    : { max_tokens: 1024 };
+}
+
 function buildApiRequest({ config, messages, systemPrompt, copilotToken }) {
   if (getProvider(config).usesCopilotAuth) {
     return {
@@ -248,7 +257,7 @@ function buildApiRequest({ config, messages, systemPrompt, copilotToken }) {
     requestHeaders,
     requestBody: {
       model: config.model,
-      max_tokens: 1024,
+      ...getOpenAIChatTokenLimitParams(config),
       messages: [{ role: 'system', content: systemPrompt }, ...messages]
     },
     parseContent: parseOpenAIChatText

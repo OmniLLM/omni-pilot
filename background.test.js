@@ -651,6 +651,59 @@ async function assertAzureFoundryRequestUsesSelectedApiShape() {
   });
 }
 
+async function assertAzureFoundryGpt54UsesMaxCompletionTokens() {
+  const { request } = await runActionTest({
+    config: {
+      providerType: 'azure-foundry',
+      endpoint: 'https://example.services.ai.azure.com',
+      apiKey: 'azure-secret',
+      apiShape: 'openai-compatible',
+      model: 'gpt-5.4'
+    },
+    responseJson: RESPONSE_BY_SHAPE['openai-compatible']
+  });
+
+  const body = JSON.parse(request.options.body);
+  assert.strictEqual(request.url, 'https://example.services.ai.azure.com/v1/chat/completions');
+  assert.strictEqual(body.model, 'gpt-5.4');
+  assert.strictEqual(body.max_completion_tokens, 1024);
+  assert.ok(!Object.prototype.hasOwnProperty.call(body, 'max_tokens'));
+}
+
+async function assertAzureFoundryOtherGptModelsKeepMaxTokens() {
+  const { request } = await runActionTest({
+    config: {
+      providerType: 'azure-foundry',
+      endpoint: 'https://example.services.ai.azure.com',
+      apiKey: 'azure-secret',
+      apiShape: 'openai-compatible',
+      model: 'gpt-4.1'
+    },
+    responseJson: RESPONSE_BY_SHAPE['openai-compatible']
+  });
+
+  const body = JSON.parse(request.options.body);
+  assert.strictEqual(body.max_tokens, 1024);
+  assert.ok(!Object.prototype.hasOwnProperty.call(body, 'max_completion_tokens'));
+}
+
+async function assertCustomProviderGpt54KeepsMaxTokens() {
+  const { request } = await runActionTest({
+    config: {
+      providerType: 'custom-provider',
+      endpoint: 'http://localhost:5000',
+      apiKey: 'custom-secret',
+      apiShape: 'openai-compatible',
+      model: 'gpt-5.4'
+    },
+    responseJson: RESPONSE_BY_SHAPE['openai-compatible']
+  });
+
+  const body = JSON.parse(request.options.body);
+  assert.strictEqual(body.max_tokens, 1024);
+  assert.ok(!Object.prototype.hasOwnProperty.call(body, 'max_completion_tokens'));
+}
+
 async function assertCustomProviderModelListingFallsBackToEmptyOnFailure() {
   const { context, requests } = await createBackgroundContext({
     storage: {
@@ -706,6 +759,9 @@ async function main() {
   await assertAzureFoundryModelListingUsesManualModelsOnly();
   await assertCustomProviderTypeUsesEndpointModels();
   await assertAzureFoundryRequestUsesSelectedApiShape();
+  await assertAzureFoundryGpt54UsesMaxCompletionTokens();
+  await assertAzureFoundryOtherGptModelsKeepMaxTokens();
+  await assertCustomProviderGpt54KeepsMaxTokens();
   await assertCustomProviderModelListingFallsBackToEmptyOnFailure();
   await assertProviderTypeCopilotModelListingUsesCachedToken();
   await assertCopilotModelListingUsesCachedToken();
