@@ -40,10 +40,13 @@ const DEFAULT_CONFIG = {
   providerType: PROVIDER_TYPES.CUSTOM
 };
 
-const STORAGE_KEYS = ['endpoint', 'apiKey', 'model', 'models', 'themePreference', 'apiShape', 'languagePreference', 'providerType', 'authMethod'];
+const STORAGE_KEYS = ['endpoint', 'apiKey', 'model', 'models', 'themePreference', 'apiShape', 'languagePreference', 'providerType', 'authMethod', 'providerConfigs'];
+const PROVIDER_CONFIG_FIELDS = ['endpoint', 'apiKey', 'model', 'models', 'apiShape'];
 
 let fetchModelTimer = null;
 let currentLanguage = DEFAULT_CONFIG.languagePreference;
+let providerConfigs = {};
+let activeProviderType = PROVIDER_TYPES.CUSTOM;
 
 function label(key) {
   return OmniPilotI18n.t(key, currentLanguage);
@@ -189,6 +192,33 @@ function getSelectedProviderType() {
   const selector = document.getElementById('providerType') || document.getElementById('authMethod');
   const legacySelector = document.getElementById('authMethod');
   return normalizeProviderType(selector?.value, legacySelector?.value);
+}
+
+function getFormProviderConfig() {
+  const modelValue = document.getElementById('model').value.trim();
+  return {
+    endpoint: document.getElementById('endpoint').value.trim() || DEFAULT_CONFIG.endpoint,
+    apiKey: document.getElementById('apiKey').value.trim(),
+    model: modelValue || DEFAULT_CONFIG.model,
+    models: (document.getElementById('models')?.value || modelValue).trim(),
+    apiShape: document.getElementById('apiShape').value || DEFAULT_CONFIG.apiShape
+  };
+}
+
+function getProviderConfig(providerType) {
+  return {
+    ...DEFAULT_CONFIG,
+    ...(providerConfigs[providerType] || {})
+  };
+}
+
+function setProviderFormConfig(config) {
+  document.getElementById('endpoint').value = config.endpoint;
+  document.getElementById('apiKey').value = config.apiKey;
+  document.getElementById('model').value = config.model;
+  const modelsElement = document.getElementById('models');
+  if (modelsElement) modelsElement.value = config.models || config.model;
+  document.getElementById('apiShape').value = config.apiShape;
 }
 
 function setElementDisplay(id, display) {
@@ -393,23 +423,25 @@ function scheduleFetch() {
 document.addEventListener('DOMContentLoaded', () => {
   chrome.storage.sync.get(STORAGE_KEYS, storedConfig => {
     const config = { ...DEFAULT_CONFIG, ...storedConfig };
-    const apiShape = storedConfig.apiShape || (storedConfig.endpoint ? inferApiShape(storedConfig.endpoint) : DEFAULT_CONFIG.apiShape);
     const providerType = normalizeProviderType(storedConfig.providerType, storedConfig.authMethod);
+    activeProviderType = providerType;
+    providerConfigs = {
+      [providerType]: Object.fromEntries(PROVIDER_CONFIG_FIELDS.map(field => [field, config[field]])),
+      ...(storedConfig.providerConfigs || {})
+    };
+    const activeProviderConfig = getProviderConfig(providerType);
+    const apiShape = activeProviderConfig.apiShape || (activeProviderConfig.endpoint ? inferApiShape(activeProviderConfig.endpoint) : DEFAULT_CONFIG.apiShape);
+    activeProviderConfig.apiShape = apiShape;
 
     document.documentElement.setAttribute('data-theme', config.themePreference);
     applyLanguage(config.languagePreference);
-    document.getElementById('endpoint').value = config.endpoint;
-    document.getElementById('apiKey').value   = config.apiKey;
-    document.getElementById('model').value    = config.model;
-    const modelsElement = document.getElementById('models');
-    if (modelsElement) modelsElement.value = config.models || config.model;
-    document.getElementById('apiShape').value = apiShape;
+    setProviderFormConfig(activeProviderConfig);
     const providerTypeElement = document.getElementById('providerType') || document.getElementById('authMethod');
     if (providerTypeElement) providerTypeElement.value = providerType;
     const authMethodElement = document.getElementById('authMethod');
     if (authMethodElement) authMethodElement.value = providerType;
     updateProviderTypeUI(providerType);
-    if (config.endpoint || getProviderDefinition(providerType).fetchModelsViaBackground) fetchModels(config.endpoint, config.apiKey, apiShape, providerType);
+    if (activeProviderConfig.endpoint || getProviderDefinition(providerType).fetchModelsViaBackground) fetchModels(activeProviderConfig.endpoint, activeProviderConfig.apiKey, apiShape, providerType);
   });
 
   // Auto-fetch on change
@@ -429,9 +461,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const providerTypeElement = document.getElementById('providerType') || document.getElementById('authMethod');
   const handleProviderTypeChange = () => {
+    providerConfigs[activeProviderType] = getFormProviderConfig();
+
     const providerType = normalizeProviderType(providerTypeElement.value, providerTypeElement.value);
+    activeProviderType = providerType;
+    setProviderFormConfig(getProviderConfig(providerType));
     updateProviderTypeUI(providerType);
-    chrome.storage.sync.set({ providerType });
+    chrome.storage.sync.set({ providerType, providerConfigs });
     scheduleFetch();
   };
   if (providerTypeElement) {
@@ -456,13 +492,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Save
   document.getElementById('saveBtn').addEventListener('click', () => {
+    const providerType = getSelectedProviderType();
+    const providerConfig = getFormProviderConfig();
+    providerConfigs[providerType] = providerConfig;
+
     const config = {
-      endpoint: document.getElementById('endpoint').value.trim() || DEFAULT_CONFIG.endpoint,
-      apiKey:   document.getElementById('apiKey').value.trim(),
-      model:    document.getElementById('model').value.trim() || DEFAULT_CONFIG.model,
-      models:   (document.getElementById('models')?.value || document.getElementById('model').value).trim(),
-      apiShape: document.getElementById('apiShape').value || DEFAULT_CONFIG.apiShape,
-      providerType: getSelectedProviderType(),
+      ...providerConfig,
+      providerType,
+      providerConfigs,
       languagePreference: OmniPilotI18n.normalizeLanguage(document.getElementById('languageSelect').value)
     };
 

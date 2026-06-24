@@ -18,6 +18,15 @@
   let panelPositionFixed = false; // true once panel has been positioned or dragged
   let abortController = null; // for cancelling in-flight requests
   let hasApiKey = false; // tracks whether API key or Copilot auth is configured
+  let currentProviderType = 'custom-provider';
+  let currentAuthMethod = 'api-key';
+  let currentApiKey = '';
+  let currentEndpoint = '';
+  const PROVIDER_LABELS = {
+    'custom-provider': 'Custom',
+    'github-copilot': 'GitHub Copilot',
+    'azure-foundry': 'Azure Foundry'
+  };
 
   function label(key) {
     return OmniPilotI18n.t(key, currentLanguage);
@@ -57,8 +66,12 @@
   // Load config from storage
   chrome.storage.sync.get({ model: 'claude-sonnet-4-5', endpoint: 'https://api.omnillm.com/v1', apiKey: '', providerType: 'custom-provider', authMethod: 'api-key' }, cfg => {
     currentModel = cfg.model || 'claude-sonnet-4-5';
-    currentProvider = detectProvider(cfg.endpoint || '');
-    hasApiKey = cfg.providerType === 'github-copilot' || cfg.authMethod === 'github-copilot' || Boolean(cfg.apiKey);
+    currentProviderType = cfg.providerType || 'custom-provider';
+    currentAuthMethod = cfg.authMethod || 'api-key';
+    currentApiKey = cfg.apiKey || '';
+    currentEndpoint = cfg.endpoint || '';
+    currentProvider = getProviderLabel(currentProviderType || currentAuthMethod, currentEndpoint);
+    hasApiKey = currentProviderType === 'github-copilot' || currentAuthMethod === 'github-copilot' || Boolean(currentApiKey);
     updatePanelMeta();
   });
 
@@ -67,16 +80,24 @@
 
   chrome.storage.onChanged.addListener(changes => {
     if (changes.model) { currentModel = changes.model.newValue; updatePanelMeta(); }
-    if (changes.endpoint) { currentProvider = detectProvider(changes.endpoint.newValue || ''); updatePanelMeta(); }
+    if (changes.endpoint) currentEndpoint = changes.endpoint.newValue || '';
+    if (changes.providerType) currentProviderType = changes.providerType.newValue || 'custom-provider';
+    if (changes.authMethod) currentAuthMethod = changes.authMethod.newValue || 'api-key';
+    if (changes.apiKey) currentApiKey = changes.apiKey.newValue || '';
+    if (changes.endpoint || changes.providerType || changes.authMethod) {
+      currentProvider = getProviderLabel(currentProviderType || currentAuthMethod, currentEndpoint);
+      updatePanelMeta();
+    }
     if (changes.apiKey || changes.authMethod || changes.providerType) {
-      const providerType = changes.providerType?.newValue;
-      const authMethod = changes.authMethod?.newValue;
-      const apiKey = changes.apiKey?.newValue;
-      hasApiKey = providerType === 'github-copilot' || authMethod === 'github-copilot' || Boolean(apiKey);
+      hasApiKey = currentProviderType === 'github-copilot' || currentAuthMethod === 'github-copilot' || Boolean(currentApiKey);
     }
     if (changes.themePreference) applyTheme(changes.themePreference.newValue || 'dark');
     if (changes.languagePreference) applyLanguage(changes.languagePreference.newValue || 'en');
   });
+
+  function getProviderLabel(providerType, endpoint) {
+    return PROVIDER_LABELS[providerType] || detectProvider(endpoint || '');
+  }
 
   function detectProvider(endpoint) {
     if (endpoint.includes('omnillm.com')) return 'OmniLLM';

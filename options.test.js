@@ -30,7 +30,7 @@ function createElement(initialValue = '') {
   };
 }
 
-function createTestContext({ fetchImpl, sendMessageImpl, storageGetImpl, setTimeoutImpl } = {}) {
+function createTestContext({ fetchImpl, sendMessageImpl, storageGetImpl, localStorageGetImpl, setTimeoutImpl, setIntervalImpl } = {}) {
   const fetchUrls = [];
   const sendMessageCalls = [];
   const domListeners = {};
@@ -73,7 +73,10 @@ function createTestContext({ fetchImpl, sendMessageImpl, storageGetImpl, setTime
       return fn();
     },
     clearTimeout() {},
-    setInterval() { return 1; },
+    setInterval(fn, delay) {
+      if (setIntervalImpl) return setIntervalImpl(fn, delay, context);
+      return 1;
+    },
     clearInterval() {},
     document: {
       documentElement: { lang: '', setAttribute() {} },
@@ -104,6 +107,7 @@ function createTestContext({ fetchImpl, sendMessageImpl, storageGetImpl, setTime
         },
         local: {
           get(keys, callback) {
+            if (localStorageGetImpl) return localStorageGetImpl(keys, callback, context);
             callback({});
           },
           set() {},
@@ -341,7 +345,18 @@ async function testAuthMethodChangeListenerShowsCopilotUiAndFetchesBackgroundMod
   assert.strictEqual(elements.endpointField.style.display, 'none');
   assert.strictEqual(elements.apiKeyField.style.display, 'none');
   assert.strictEqual(elements.copilotSection.style.display, '');
-  assert.deepStrictEqual(JSON.parse(JSON.stringify(syncWrites)), [{ providerType: 'github-copilot' }]);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(syncWrites)), [{
+    providerType: 'github-copilot',
+    providerConfigs: {
+      'custom-provider': {
+        endpoint: 'https://api.omnillm.com/v1',
+        apiKey: '',
+        model: 'deepseek-v4-flash',
+        models: 'deepseek-v4-flash',
+        apiShape: 'openai-compatible'
+      }
+    }
+  }]);
   assert.deepStrictEqual(timeoutCalls, [700]);
   assert.strictEqual(sendMessageCalls.length, 1);
   assert.strictEqual(sendMessageCalls[0].type, 'GET_MODELS');
@@ -388,7 +403,7 @@ async function testProviderChangeSavesProviderType() {
   elements.providerType.value = 'azure-foundry';
   elements.providerType.listeners.change({ target: { value: 'azure-foundry' } });
 
-  assert.deepStrictEqual(JSON.parse(JSON.stringify(syncWrites.at(-1))), { providerType: 'azure-foundry' });
+  assert.strictEqual(syncWrites.at(-1).providerType, 'azure-foundry');
 }
 
 async function testLegacyAuthMethodInitializesProviderType() {
@@ -472,6 +487,49 @@ async function testAzureFoundryEditModelsButtonReopensManualInput() {
   assert.strictEqual(elements.model.style.display, 'none');
 }
 
+async function testProviderChangeLoadsProviderSpecificConfig() {
+  const { elements, domListeners } = createTestContext({
+    storageGetImpl(keys, callback) {
+      callback({
+        providerType: 'custom-provider',
+        endpoint: 'https://custom.example/v1',
+        apiKey: 'custom-key',
+        model: 'custom-model',
+        models: 'custom-model, custom-alt',
+        apiShape: 'anthropic-messages',
+        languagePreference: 'en',
+        providerConfigs: {
+          'custom-provider': {
+            endpoint: 'https://custom.example/v1',
+            apiKey: 'custom-key',
+            model: 'custom-model',
+            models: 'custom-model, custom-alt',
+            apiShape: 'anthropic-messages'
+          },
+          'azure-foundry': {
+            endpoint: 'https://azure.example.services.ai.azure.com',
+            apiKey: 'azure-key',
+            model: 'azure-model',
+            models: 'azure-model, azure-alt',
+            apiShape: 'openai-responses'
+          }
+        }
+      });
+    }
+  });
+
+  await domListeners.DOMContentLoaded();
+
+  elements.providerType.value = 'azure-foundry';
+  elements.providerType.listeners.change({ target: { value: 'azure-foundry' } });
+
+  assert.strictEqual(elements.endpoint.value, 'https://azure.example.services.ai.azure.com');
+  assert.strictEqual(elements.apiKey.value, 'azure-key');
+  assert.strictEqual(elements.model.value, 'azure-model');
+  assert.strictEqual(elements.models.value, 'azure-model, azure-alt');
+  assert.strictEqual(elements.apiShape.value, 'openai-responses');
+}
+
 async function testSaveWritesProviderTypeAndNotLegacyAuthMethod() {
   const { elements, domListeners, syncWrites } = createTestContext();
   await domListeners.DOMContentLoaded();
@@ -482,6 +540,46 @@ async function testSaveWritesProviderTypeAndNotLegacyAuthMethod() {
   const saved = syncWrites.at(-1);
   assert.strictEqual(saved.providerType, 'azure-foundry');
   assert.ok(!Object.prototype.hasOwnProperty.call(saved, 'authMethod'));
+}
+
+async function testGithubCopilotSlowDownKeepsPollingUiPending() {
+  const { elements, domListeners } = createTestContext({
+    storageGetImpl(keys, callback) {
+      callback({
+        providerType: 'github-copilot',
+        model: 'gpt-5.4',
+        languagePreference: 'en'
+      });
+    },
+    localStorageGetImpl(keys, callback) {
+      callback({
+        copilotDeviceCode: 'device-code',
+        copilotUserExpiry: Date.now() + 60_000
+      });
+    },
+    sendMessageImpl(message, callback) {
+      if (message.type === 'GET_MODELS') {
+        callback({ models: ['gpt-5.4'] });
+        return;
+      }
+      if (message.type === 'COPILOT_POLL_TOKEN') {
+        callback({ status: 'pending' });
+        return;
+      }
+      callback({ success: false, error: `Unexpected message ${message.type}` });
+    },
+    setIntervalImpl(fn) {
+      fn();
+      return 1;
+    }
+  });
+
+  await domListeners.DOMContentLoaded();
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.strictEqual(elements.copilotDeviceFlow.style.display, '');
+  assert.notStrictEqual(elements.copilotPollStatus.textContent, 'Authorization failed. Please try again.');
 }
 
 async function main() {
@@ -503,7 +601,9 @@ async function main() {
   await testAzureFoundryApiShapeUiRemainsVisible();
   await testAzureFoundryModelFetchUsesManualModelsOnly();
   await testAzureFoundryEditModelsButtonReopensManualInput();
+  await testProviderChangeLoadsProviderSpecificConfig();
   await testSaveWritesProviderTypeAndNotLegacyAuthMethod();
+  await testGithubCopilotSlowDownKeepsPollingUiPending();
 }
 
 main().catch(err => {

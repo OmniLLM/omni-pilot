@@ -353,6 +353,13 @@ async function assertCopilotDeviceFlowAndPollingAndClearAuth() {
           };
         }
 
+        if (body.device_code === 'device-code-slow-down') {
+          return {
+            ok: true,
+            json: async () => ({ error: 'slow_down' })
+          };
+        }
+
         if (body.device_code === 'device-code-2') {
           return {
             ok: true,
@@ -390,6 +397,9 @@ async function assertCopilotDeviceFlowAndPollingAndClearAuth() {
 
   const pending = await context.pollCopilotToken('device-code-1');
   assert.deepStrictEqual(JSON.parse(JSON.stringify(pending)), { status: 'pending' });
+
+  const slowDown = await context.pollCopilotToken('device-code-slow-down');
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(slowDown)), { status: 'pending' });
 
   const success = await context.pollCopilotToken('device-code-2');
   assert.deepStrictEqual(JSON.parse(JSON.stringify(success)), { status: 'success' });
@@ -534,6 +544,40 @@ async function assertCopilotApiRequestUsesDirectChatCompletionsWithCachedToken()
   const body = JSON.parse(requests[0].options.body);
   assert.strictEqual(body.model, 'gpt-4o');
   assert.strictEqual(body.max_tokens, 1024);
+  assert.deepStrictEqual(body.messages.map(message => message.role), ['system', 'user']);
+}
+
+async function assertCopilotGpt54UsesMaxCompletionTokens() {
+  const { context, requests } = await createBackgroundContext({
+    storage: {
+      providerType: 'github-copilot',
+      endpoint: '',
+      apiKey: '',
+      model: 'gpt-5.4',
+      copilotAccessToken: 'cached-copilot-token',
+      copilotTokenExpiry: Date.now() + 60_000
+    },
+    fetchImpl: async url => {
+      if (url === 'https://api.githubcopilot.com/chat/completions') {
+        return {
+          ok: true,
+          json: async () => ({ choices: [{ message: { content: 'ok' } }] })
+        };
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    }
+  });
+
+  const result = await context.handleAIAction('summarize', 'hello');
+
+  assert.strictEqual(result, 'ok');
+  assert.strictEqual(requests.length, 1);
+  assert.strictEqual(requests[0].url, 'https://api.githubcopilot.com/chat/completions');
+
+  const body = JSON.parse(requests[0].options.body);
+  assert.strictEqual(body.model, 'gpt-5.4');
+  assert.strictEqual(body.max_completion_tokens, 1024);
+  assert.ok(!Object.prototype.hasOwnProperty.call(body, 'max_tokens'));
   assert.deepStrictEqual(body.messages.map(message => message.role), ['system', 'user']);
 }
 
@@ -721,6 +765,44 @@ async function assertCustomProviderModelListingFallsBackToEmptyOnFailure() {
   assert.strictEqual(requests[0].url, 'http://localhost:5000/v1/models');
 }
 
+async function assertLoadConfigUsesActiveProviderSpecificConfig() {
+  const { context } = await createBackgroundContext({
+    storage: {
+      providerType: 'azure-foundry',
+      endpoint: 'https://custom.example/v1',
+      apiKey: 'custom-key',
+      model: 'custom-model',
+      models: 'custom-model, custom-alt',
+      apiShape: 'anthropic-messages',
+      providerConfigs: {
+        'custom-provider': {
+          endpoint: 'https://custom.example/v1',
+          apiKey: 'custom-key',
+          model: 'custom-model',
+          models: 'custom-model, custom-alt',
+          apiShape: 'anthropic-messages'
+        },
+        'azure-foundry': {
+          endpoint: 'https://azure.example.services.ai.azure.com',
+          apiKey: 'azure-key',
+          model: 'azure-model',
+          models: 'azure-model, azure-alt',
+          apiShape: 'openai-responses'
+        }
+      }
+    }
+  });
+
+  const config = await context.loadConfig();
+
+  assert.strictEqual(config.providerType, 'azure-foundry');
+  assert.strictEqual(config.endpoint, 'https://azure.example.services.ai.azure.com');
+  assert.strictEqual(config.apiKey, 'azure-key');
+  assert.strictEqual(config.model, 'azure-model');
+  assert.strictEqual(config.models, 'azure-model, azure-alt');
+  assert.strictEqual(config.apiShape, 'openai-responses');
+}
+
 async function assertProviderTypeCopilotModelListingUsesCachedToken() {
   const { context, requests } = await createBackgroundContext({
     storage: {
@@ -763,6 +845,7 @@ async function main() {
   await assertAzureFoundryOtherGptModelsKeepMaxTokens();
   await assertCustomProviderGpt54KeepsMaxTokens();
   await assertCustomProviderModelListingFallsBackToEmptyOnFailure();
+  await assertLoadConfigUsesActiveProviderSpecificConfig();
   await assertProviderTypeCopilotModelListingUsesCachedToken();
   await assertCopilotModelListingUsesCachedToken();
   await assertCopilotModelListingRefreshesExpiredToken();
@@ -771,6 +854,7 @@ async function main() {
   await assertMalformedDeviceFlowDoesNotPersistState();
   await assertMalformedCopilotTokenRefreshDoesNotPersistState();
   await assertCopilotApiRequestUsesDirectChatCompletionsWithCachedToken();
+  await assertCopilotGpt54UsesMaxCompletionTokens();
   await assertCopilotApiRequestRefreshesExpiredTokenFirst();
 }
 

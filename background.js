@@ -63,7 +63,8 @@ const DEFAULT_CONFIG = {
   authMethod: AUTH_METHODS.API_KEY
 };
 
-const STORAGE_KEYS = ['endpoint', 'apiKey', 'model', 'models', 'apiShape', 'providerType', 'authMethod'];
+const STORAGE_KEYS = ['endpoint', 'apiKey', 'model', 'models', 'apiShape', 'providerType', 'authMethod', 'providerConfigs'];
+const PROVIDER_CONFIG_FIELDS = ['endpoint', 'apiKey', 'model', 'models', 'apiShape'];
 
 const API_SHAPES = {
   OPENAI_COMPATIBLE: 'openai-compatible',
@@ -150,13 +151,20 @@ function storageRemove(keys, area = getConfigStorageArea()) {
 async function loadConfig() {
   const stored = await storageGet(STORAGE_KEYS, getConfigStorageArea());
   const providerType = normalizeProviderType(stored.providerType, stored.authMethod);
-
-  return {
+  const activeProviderConfig = stored.providerConfigs?.[providerType] || {};
+  const legacyConfig = Object.fromEntries(PROVIDER_CONFIG_FIELDS.map(field => [field, stored[field]]));
+  const config = {
     ...DEFAULT_CONFIG,
     ...stored,
+    ...legacyConfig,
+    ...activeProviderConfig,
     providerType,
-    authMethod: stored.authMethod || (providerType === PROVIDER_TYPES.GITHUB_COPILOT ? AUTH_METHODS.GITHUB_COPILOT : AUTH_METHODS.API_KEY),
-    apiShape: stored.apiShape || (stored.endpoint ? inferApiShape(stored.endpoint) : DEFAULT_CONFIG.apiShape)
+    authMethod: stored.authMethod || (providerType === PROVIDER_TYPES.GITHUB_COPILOT ? AUTH_METHODS.GITHUB_COPILOT : AUTH_METHODS.API_KEY)
+  };
+
+  return {
+    ...config,
+    apiShape: config.apiShape || (config.endpoint ? inferApiShape(config.endpoint) : DEFAULT_CONFIG.apiShape)
   };
 }
 
@@ -195,10 +203,11 @@ function createAuthHeaders(apiShape, apiKey) {
 }
 
 function getOpenAIChatTokenLimitParams(config) {
-  const isAzureFoundryGpt54 = normalizeProviderType(config.providerType, config.authMethod) === PROVIDER_TYPES.AZURE_FOUNDRY
-    && config.model === 'gpt-5.4';
+  const providerType = normalizeProviderType(config.providerType, config.authMethod);
+  const usesMaxCompletionTokens = config.model === 'gpt-5.4'
+    && (providerType === PROVIDER_TYPES.AZURE_FOUNDRY || providerType === PROVIDER_TYPES.GITHUB_COPILOT);
 
-  return isAzureFoundryGpt54
+  return usesMaxCompletionTokens
     ? { max_completion_tokens: 1024 }
     : { max_tokens: 1024 };
 }
@@ -211,7 +220,7 @@ function buildApiRequest({ config, messages, systemPrompt, copilotToken }) {
       requestHeaders: createCopilotHeaders(copilotToken),
       requestBody: {
         model: config.model,
-        max_tokens: 1024,
+        ...getOpenAIChatTokenLimitParams(config),
         messages: [{ role: 'system', content: systemPrompt }, ...messages]
       },
       parseContent: parseOpenAIChatText
@@ -397,7 +406,7 @@ async function pollCopilotToken(deviceCode) {
     return { status: 'success' };
   }
 
-  if (data.error === 'authorization_pending') {
+  if (data.error === 'authorization_pending' || data.error === 'slow_down') {
     return { status: 'pending' };
   }
 

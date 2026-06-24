@@ -35,6 +35,7 @@ function createElement(documentRef, tagName = 'div') {
       if (this.id) delete documentRef.elementsById[this.id];
     },
     addEventListener(event, handler) { listeners[event] = handler; },
+    focus() {},
     dispatch(event, payload = {}) { listeners[event]?.({ preventDefault() {}, stopPropagation() {}, ...payload }); },
     setAttribute(name, value) { this[name] = value; },
     removeAttribute(name) { delete this[name]; },
@@ -65,6 +66,14 @@ function createElement(documentRef, tagName = 'div') {
     set(value) {
       this._innerHTML = value;
       this.textContent = String(value).replace(/<[^>]*>/g, '');
+      this.children = [];
+
+      for (const match of String(value).matchAll(/class="([^"]+)"[^>]*>([^<]*)/g)) {
+        const child = createElement(documentRef);
+        child.className = match[1];
+        child.textContent = match[2];
+        this.appendChild(child);
+      }
     }
   });
 
@@ -121,6 +130,7 @@ async function createContentContext(storedConfig = {}) {
       }
     },
     setTimeout,
+    AbortController,
     URL
   };
   context.globalThis = context;
@@ -130,7 +140,7 @@ async function createContentContext(storedConfig = {}) {
   vm.runInContext(i18nSource, context);
   vm.runInContext(contentSource, context);
 
-  return { documentRef, storageListeners };
+  return { documentRef, storageListeners, context };
 }
 
 async function openDropdown(storedConfig) {
@@ -157,6 +167,25 @@ async function main() {
   assert.ok(copilotDropdown.children.some(child => child.textContent.includes('翻译')));
   assert.ok(copilotDropdown.children.some(child => child.textContent.includes('总结')));
   assert.ok(!copilotDropdown.children.some(child => child.textContent.includes('设置 API 密钥')));
+
+  const { documentRef, storageListeners } = await createContentContext({
+    providerType: 'azure-foundry',
+    endpoint: 'https://example.services.ai.azure.com',
+    apiKey: 'azure-key',
+    model: 'gpt-5.4',
+    languagePreference: 'en'
+  });
+  documentRef.listeners.mouseup({ clientX: 20, clientY: 30, target: documentRef.body });
+  await new Promise(resolve => setTimeout(resolve, 20));
+  documentRef.getElementById('omnipilot-bubble').listeners.click({ preventDefault() {}, stopPropagation() {} });
+  documentRef.getElementById('omnipilot-dropdown').children[0].listeners.click({ preventDefault() {}, stopPropagation() {} });
+
+  const providerEl = documentRef.getElementById('omnipilot-panel').querySelector('.omnipilot-meta-provider');
+  assert.strictEqual(providerEl.textContent, 'Azure Foundry');
+
+  storageListeners[0]({ providerType: { newValue: 'github-copilot' } });
+
+  assert.strictEqual(providerEl.textContent, 'GitHub Copilot');
 }
 
 main().catch(err => {
