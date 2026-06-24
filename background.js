@@ -46,6 +46,8 @@ const COPILOT_CONFIG = {
 
 const COPILOT_STORAGE_KEYS = [
   'copilotDeviceCode',
+  'copilotUserCode',
+  'copilotVerificationUri',
   'copilotUserExpiry',
   'copilotPollInterval',
   'copilotGithubToken',
@@ -294,6 +296,44 @@ function parseOpenAIResponsesText(data) {
   return null;
 }
 
+function isModelNotSupportedError(status, errorText) {
+  if (status !== 400) return false;
+
+  try {
+    const err = JSON.parse(errorText);
+    return err.error?.code === 'model_not_supported'
+      || err.code === 'model_not_supported'
+      || /model.*not supported/i.test(err.error?.message || err.message || '');
+  } catch {
+    return /model.*not supported/i.test(errorText);
+  }
+}
+
+function chooseCopilotFallbackModel(models, currentModel) {
+  const available = models.filter(model => model && model !== currentModel);
+  return available.find(model => model === 'gpt-4o') || available[0] || '';
+}
+
+async function replaceStoredModel(model) {
+  if (!model) return;
+
+  const stored = await storageGet(['providerType', 'authMethod', 'providerConfigs'], getConfigStorageArea());
+  const providerType = normalizeProviderType(stored.providerType, stored.authMethod);
+  const providerConfigs = stored.providerConfigs || {};
+  const activeProviderConfig = {
+    ...(providerConfigs[providerType] || {}),
+    model
+  };
+
+  await storageSet({
+    model,
+    providerConfigs: {
+      ...providerConfigs,
+      [providerType]: activeProviderConfig
+    }
+  }, getConfigStorageArea());
+}
+
 function redactHeaders(headers) {
   return Object.fromEntries(Object.entries(headers).map(([key, value]) => {
     const lowerKey = key.toLowerCase();
@@ -308,6 +348,10 @@ function redactHeaders(headers) {
         : value
     ];
   }));
+}
+
+function encodeFormBody(values) {
+  return new URLSearchParams(values).toString();
 }
 
 function validateCopilotDeviceFlowResponse(data) {
@@ -354,10 +398,10 @@ async function startCopilotDeviceFlow() {
   const response = await fetch(COPILOT_CONFIG.DEVICE_CODE_URL, {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json',
+      'Content-Type': 'application/x-www-form-urlencoded',
       Accept: 'application/json'
     },
-    body: JSON.stringify({
+    body: encodeFormBody({
       client_id: COPILOT_CONFIG.CLIENT_ID,
       scope: COPILOT_CONFIG.SCOPES
     })
@@ -370,11 +414,14 @@ async function startCopilotDeviceFlow() {
   const data = validateCopilotDeviceFlowResponse(await response.json());
   await storageSet({
     copilotDeviceCode: data.deviceCode,
+    copilotUserCode: data.userCode,
+    copilotVerificationUri: data.verificationUri,
     copilotUserExpiry: Date.now() + (data.expiresIn * 1000),
     copilotPollInterval: data.interval
   }, getCopilotStorageArea());
 
   return {
+    deviceCode: data.deviceCode,
     userCode: data.userCode,
     verificationUri: data.verificationUri,
     expiresIn: data.expiresIn,
@@ -386,10 +433,10 @@ async function pollCopilotToken(deviceCode) {
   const response = await fetch(COPILOT_CONFIG.ACCESS_TOKEN_URL, {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json',
+      'Content-Type': 'application/x-www-form-urlencoded',
       Accept: 'application/json'
     },
-    body: JSON.stringify({
+    body: encodeFormBody({
       client_id: COPILOT_CONFIG.CLIENT_ID,
       device_code: deviceCode,
       grant_type: 'urn:ietf:params:oauth:grant-type:device_code'
@@ -403,10 +450,18 @@ async function pollCopilotToken(deviceCode) {
   const data = await response.json();
   if (data.access_token) {
     await storageSet({ copilotGithubToken: data.access_token }, getCopilotStorageArea());
+    await storageRemove(['copilotDeviceCode', 'copilotUserCode', 'copilotVerificationUri', 'copilotUserExpiry', 'copilotPollInterval'], getCopilotStorageArea());
     return { status: 'success' };
   }
 
-  if (data.error === 'authorization_pending' || data.error === 'slow_down') {
+  if (data.error === 'slow_down') {
+    const stored = await storageGet(['copilotPollInterval'], getCopilotStorageArea());
+    const interval = (Number.isFinite(stored.copilotPollInterval) ? stored.copilotPollInterval : 5) + 5;
+    await storageSet({ copilotPollInterval: interval }, getCopilotStorageArea());
+    return { status: 'pending', slowDown: true, interval };
+  }
+
+  if (data.error === 'authorization_pending') {
     return { status: 'pending' };
   }
 
@@ -529,6 +584,10 @@ async function executeApiRequest({ messages, systemPrompt }) {
     throw new Error('No API key configured. Click the OmniPilot icon to set up.');
   }
 
+  return executeApiRequestWithConfig({ config, messages, systemPrompt, copilotToken, allowModelFallback: provider.usesCopilotAuth });
+}
+
+async function executeApiRequestWithConfig({ config, messages, systemPrompt, copilotToken, allowModelFallback }) {
   const {
     apiShape,
     requestUrl,
@@ -555,6 +614,21 @@ async function executeApiRequest({ messages, systemPrompt }) {
 
   if (!response.ok) {
     const errorText = await response.text();
+
+    if (allowModelFallback && isModelNotSupportedError(response.status, errorText)) {
+      const fallbackModel = chooseCopilotFallbackModel(await fetchCopilotModels(), config.model);
+      if (fallbackModel) {
+        await replaceStoredModel(fallbackModel);
+        return executeApiRequestWithConfig({
+          config: { ...config, model: fallbackModel },
+          messages,
+          systemPrompt,
+          copilotToken,
+          allowModelFallback: false
+        });
+      }
+    }
+
     let message = `API error: ${response.status}`;
 
     try {

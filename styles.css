@@ -198,6 +198,8 @@
   background: var(--op-bg);
   min-height: 48px;   /* MD3 standard toolbar height */
   box-sizing: border-box;
+  flex-wrap: wrap;
+  gap: 4px;
 }
 
 .omnipilot-panel-header:active {
@@ -223,6 +225,8 @@
   font-size: 12px;
   color: var(--op-ink2);
   font-family: var(--op-font);
+  flex-wrap: wrap;
+  min-width: 0;
 }
 
 .omnipilot-meta-provider {
@@ -470,7 +474,7 @@
   color: var(--op-ink);
   font-size: 14px;
   line-height: 1.75;
-  max-width: 60ch;
+  max-width: 90%;
   font-family: var(--op-font);
 }
 
@@ -648,7 +652,7 @@
   font-size: 14px;
   font-family: var(--op-font);
   line-height: 1.65;
-  max-width: 62ch;
+  max-width: 90%;
 }
 
 .omnipilot-msg-user {

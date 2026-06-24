@@ -275,7 +275,10 @@ async function updateCopilotStatus() {
   const stored = await getCopilotStoredState([
     'copilotGithubToken',
     'copilotDeviceCode',
-    'copilotUserExpiry'
+    'copilotUserCode',
+    'copilotVerificationUri',
+    'copilotUserExpiry',
+    'copilotPollInterval'
   ]);
 
   const statusDot = document.getElementById('copilotStatusDot');
@@ -296,8 +299,14 @@ async function updateCopilotStatus() {
     statusDot.classList.remove('connected');
     statusText.textContent = label('copilotNotConnected');
     authBtn.style.display = 'none';
+    if (stored.copilotUserCode) document.getElementById('copilotUserCode').textContent = stored.copilotUserCode;
+    if (stored.copilotVerificationUri) {
+      document.getElementById('copilotVerifyLink').href = stored.copilotVerificationUri;
+      document.getElementById('copilotVerifyLink').textContent = stored.copilotVerificationUri;
+    }
+    document.getElementById('copilotPollStatus').textContent = label('copilotWaiting');
     deviceFlow.style.display = '';
-    startCopilotPolling(stored.copilotDeviceCode);
+    startCopilotPolling(stored.copilotDeviceCode, stored.copilotPollInterval);
   } else {
     statusDot.classList.remove('connected');
     statusText.textContent = label('copilotNotConnected');
@@ -344,7 +353,7 @@ async function startCopilotAuth() {
     }
     chrome.tabs.create({ url: response.verificationUri });
 
-    startCopilotPolling(response.deviceCode || null);
+    startCopilotPolling(response.deviceCode || null, response.interval);
   } catch (e) {
     document.getElementById('copilotPollStatus').textContent = `${label('copilotError')} ${e.message}`;
     authBtn.style.display = '';
@@ -353,7 +362,11 @@ async function startCopilotAuth() {
   }
 }
 
-function startCopilotPolling(deviceCode) {
+function getCopilotPollDelay(interval) {
+  return Math.max(1, Number(interval) || 5) * 1000;
+}
+
+function startCopilotPolling(deviceCode, interval) {
   stopCopilotPolling();
 
   copilotPollTimer = setInterval(async () => {
@@ -367,6 +380,7 @@ function startCopilotPolling(deviceCode) {
       document.getElementById('copilotAuthBtn').style.display = '';
       document.getElementById('copilotAuthBtn').disabled = false;
       document.getElementById('copilotAuthBtn').textContent = label('copilotSignIn');
+      document.getElementById('copilotAuthBtn').onclick = startCopilotAuth;
       return;
     }
 
@@ -383,14 +397,20 @@ function startCopilotPolling(deviceCode) {
         document.getElementById('copilotDeviceFlow').style.display = 'none';
         await updateCopilotStatus();
         scheduleFetch();
+      } else if (result.status === 'pending' && result.slowDown) {
+        startCopilotPolling(code, result.interval);
       } else if (result.status === 'failed') {
         stopCopilotPolling();
-        document.getElementById('copilotPollStatus').textContent = label('copilotFailed');
+        document.getElementById('copilotPollStatus').textContent = `${label('copilotFailed')} ${result.error || ''}`.trim();
+        document.getElementById('copilotAuthBtn').style.display = '';
+        document.getElementById('copilotAuthBtn').disabled = false;
+        document.getElementById('copilotAuthBtn').textContent = label('copilotSignIn');
+        document.getElementById('copilotAuthBtn').onclick = startCopilotAuth;
       }
     } catch {
       // Keep polling transient extension-message failures.
     }
-  }, 5000);
+  }, getCopilotPollDelay(interval));
 }
 
 function stopCopilotPolling() {

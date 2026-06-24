@@ -337,8 +337,8 @@
 
       document.addEventListener('mousemove', e => {
         if (!resizing) return;
-        const newW = Math.max(280, resizeStartW + (e.clientX - resizeStartX));
-        const newH = Math.max(160, resizeStartH + (e.clientY - resizeStartY));
+        const newW = Math.max(300, resizeStartW + (e.clientX - resizeStartX));
+        const newH = Math.max(180, resizeStartH + (e.clientY - resizeStartY));
         panel.style.width = `${newW}px`;
         panel.style.height = `${newH}px`;
       });
@@ -372,7 +372,8 @@
       });
       input.addEventListener('input', () => {
         input.style.height = 'auto';
-        input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+        const maxH = parseInt(input.style.maxHeight, 10) || 120;
+        input.style.height = Math.min(input.scrollHeight, maxH) + 'px';
       });
       input.addEventListener('mousedown', e => e.stopPropagation());
       const sendBtn = document.createElement('button');
@@ -393,6 +394,20 @@
       panel.appendChild(resizeHandle);
       document.body.appendChild(panel);
       applyThemeTo(panel);
+
+      // Observe panel size changes to scale textarea max-height proportionally
+      const panelResizeObserver = new ResizeObserver(entries => {
+        for (const entry of entries) {
+          const panelHeight = entry.contentRect.height;
+          // Scale textarea max-height to ~20% of panel height, clamped between 80-200px
+          const newMaxHeight = Math.max(80, Math.min(200, Math.round(panelHeight * 0.2)));
+          input.style.maxHeight = `${newMaxHeight}px`;
+          // Re-fit current content within the new max
+          input.style.height = 'auto';
+          input.style.height = Math.min(input.scrollHeight, newMaxHeight) + 'px';
+        }
+      });
+      panelResizeObserver.observe(panel);
     }
 
     const body = panel.querySelector('.omnipilot-panel-body');

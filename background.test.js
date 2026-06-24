@@ -212,6 +212,7 @@ async function createBackgroundContext({
   const local = makeArea(localStore);
 
   const context = {
+    URLSearchParams,
     console: {
       info: () => {},
       error: () => {}
@@ -345,7 +346,7 @@ async function assertCopilotDeviceFlowAndPollingAndClearAuth() {
       }
 
       if (url === 'https://github.com/login/oauth/access_token') {
-        const body = JSON.parse(options.body);
+        const body = Object.fromEntries(new URLSearchParams(options.body));
         if (body.device_code === 'device-code-1') {
           return {
             ok: true,
@@ -379,27 +380,40 @@ async function assertCopilotDeviceFlowAndPollingAndClearAuth() {
 
   const start = await context.startCopilotDeviceFlow();
   assert.deepStrictEqual(JSON.parse(JSON.stringify(start)), {
+    deviceCode: 'device-code-1',
     userCode: 'ABCD-EFGH',
     verificationUri: 'https://github.com/login/device',
     expiresIn: 900,
     interval: 5
   });
   assert.strictEqual(stores.localStore.copilotDeviceCode, 'device-code-1');
+  assert.strictEqual(stores.localStore.copilotUserCode, 'ABCD-EFGH');
+  assert.strictEqual(stores.localStore.copilotVerificationUri, 'https://github.com/login/device');
   assert.ok(stores.localStore.copilotUserExpiry > Date.now());
   assert.strictEqual(stores.localStore.copilotPollInterval, 5);
   assert.strictEqual(stores.syncStore.copilotDeviceCode, undefined);
   assert.strictEqual(requests[0].url, 'https://github.com/login/device/code');
   assert.strictEqual(requests[0].options.method, 'POST');
-  assert.deepStrictEqual(JSON.parse(requests[0].options.body), {
+  assert.strictEqual(requests[0].options.headers['Content-Type'], 'application/x-www-form-urlencoded');
+  assert.deepStrictEqual(Object.fromEntries(new URLSearchParams(requests[0].options.body)), {
     client_id: 'Iv1.b507a08c87ecfe98',
     scope: 'read:user'
   });
 
   const pending = await context.pollCopilotToken('device-code-1');
   assert.deepStrictEqual(JSON.parse(JSON.stringify(pending)), { status: 'pending' });
+  assert.strictEqual(requests[1].url, 'https://github.com/login/oauth/access_token');
+  assert.strictEqual(requests[1].options.method, 'POST');
+  assert.strictEqual(requests[1].options.headers['Content-Type'], 'application/x-www-form-urlencoded');
+  assert.deepStrictEqual(Object.fromEntries(new URLSearchParams(requests[1].options.body)), {
+    client_id: 'Iv1.b507a08c87ecfe98',
+    device_code: 'device-code-1',
+    grant_type: 'urn:ietf:params:oauth:grant-type:device_code'
+  });
 
   const slowDown = await context.pollCopilotToken('device-code-slow-down');
-  assert.deepStrictEqual(JSON.parse(JSON.stringify(slowDown)), { status: 'pending' });
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(slowDown)), { status: 'pending', slowDown: true, interval: 10 });
+  assert.strictEqual(stores.localStore.copilotPollInterval, 10);
 
   const success = await context.pollCopilotToken('device-code-2');
   assert.deepStrictEqual(JSON.parse(JSON.stringify(success)), { status: 'success' });
@@ -412,7 +426,7 @@ async function assertCopilotDeviceFlowAndPollingAndClearAuth() {
   stores.localStore.copilotAccessToken = 'copilot-token';
   stores.localStore.copilotTokenExpiry = Date.now() + 5_000;
   await context.clearCopilotAuth();
-  for (const key of ['copilotDeviceCode', 'copilotUserExpiry', 'copilotPollInterval', 'copilotGithubToken', 'copilotAccessToken', 'copilotTokenExpiry']) {
+  for (const key of ['copilotDeviceCode', 'copilotUserCode', 'copilotVerificationUri', 'copilotUserExpiry', 'copilotPollInterval', 'copilotGithubToken', 'copilotAccessToken', 'copilotTokenExpiry']) {
     assert.strictEqual(stores.localStore[key], undefined);
   }
 }
@@ -579,6 +593,66 @@ async function assertCopilotGpt54UsesMaxCompletionTokens() {
   assert.strictEqual(body.max_completion_tokens, 1024);
   assert.ok(!Object.prototype.hasOwnProperty.call(body, 'max_tokens'));
   assert.deepStrictEqual(body.messages.map(message => message.role), ['system', 'user']);
+}
+
+async function assertCopilotUnsupportedStoredModelRetriesWithAvailableModel() {
+  const { context, requests, stores } = await createBackgroundContext({
+    storage: {
+      providerType: 'github-copilot',
+      endpoint: '',
+      apiKey: '',
+      model: 'claude-haiku-4.5',
+      copilotAccessToken: 'cached-copilot-token',
+      copilotTokenExpiry: Date.now() + 60_000
+    },
+    fetchImpl: async (url, options) => {
+      if (url === 'https://api.githubcopilot.com/chat/completions') {
+        const body = JSON.parse(options.body);
+        if (body.model === 'claude-haiku-4.5') {
+          return {
+            ok: false,
+            status: 400,
+            statusText: 'Bad Request',
+            headers: { entries: () => [] },
+            text: async () => JSON.stringify({
+              error: {
+                message: 'The requested model is not supported.',
+                code: 'model_not_supported',
+                param: 'model',
+                type: 'invalid_request_error'
+              }
+            })
+          };
+        }
+
+        return {
+          ok: true,
+          json: async () => ({ choices: [{ message: { content: 'ok' } }] })
+        };
+      }
+
+      if (url === 'https://api.githubcopilot.com/models') {
+        return {
+          ok: true,
+          json: async () => ({ data: [{ id: 'gpt-4o' }, { id: 'claude-3.7-sonnet' }] })
+        };
+      }
+
+      throw new Error(`Unexpected fetch ${url}`);
+    }
+  });
+
+  const result = await context.handleAIAction('summarize', 'hello');
+
+  assert.strictEqual(result, 'ok');
+  assert.deepStrictEqual(requests.map(request => request.url), [
+    'https://api.githubcopilot.com/chat/completions',
+    'https://api.githubcopilot.com/models',
+    'https://api.githubcopilot.com/chat/completions'
+  ]);
+  assert.strictEqual(JSON.parse(requests[0].options.body).model, 'claude-haiku-4.5');
+  assert.strictEqual(JSON.parse(requests[2].options.body).model, 'gpt-4o');
+  assert.strictEqual(stores.syncStore.model, 'gpt-4o');
 }
 
 async function assertCopilotApiRequestRefreshesExpiredTokenFirst() {
@@ -855,6 +929,7 @@ async function main() {
   await assertMalformedCopilotTokenRefreshDoesNotPersistState();
   await assertCopilotApiRequestUsesDirectChatCompletionsWithCachedToken();
   await assertCopilotGpt54UsesMaxCompletionTokens();
+  await assertCopilotUnsupportedStoredModelRetriesWithAvailableModel();
   await assertCopilotApiRequestRefreshesExpiredTokenFirst();
 }
 
