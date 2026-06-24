@@ -167,6 +167,417 @@ async function assertOpenAIResponsesShape() {
   assert.ok(!JSON.stringify(logPayload).includes('hello'));
 }
 
+async function createBackgroundContext({
+  storage = {},
+  fetchImpl,
+  storageArea = 'sync'
+} = {}) {
+  const requests = [];
+  const runtimeListeners = [];
+  const syncStore = { ...storage };
+  const localStore = { ...storage };
+
+  const makeArea = store => ({
+    get(keys, cb) {
+      if (Array.isArray(keys)) {
+        const result = Object.fromEntries(keys.map(key => [key, store[key]]));
+        cb(result);
+        return;
+      }
+
+      if (keys && typeof keys === 'object') {
+        const result = { ...keys };
+        for (const key of Object.keys(keys)) {
+          if (Object.prototype.hasOwnProperty.call(store, key)) {
+            result[key] = store[key];
+          }
+        }
+        cb(result);
+        return;
+      }
+
+      cb({ ...store });
+    },
+    set(values, cb = () => {}) {
+      Object.assign(store, values);
+      cb();
+    },
+    remove(keys, cb = () => {}) {
+      for (const key of [].concat(keys)) delete store[key];
+      cb();
+    }
+  });
+
+  const sync = makeArea(syncStore);
+  const local = makeArea(localStore);
+
+  const context = {
+    console: {
+      info: () => {},
+      error: () => {}
+    },
+    chrome: {
+      runtime: { onMessage: { addListener(fn) { runtimeListeners.push(fn); } } },
+      storage: { sync, local }
+    },
+    fetch: async (url, options = {}) => {
+      requests.push({ url, options });
+      if (!fetchImpl) throw new Error(`Unexpected fetch ${url}`);
+      return fetchImpl(url, options, { syncStore, localStore, requests });
+    }
+  };
+
+  vm.createContext(context);
+  vm.runInContext(source, context);
+
+  return {
+    context,
+    requests,
+    runtimeListeners,
+    stores: { syncStore, localStore, activeStore: storageArea === 'local' ? localStore : syncStore }
+  };
+}
+
+async function assertCopilotModelListingUsesCachedToken() {
+  const { context, requests } = await createBackgroundContext({
+    storage: {
+      authMethod: 'github-copilot',
+      endpoint: '',
+      apiKey: '',
+      copilotAccessToken: 'cached-copilot-token',
+      copilotTokenExpiry: Date.now() + 60_000
+    },
+    fetchImpl: async (url, options) => {
+      if (url === 'https://api.githubcopilot.com/models') {
+        return {
+          ok: true,
+          json: async () => ({
+            data: [
+              { id: 'gpt-4.1' },
+              { name: 'claude-3.7-sonnet' },
+              { id: 'gpt-4o' }
+            ]
+          })
+        };
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    }
+  });
+
+  const models = await context.handleGetModels();
+
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(models)), ['claude-3.7-sonnet', 'gpt-4.1', 'gpt-4o']);
+  assert.strictEqual(requests.length, 1);
+  assert.strictEqual(requests[0].url, 'https://api.githubcopilot.com/models');
+  const modelHeaders = Object.fromEntries(Object.entries(requests[0].options.headers));
+  assert.deepStrictEqual(modelHeaders, {
+    Authorization: 'Bearer cached-copilot-token',
+    'Content-Type': 'application/json',
+    Accept: 'application/json',
+    'copilot-integration-id': 'vscode-chat',
+    'Editor-Version': 'vscode/1.83.1',
+    'Editor-Plugin-Version': 'copilot-chat/0.26.7',
+    'User-Agent': 'GitHubCopilotChat/0.26.7',
+    'OpenAI-Intent': 'conversation-panel',
+    'X-Github-Api-Version': '2025-04-01',
+    'X-Vscode-User-Agent-Library-Version': 'electron-fetch'
+  });
+}
+
+async function assertCopilotModelListingRefreshesExpiredToken() {
+  const { context, requests, stores } = await createBackgroundContext({
+    storage: {
+      authMethod: 'github-copilot',
+      endpoint: '',
+      apiKey: '',
+      copilotGithubToken: 'github-token',
+      copilotAccessToken: 'expired-token',
+      copilotTokenExpiry: Date.now() - 1_000
+    },
+    fetchImpl: async (url, options) => {
+      if (url === 'https://api.github.com/copilot_internal/v2/token') {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ token: 'fresh-copilot-token', expires_at: Math.floor(Date.now() / 1000) + 3600 })
+        };
+      }
+
+      if (url === 'https://api.githubcopilot.com/models') {
+        return {
+          ok: true,
+          json: async () => ({ models: [{ name: 'o3' }, { id: 'claude-3.5-sonnet' }] })
+        };
+      }
+
+      throw new Error(`Unexpected fetch ${url}`);
+    }
+  });
+
+  const models = await context.handleGetModels();
+
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(models)), ['claude-3.5-sonnet', 'o3']);
+  assert.strictEqual(requests.length, 2);
+  assert.strictEqual(requests[0].url, 'https://api.github.com/copilot_internal/v2/token');
+  assert.strictEqual(requests[0].options.method, 'GET');
+  assert.strictEqual(requests[0].options.headers.Authorization, 'token github-token');
+  assert.strictEqual(requests[1].url, 'https://api.githubcopilot.com/models');
+  assert.strictEqual(requests[1].options.headers.Authorization, 'Bearer fresh-copilot-token');
+  assert.strictEqual(stores.localStore.copilotAccessToken, 'fresh-copilot-token');
+  assert.ok(stores.localStore.copilotTokenExpiry > Date.now());
+}
+
+async function assertCopilotDeviceFlowAndPollingAndClearAuth() {
+  const { context, requests, stores } = await createBackgroundContext({
+    storage: {},
+    fetchImpl: async (url, options) => {
+      if (url === 'https://github.com/login/device/code') {
+        return {
+          ok: true,
+          json: async () => ({
+            device_code: 'device-code-1',
+            user_code: 'ABCD-EFGH',
+            verification_uri: 'https://github.com/login/device',
+            expires_in: 900,
+            interval: 5
+          })
+        };
+      }
+
+      if (url === 'https://github.com/login/oauth/access_token') {
+        const body = JSON.parse(options.body);
+        if (body.device_code === 'device-code-1') {
+          return {
+            ok: true,
+            json: async () => ({ error: 'authorization_pending' })
+          };
+        }
+
+        if (body.device_code === 'device-code-2') {
+          return {
+            ok: true,
+            json: async () => ({ access_token: 'github-access-token' })
+          };
+        }
+
+        return {
+          ok: true,
+          json: async () => ({ error: 'expired_token' })
+        };
+      }
+
+      throw new Error(`Unexpected fetch ${url}`);
+    }
+  });
+
+  const start = await context.startCopilotDeviceFlow();
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(start)), {
+    userCode: 'ABCD-EFGH',
+    verificationUri: 'https://github.com/login/device',
+    expiresIn: 900,
+    interval: 5
+  });
+  assert.strictEqual(stores.localStore.copilotDeviceCode, 'device-code-1');
+  assert.ok(stores.localStore.copilotUserExpiry > Date.now());
+  assert.strictEqual(stores.localStore.copilotPollInterval, 5);
+  assert.strictEqual(stores.syncStore.copilotDeviceCode, undefined);
+  assert.strictEqual(requests[0].url, 'https://github.com/login/device/code');
+  assert.strictEqual(requests[0].options.method, 'POST');
+  assert.deepStrictEqual(JSON.parse(requests[0].options.body), {
+    client_id: 'Iv1.b507a08c87ecfe98',
+    scope: 'read:user'
+  });
+
+  const pending = await context.pollCopilotToken('device-code-1');
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(pending)), { status: 'pending' });
+
+  const success = await context.pollCopilotToken('device-code-2');
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(success)), { status: 'success' });
+  assert.strictEqual(stores.localStore.copilotGithubToken, 'github-access-token');
+  assert.strictEqual(stores.syncStore.copilotGithubToken, undefined);
+
+  const failed = await context.pollCopilotToken('device-code-3');
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(failed)), { status: 'failed', error: 'expired_token' });
+
+  stores.localStore.copilotAccessToken = 'copilot-token';
+  stores.localStore.copilotTokenExpiry = Date.now() + 5_000;
+  await context.clearCopilotAuth();
+  for (const key of ['copilotDeviceCode', 'copilotUserExpiry', 'copilotPollInterval', 'copilotGithubToken', 'copilotAccessToken', 'copilotTokenExpiry']) {
+    assert.strictEqual(stores.localStore[key], undefined);
+  }
+}
+
+async function assertCopilotAccessTokenCachesAndClearsOnUnauthorized() {
+  const { context, requests, stores } = await createBackgroundContext({
+    storage: {
+      copilotGithubToken: 'github-token',
+      copilotAccessToken: 'cached-token',
+      copilotTokenExpiry: Date.now() + 10_000
+    },
+    fetchImpl: async (url) => {
+      if (url === 'https://api.github.com/copilot_internal/v2/token') {
+        return {
+          ok: false,
+          status: 401,
+          json: async () => ({ message: 'Unauthorized' })
+        };
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    }
+  });
+
+  const cached = await context.getCopilotAccessToken();
+  assert.strictEqual(cached, 'cached-token');
+  assert.strictEqual(requests.length, 0);
+
+  stores.localStore.copilotTokenExpiry = Date.now() - 1_000;
+
+  await assert.rejects(
+    () => context.getCopilotAccessToken(),
+    err => err.message.includes('GitHub Copilot authorization expired')
+  );
+
+  assert.strictEqual(requests.length, 1);
+  assert.strictEqual(stores.localStore.copilotGithubToken, undefined);
+  assert.strictEqual(stores.localStore.copilotAccessToken, undefined);
+  assert.strictEqual(stores.localStore.copilotTokenExpiry, undefined);
+}
+
+async function assertMalformedDeviceFlowDoesNotPersistState() {
+  const { context, stores } = await createBackgroundContext({
+    storage: {},
+    fetchImpl: async url => {
+      if (url === 'https://github.com/login/device/code') {
+        return {
+          ok: true,
+          json: async () => ({
+            user_code: 'ABCD-EFGH',
+            verification_uri: 'https://github.com/login/device',
+            expires_in: 900
+          })
+        };
+      }
+
+      throw new Error(`Unexpected fetch ${url}`);
+    }
+  });
+
+  await assert.rejects(
+    () => context.startCopilotDeviceFlow(),
+    err => err.message.includes('device flow returned an invalid response')
+  );
+
+  for (const key of ['copilotDeviceCode', 'copilotUserExpiry', 'copilotPollInterval']) {
+    assert.strictEqual(stores.localStore[key], undefined);
+  }
+}
+
+async function assertMalformedCopilotTokenRefreshDoesNotPersistState() {
+  const { context, stores } = await createBackgroundContext({
+    storage: {
+      copilotGithubToken: 'github-token'
+    },
+    fetchImpl: async url => {
+      if (url === 'https://api.github.com/copilot_internal/v2/token') {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ token: 'broken-token', expires_at: 'soon' })
+        };
+      }
+
+      throw new Error(`Unexpected fetch ${url}`);
+    }
+  });
+
+  await assert.rejects(
+    () => context.getCopilotAccessToken(),
+    err => err.message.includes('token refresh returned an invalid response')
+  );
+
+  assert.strictEqual(stores.localStore.copilotAccessToken, undefined);
+  assert.strictEqual(stores.localStore.copilotTokenExpiry, undefined);
+  assert.strictEqual(stores.localStore.copilotGithubToken, 'github-token');
+}
+
+async function assertCopilotApiRequestUsesDirectChatCompletionsWithCachedToken() {
+  const { context, requests } = await createBackgroundContext({
+    storage: {
+      authMethod: 'github-copilot',
+      endpoint: 'http://localhost:5000/v1',
+      apiKey: '',
+      apiShape: 'openai-responses',
+      model: 'gpt-4o',
+      copilotAccessToken: 'cached-copilot-token',
+      copilotTokenExpiry: Date.now() + 60_000
+    },
+    fetchImpl: async url => {
+      if (url === 'https://api.githubcopilot.com/chat/completions') {
+        return {
+          ok: true,
+          json: async () => ({ choices: [{ message: { content: 'ok' } }] })
+        };
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    }
+  });
+
+  const result = await context.handleAIAction('summarize', 'hello');
+
+  assert.strictEqual(result, 'ok');
+  assert.strictEqual(requests.length, 1);
+  assert.strictEqual(requests[0].url, 'https://api.githubcopilot.com/chat/completions');
+  assert.strictEqual(requests[0].options.headers.Authorization, 'Bearer cached-copilot-token');
+  assert.strictEqual(requests[0].options.headers['copilot-integration-id'], 'vscode-chat');
+  assert.strictEqual(requests[0].options.headers['X-Github-Api-Version'], '2025-04-01');
+
+  const body = JSON.parse(requests[0].options.body);
+  assert.strictEqual(body.model, 'gpt-4o');
+  assert.strictEqual(body.max_tokens, 1024);
+  assert.deepStrictEqual(body.messages.map(message => message.role), ['system', 'user']);
+}
+
+async function assertCopilotApiRequestRefreshesExpiredTokenFirst() {
+  const { context, requests, stores } = await createBackgroundContext({
+    storage: {
+      authMethod: 'github-copilot',
+      endpoint: 'http://localhost:5000/v1',
+      apiKey: '',
+      apiShape: 'anthropic-messages',
+      model: 'gpt-4o-mini',
+      copilotGithubToken: 'github-token',
+      copilotAccessToken: 'expired-copilot-token',
+      copilotTokenExpiry: Date.now() - 1_000
+    },
+    fetchImpl: async url => {
+      if (url === 'https://api.github.com/copilot_internal/v2/token') {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ token: 'fresh-copilot-token', expires_at: Math.floor(Date.now() / 1000) + 3600 })
+        };
+      }
+      if (url === 'https://api.githubcopilot.com/chat/completions') {
+        return {
+          ok: true,
+          json: async () => ({ choices: [{ message: { content: 'ok' } }] })
+        };
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    }
+  });
+
+  const result = await context.handleAIAction('summarize', 'hello');
+
+  assert.strictEqual(result, 'ok');
+  assert.strictEqual(requests.length, 2);
+  assert.strictEqual(requests[0].url, 'https://api.github.com/copilot_internal/v2/token');
+  assert.strictEqual(requests[0].options.headers.Authorization, 'token github-token');
+  assert.strictEqual(requests[1].url, 'https://api.githubcopilot.com/chat/completions');
+  assert.strictEqual(requests[1].options.headers.Authorization, 'Bearer fresh-copilot-token');
+  assert.strictEqual(stores.localStore.copilotAccessToken, 'fresh-copilot-token');
+}
+
 async function main() {
   await assertOpenAICompatibleDefault();
   await assertFreshInstallDefaultShape();
@@ -174,6 +585,14 @@ async function main() {
   await assertRootEndpointUsesV1Routes();
   await assertAnthropicMessagesShape();
   await assertOpenAIResponsesShape();
+  await assertCopilotModelListingUsesCachedToken();
+  await assertCopilotModelListingRefreshesExpiredToken();
+  await assertCopilotDeviceFlowAndPollingAndClearAuth();
+  await assertCopilotAccessTokenCachesAndClearsOnUnauthorized();
+  await assertMalformedDeviceFlowDoesNotPersistState();
+  await assertMalformedCopilotTokenRefreshDoesNotPersistState();
+  await assertCopilotApiRequestUsesDirectChatCompletionsWithCachedToken();
+  await assertCopilotApiRequestRefreshesExpiredTokenFirst();
 }
 
 main().catch(err => {

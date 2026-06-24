@@ -32,11 +32,13 @@ Click the OmniPilot toolbar icon → **Settings**, or go to the extension option
 
 | Field | Default | Description |
 |-------|---------|-------------|
-| API Endpoint | `https://api.omnillm.com/v1` | OmniLLM/Anthropic-compatible API endpoint |
-| API Key | — | Your API key |
-| Model | `claude-sonnet-4-5` | Any model available to your API key |
+| Authentication | `API Key` | Choose API key auth or GitHub Copilot device-code sign-in |
+| API Endpoint | `https://api.omnillm.com/v1` | OmniLLM/Anthropic-compatible API endpoint for API key mode |
+| API Key | — | Your API key for API key mode |
+| API Format | `OpenAI-compatible` | Request shape for API key mode: OpenAI chat completions, Anthropic Messages, or OpenAI Responses |
+| Model | `claude-sonnet-4-5` | Any model available to your selected provider |
 
-OmniPilot works with [OmniLLM](https://github.com/OmniLLM) by default. It also supports OpenAI-compatible providers when configured with an OpenAI-style endpoint.
+OmniPilot works with [OmniLLM](https://github.com/OmniLLM) by default. It also supports OpenAI-compatible providers when configured with an OpenAI-style endpoint. In GitHub Copilot mode, OmniPilot signs in through GitHub's device-code flow, exchanges the GitHub OAuth token for a Copilot API token, lists models from `https://api.githubcopilot.com/models`, and sends requests directly to GitHub Copilot.
 
 ## Usage
 

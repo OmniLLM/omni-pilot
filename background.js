@@ -1,14 +1,42 @@
 // OmniPilot - background service worker
 // Handles API calls to avoid CORS issues in content scripts
 
+const AUTH_METHODS = {
+  API_KEY: 'api-key',
+  GITHUB_COPILOT: 'github-copilot'
+};
+
+const COPILOT_CONFIG = {
+  CLIENT_ID: 'Iv1.b507a08c87ecfe98',
+  DEVICE_CODE_URL: 'https://github.com/login/device/code',
+  ACCESS_TOKEN_URL: 'https://github.com/login/oauth/access_token',
+  COPILOT_API_KEY_URL: 'https://api.github.com/copilot_internal/v2/token',
+  COPILOT_API_BASE_URL: 'https://api.githubcopilot.com',
+  SCOPES: 'read:user',
+  USER_AGENT: 'GitHubCopilotChat/0.26.7',
+  EDITOR_VERSION: 'vscode/1.83.1',
+  EDITOR_PLUGIN_VERSION: 'copilot-chat/0.26.7',
+  API_VERSION: '2025-04-01'
+};
+
+const COPILOT_STORAGE_KEYS = [
+  'copilotDeviceCode',
+  'copilotUserExpiry',
+  'copilotPollInterval',
+  'copilotGithubToken',
+  'copilotAccessToken',
+  'copilotTokenExpiry'
+];
+
 const DEFAULT_CONFIG = {
   endpoint: 'https://api.omnillm.com/v1',
   apiKey: '',
   model: 'claude-sonnet-4-5',
-  apiShape: 'openai-compatible'
+  apiShape: 'openai-compatible',
+  authMethod: AUTH_METHODS.API_KEY
 };
 
-const STORAGE_KEYS = ['endpoint', 'apiKey', 'model', 'apiShape'];
+const STORAGE_KEYS = ['endpoint', 'apiKey', 'model', 'apiShape', 'authMethod'];
 
 const API_SHAPES = {
   OPENAI_COMPATIBLE: 'openai-compatible',
@@ -52,12 +80,48 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       .catch(() => sendResponse({ models: [] }));
     return true;
   }
+  if (request.type === 'COPILOT_START_DEVICE_FLOW') {
+    startCopilotDeviceFlow()
+      .then(result => sendResponse(result))
+      .catch(err => sendResponse({ status: 'failed', error: err.message || 'Unexpected extension error' }));
+    return true;
+  }
+  if (request.type === 'COPILOT_POLL_TOKEN') {
+    pollCopilotToken(request.deviceCode)
+      .then(result => sendResponse(result))
+      .catch(err => sendResponse({ status: 'failed', error: err.message || 'Unexpected extension error' }));
+    return true;
+  }
+  if (request.type === 'COPILOT_CLEAR_AUTH') {
+    clearCopilotAuth()
+      .then(() => sendResponse({ success: true }))
+      .catch(err => sendResponse({ success: false, error: err.message || 'Unexpected extension error' }));
+    return true;
+  }
 });
 
+function getConfigStorageArea() {
+  return chrome.storage.sync;
+}
+
+function getCopilotStorageArea() {
+  return chrome.storage.local || chrome.storage.sync;
+}
+
+function storageGet(keys, area = getConfigStorageArea()) {
+  return new Promise(resolve => area.get(keys, resolve));
+}
+
+function storageSet(values, area = getConfigStorageArea()) {
+  return new Promise(resolve => area.set(values, resolve));
+}
+
+function storageRemove(keys, area = getConfigStorageArea()) {
+  return new Promise(resolve => area.remove(keys, resolve));
+}
+
 async function loadConfig() {
-  const stored = await new Promise(resolve =>
-    chrome.storage.sync.get(STORAGE_KEYS, resolve)
-  );
+  const stored = await storageGet(STORAGE_KEYS, getConfigStorageArea());
 
   return {
     ...DEFAULT_CONFIG,
@@ -90,7 +154,21 @@ function createAuthHeaders(apiShape, apiKey) {
   return headers;
 }
 
-function buildApiRequest({ config, messages, systemPrompt }) {
+function buildApiRequest({ config, messages, systemPrompt, copilotToken }) {
+  if (config.authMethod === AUTH_METHODS.GITHUB_COPILOT) {
+    return {
+      apiShape: API_SHAPES.OPENAI_COMPATIBLE,
+      requestUrl: `${COPILOT_CONFIG.COPILOT_API_BASE_URL}/chat/completions`,
+      requestHeaders: createCopilotHeaders(copilotToken),
+      requestBody: {
+        model: config.model,
+        max_tokens: 1024,
+        messages: [{ role: 'system', content: systemPrompt }, ...messages]
+      },
+      parseContent: parseOpenAIChatText
+    };
+  }
+
   const endpoint = normalizeEndpoint(config.endpoint);
   const apiShape = config.apiShape || inferApiShape(config.endpoint);
   const requestHeaders = createAuthHeaders(apiShape, config.apiKey);
@@ -174,8 +252,167 @@ function redactHeaders(headers) {
   }));
 }
 
+function validateCopilotDeviceFlowResponse(data) {
+  if (!data?.device_code || !data?.user_code || !data?.verification_uri || !Number.isFinite(data?.expires_in)) {
+    throw new Error('GitHub Copilot device flow returned an invalid response.');
+  }
+
+  return {
+    deviceCode: data.device_code,
+    userCode: data.user_code,
+    verificationUri: data.verification_uri,
+    expiresIn: data.expires_in,
+    interval: Number.isFinite(data.interval) ? data.interval : 5
+  };
+}
+
+function validateCopilotTokenResponse(data) {
+  if (!data?.token || !Number.isFinite(data?.expires_at)) {
+    throw new Error('GitHub Copilot token refresh returned an invalid response.');
+  }
+
+  return {
+    token: data.token,
+    expiresAt: data.expires_at
+  };
+}
+
+function createCopilotHeaders(token) {
+  return {
+    Authorization: `Bearer ${token}`,
+    'Content-Type': 'application/json',
+    Accept: 'application/json',
+    'copilot-integration-id': 'vscode-chat',
+    'Editor-Version': COPILOT_CONFIG.EDITOR_VERSION,
+    'Editor-Plugin-Version': COPILOT_CONFIG.EDITOR_PLUGIN_VERSION,
+    'User-Agent': COPILOT_CONFIG.USER_AGENT,
+    'OpenAI-Intent': 'conversation-panel',
+    'X-Github-Api-Version': COPILOT_CONFIG.API_VERSION,
+    'X-Vscode-User-Agent-Library-Version': 'electron-fetch'
+  };
+}
+
+async function startCopilotDeviceFlow() {
+  const response = await fetch(COPILOT_CONFIG.DEVICE_CODE_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json'
+    },
+    body: JSON.stringify({
+      client_id: COPILOT_CONFIG.CLIENT_ID,
+      scope: COPILOT_CONFIG.SCOPES
+    })
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to start GitHub Copilot device flow.');
+  }
+
+  const data = validateCopilotDeviceFlowResponse(await response.json());
+  await storageSet({
+    copilotDeviceCode: data.deviceCode,
+    copilotUserExpiry: Date.now() + (data.expiresIn * 1000),
+    copilotPollInterval: data.interval
+  }, getCopilotStorageArea());
+
+  return {
+    userCode: data.userCode,
+    verificationUri: data.verificationUri,
+    expiresIn: data.expiresIn,
+    interval: data.interval
+  };
+}
+
+async function pollCopilotToken(deviceCode) {
+  const response = await fetch(COPILOT_CONFIG.ACCESS_TOKEN_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json'
+    },
+    body: JSON.stringify({
+      client_id: COPILOT_CONFIG.CLIENT_ID,
+      device_code: deviceCode,
+      grant_type: 'urn:ietf:params:oauth:grant-type:device_code'
+    })
+  });
+
+  if (!response.ok) {
+    return { status: 'failed', error: `token_request_failed_${response.status}` };
+  }
+
+  const data = await response.json();
+  if (data.access_token) {
+    await storageSet({ copilotGithubToken: data.access_token }, getCopilotStorageArea());
+    return { status: 'success' };
+  }
+
+  if (data.error === 'authorization_pending') {
+    return { status: 'pending' };
+  }
+
+  return { status: 'failed', error: data.error || 'unknown_error' };
+}
+
+async function getCopilotAccessToken() {
+  const stored = await storageGet(['copilotGithubToken', 'copilotAccessToken', 'copilotTokenExpiry'], getCopilotStorageArea());
+
+  if (stored.copilotAccessToken && stored.copilotTokenExpiry && stored.copilotTokenExpiry > Date.now()) {
+    return stored.copilotAccessToken;
+  }
+
+  if (!stored.copilotGithubToken) {
+    throw new Error('GitHub Copilot authorization required.');
+  }
+
+  const response = await fetch(COPILOT_CONFIG.COPILOT_API_KEY_URL, {
+    method: 'GET',
+    headers: {
+      Authorization: `token ${stored.copilotGithubToken}`,
+      Accept: 'application/json',
+      'User-Agent': COPILOT_CONFIG.USER_AGENT
+    }
+  });
+
+  if (response.status === 401 || response.status === 403) {
+    await storageRemove(['copilotGithubToken', 'copilotAccessToken', 'copilotTokenExpiry'], getCopilotStorageArea());
+    throw new Error('GitHub Copilot authorization expired. Please sign in again.');
+  }
+
+  if (!response.ok) {
+    throw new Error('Failed to refresh GitHub Copilot access token.');
+  }
+
+  const data = validateCopilotTokenResponse(await response.json());
+  const expiry = data.expiresAt * 1000;
+  await storageSet({
+    copilotAccessToken: data.token,
+    copilotTokenExpiry: expiry
+  }, getCopilotStorageArea());
+  return data.token;
+}
+
+async function clearCopilotAuth() {
+  await storageRemove(COPILOT_STORAGE_KEYS, getCopilotStorageArea());
+}
+
+async function fetchCopilotModels() {
+  const token = await getCopilotAccessToken();
+  const response = await fetch(`${COPILOT_CONFIG.COPILOT_API_BASE_URL}/models`, {
+    headers: createCopilotHeaders(token)
+  });
+
+  if (!response.ok) return [];
+  const data = await response.json();
+  return (data.data || data.models || []).map(m => m.id || m.name).filter(Boolean).sort();
+}
+
 async function handleGetModels() {
   const config = await loadConfig();
+  if (config.authMethod === AUTH_METHODS.GITHUB_COPILOT) {
+    return fetchCopilotModels();
+  }
   if (!config.apiKey || !config.endpoint) return [];
 
   const endpoint = normalizeEndpoint(config.endpoint);
@@ -208,8 +445,16 @@ async function handleAIAction(action, text) {
 
 async function executeApiRequest({ messages, systemPrompt }) {
   const config = await loadConfig();
+  let copilotToken = '';
 
-  if (!config.apiKey) {
+  if (config.authMethod === AUTH_METHODS.GITHUB_COPILOT) {
+    try {
+      copilotToken = await getCopilotAccessToken();
+      config.apiKey = copilotToken;
+    } catch (e) {
+      throw new Error('GitHub Copilot authentication failed. Please re-authenticate in Settings.');
+    }
+  } else if (!config.apiKey) {
     throw new Error('No API key configured. Click the OmniPilot icon to set up.');
   }
 
@@ -219,7 +464,7 @@ async function executeApiRequest({ messages, systemPrompt }) {
     requestHeaders,
     requestBody,
     parseContent
-  } = buildApiRequest({ config, messages, systemPrompt });
+  } = buildApiRequest({ config, messages, systemPrompt, copilotToken });
 
   const serializedBody = JSON.stringify(requestBody);
 

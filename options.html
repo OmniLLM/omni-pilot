@@ -191,6 +191,80 @@
     .refresh-btn:hover { background: var(--border); color: var(--accent); }
     .refresh-btn.spinning { animation: spin 0.6s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Copilot auth */
+    .copilot-auth-section { margin-top: 12px; }
+    .copilot-status {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      margin-bottom: 8px;
+      color: var(--ink2);
+    }
+    .copilot-status-dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--danger);
+      flex-shrink: 0;
+    }
+    .copilot-status-dot.connected { background: var(--success); }
+    .copilot-btn {
+      width: 100%;
+      padding: 9px 11px;
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--ink);
+      font-size: 13px;
+      font-family: inherit;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .copilot-btn:hover {
+      background: var(--border);
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+    .copilot-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    .copilot-device-flow {
+      margin-top: 12px;
+      padding: 12px;
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+    .copilot-code-box {
+      text-align: center;
+      margin-bottom: 8px;
+    }
+    .copilot-code {
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      color: var(--accent);
+      font-family: 'SF Mono', 'Fira Code', monospace;
+    }
+    .copilot-instructions {
+      font-size: 11px;
+      color: var(--ink2);
+      text-align: center;
+      line-height: 1.5;
+    }
+    .copilot-instructions a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+    .copilot-instructions a:hover { text-decoration: underline; }
+    .copilot-poll-status {
+      font-size: 11px;
+      color: var(--ink2);
+      text-align: center;
+      margin-top: 8px;
+    }
   </style>
 </head>
 <body>
@@ -208,13 +282,36 @@
     <div class="card">
       <div class="card-title" id="connectionTitle" data-i18n="connection">Connection</div>
       <div class="field">
+        <label data-i18n="authMethod">Authentication</label>
+        <select id="authMethod">
+          <option value="api-key">API Key</option>
+          <option value="github-copilot">GitHub Copilot</option>
+        </select>
+      </div>
+      <div class="field" id="apiKeyField">
+        <label data-i18n="apiKey">API Key</label>
+        <input type="password" id="apiKey" placeholder="sk-···">
+      </div>
+      <div class="copilot-auth-section" id="copilotSection" style="display:none">
+        <div class="copilot-status" id="copilotStatus">
+          <span class="copilot-status-dot" id="copilotStatusDot"></span>
+          <span id="copilotStatusText" data-i18n="copilotNotConnected">Not connected</span>
+        </div>
+        <button class="copilot-btn" id="copilotAuthBtn" data-i18n="copilotSignIn">Sign in with GitHub</button>
+        <div class="copilot-device-flow" id="copilotDeviceFlow" style="display:none">
+          <div class="copilot-code-box">
+            <span class="copilot-code" id="copilotUserCode"></span>
+          </div>
+          <div class="copilot-instructions">
+            <span data-i18n="copilotGoTo">Go to</span> <a href="https://github.com/login/device" target="_blank" id="copilotVerifyLink">github.com/login/device</a> <span data-i18n="copilotAndEnter">and enter:</span>
+          </div>
+          <div class="copilot-poll-status" id="copilotPollStatus" data-i18n="copilotWaiting">Waiting for authorization…</div>
+        </div>
+      </div>
+      <div class="field" id="endpointField">
         <label id="apiEndpointLabel" data-i18n="apiEndpoint">API Endpoint</label>
         <input type="text" id="endpoint" placeholder="https://api.omnillm.com/v1">
         <div class="hint" data-i18n="endpointHint">Use the provider base URL, such as http://localhost:5000/v1. The API format below controls the request shape.</div>
-      </div>
-      <div class="field">
-        <label data-i18n="apiKey">API Key</label>
-        <input type="password" id="apiKey" placeholder="sk-···">
       </div>
       <div class="field">
         <label data-i18n="apiFormat">API Format</label>
@@ -227,7 +324,7 @@
       </div>
     </div>
 
-    <div class="card">
+    <div class="card" id="modelCard">
       <div class="card-title" data-i18n="model">Model</div>
       <div class="field">
         <div class="field-row">
