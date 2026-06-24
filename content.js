@@ -55,10 +55,10 @@
   }
 
   // Load config from storage
-  chrome.storage.sync.get({ model: 'claude-sonnet-4-5', endpoint: 'https://api.omnillm.com/v1', apiKey: '', authMethod: 'api-key' }, cfg => {
+  chrome.storage.sync.get({ model: 'claude-sonnet-4-5', endpoint: 'https://api.omnillm.com/v1', apiKey: '', providerType: 'custom-provider', authMethod: 'api-key' }, cfg => {
     currentModel = cfg.model || 'claude-sonnet-4-5';
     currentProvider = detectProvider(cfg.endpoint || '');
-    hasApiKey = cfg.authMethod === 'github-copilot' || Boolean(cfg.apiKey);
+    hasApiKey = cfg.providerType === 'github-copilot' || cfg.authMethod === 'github-copilot' || Boolean(cfg.apiKey);
     updatePanelMeta();
   });
 
@@ -68,10 +68,11 @@
   chrome.storage.onChanged.addListener(changes => {
     if (changes.model) { currentModel = changes.model.newValue; updatePanelMeta(); }
     if (changes.endpoint) { currentProvider = detectProvider(changes.endpoint.newValue || ''); updatePanelMeta(); }
-    if (changes.apiKey || changes.authMethod) {
+    if (changes.apiKey || changes.authMethod || changes.providerType) {
+      const providerType = changes.providerType?.newValue;
       const authMethod = changes.authMethod?.newValue;
       const apiKey = changes.apiKey?.newValue;
-      hasApiKey = authMethod === 'github-copilot' || Boolean(apiKey);
+      hasApiKey = providerType === 'github-copilot' || authMethod === 'github-copilot' || Boolean(apiKey);
     }
     if (changes.themePreference) applyTheme(changes.themePreference.newValue || 'dark');
     if (changes.languagePreference) applyLanguage(changes.languagePreference.newValue || 'en');

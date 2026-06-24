@@ -1,9 +1,34 @@
 // OmniPilot - background service worker
 // Handles API calls to avoid CORS issues in content scripts
 
+const PROVIDER_TYPES = {
+  CUSTOM: 'custom-provider',
+  GITHUB_COPILOT: 'github-copilot',
+  AZURE_FOUNDRY: 'azure-foundry'
+};
+
 const AUTH_METHODS = {
   API_KEY: 'api-key',
-  GITHUB_COPILOT: 'github-copilot'
+  GITHUB_COPILOT: PROVIDER_TYPES.GITHUB_COPILOT
+};
+
+const PROVIDERS = {
+  [PROVIDER_TYPES.GITHUB_COPILOT]: {
+    usesCopilotAuth: true,
+    requiresApiKey: false,
+    supportsModelsEndpoint: false
+  },
+  [PROVIDER_TYPES.CUSTOM]: {
+    usesCopilotAuth: false,
+    requiresApiKey: true,
+    supportsModelsEndpoint: true
+  },
+  [PROVIDER_TYPES.AZURE_FOUNDRY]: {
+    usesCopilotAuth: false,
+    requiresApiKey: true,
+    supportsModelsEndpoint: false,
+    usesManualModels: true
+  }
 };
 
 const COPILOT_CONFIG = {
@@ -32,11 +57,13 @@ const DEFAULT_CONFIG = {
   endpoint: 'https://api.omnillm.com/v1',
   apiKey: '',
   model: 'claude-sonnet-4-5',
+  models: '',
   apiShape: 'openai-compatible',
+  providerType: PROVIDER_TYPES.CUSTOM,
   authMethod: AUTH_METHODS.API_KEY
 };
 
-const STORAGE_KEYS = ['endpoint', 'apiKey', 'model', 'apiShape', 'authMethod'];
+const STORAGE_KEYS = ['endpoint', 'apiKey', 'model', 'models', 'apiShape', 'providerType', 'authMethod'];
 
 const API_SHAPES = {
   OPENAI_COMPATIBLE: 'openai-compatible',
@@ -122,12 +149,25 @@ function storageRemove(keys, area = getConfigStorageArea()) {
 
 async function loadConfig() {
   const stored = await storageGet(STORAGE_KEYS, getConfigStorageArea());
+  const providerType = normalizeProviderType(stored.providerType, stored.authMethod);
 
   return {
     ...DEFAULT_CONFIG,
     ...stored,
+    providerType,
+    authMethod: stored.authMethod || (providerType === PROVIDER_TYPES.GITHUB_COPILOT ? AUTH_METHODS.GITHUB_COPILOT : AUTH_METHODS.API_KEY),
     apiShape: stored.apiShape || (stored.endpoint ? inferApiShape(stored.endpoint) : DEFAULT_CONFIG.apiShape)
   };
+}
+
+function normalizeProviderType(value, legacyAuthMethod) {
+  if (PROVIDERS[value]) return value;
+  if (legacyAuthMethod === AUTH_METHODS.GITHUB_COPILOT) return PROVIDER_TYPES.GITHUB_COPILOT;
+  return PROVIDER_TYPES.CUSTOM;
+}
+
+function getProvider(config) {
+  return PROVIDERS[normalizeProviderType(config.providerType, config.authMethod)] || PROVIDERS[PROVIDER_TYPES.CUSTOM];
 }
 
 function inferApiShape(endpoint) {
@@ -155,7 +195,7 @@ function createAuthHeaders(apiShape, apiKey) {
 }
 
 function buildApiRequest({ config, messages, systemPrompt, copilotToken }) {
-  if (config.authMethod === AUTH_METHODS.GITHUB_COPILOT) {
+  if (getProvider(config).usesCopilotAuth) {
     return {
       apiShape: API_SHAPES.OPENAI_COMPATIBLE,
       requestUrl: `${COPILOT_CONFIG.COPILOT_API_BASE_URL}/chat/completions`,
@@ -408,12 +448,24 @@ async function fetchCopilotModels() {
   return (data.data || data.models || []).map(m => m.id || m.name).filter(Boolean).sort();
 }
 
+function parseManualModels(value) {
+  return String(value || '')
+    .split(/[\n,]/)
+    .map(model => model.trim())
+    .filter(Boolean);
+}
+
 async function handleGetModels() {
   const config = await loadConfig();
-  if (config.authMethod === AUTH_METHODS.GITHUB_COPILOT) {
+  const provider = getProvider(config);
+
+  if (provider.usesCopilotAuth) {
     return fetchCopilotModels();
   }
-  if (!config.apiKey || !config.endpoint) return [];
+  if (provider.usesManualModels) {
+    return parseManualModels(config.models);
+  }
+  if (!provider.supportsModelsEndpoint || (provider.requiresApiKey && !config.apiKey) || !config.endpoint) return [];
 
   const endpoint = normalizeEndpoint(config.endpoint);
   const url = `${endpoint}/models`;
@@ -445,9 +497,10 @@ async function handleAIAction(action, text) {
 
 async function executeApiRequest({ messages, systemPrompt }) {
   const config = await loadConfig();
+  const provider = getProvider(config);
   let copilotToken = '';
 
-  if (config.authMethod === AUTH_METHODS.GITHUB_COPILOT) {
+  if (provider.usesCopilotAuth) {
     try {
       copilotToken = await getCopilotAccessToken();
       config.apiKey = copilotToken;

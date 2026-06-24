@@ -95,7 +95,7 @@
       color: var(--ink2);
       margin-bottom: 6px;
     }
-    input, select {
+    input, select, textarea {
       width: 100%;
       padding: 9px 11px;
       background: var(--bg3);
@@ -108,11 +108,11 @@
       transition: border-color 0.15s, box-shadow 0.15s;
       appearance: none;
     }
-    input:focus, select:focus {
+    input:focus, select:focus, textarea:focus {
       border-color: var(--accent);
       box-shadow: 0 0 0 3px rgba(108,108,255,0.12);
     }
-    input::placeholder { color: var(--ink3); }
+    input::placeholder, textarea::placeholder { color: var(--ink3); }
     select {
       display: block;
       background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%236c6cff' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
@@ -121,7 +121,7 @@
       padding-right: 30px;
       cursor: pointer;
     }
-    #modelSelect { display: none; }
+    #modelSelect, #models { display: none; }
     select option { background: var(--bg2); color: var(--ink); }
 
     .model-status {
@@ -169,6 +169,24 @@
 
     /* Hint */
     .hint { font-size: 11px; color: var(--ink3); margin-top: 5px; }
+
+    .edit-models-btn {
+      margin-top: 8px;
+      padding: 7px 10px;
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--ink2);
+      cursor: pointer;
+      font: inherit;
+      font-size: 12px;
+      transition: color 0.12s, border-color 0.12s, background 0.12s;
+    }
+    .edit-models-btn:hover {
+      background: var(--bg3);
+      border-color: var(--accent);
+      color: var(--accent);
+    }
 
     /* Refresh button inline */
     .field-row {
@@ -282,10 +300,11 @@
     <div class="card">
       <div class="card-title" id="connectionTitle" data-i18n="connection">Connection</div>
       <div class="field">
-        <label data-i18n="authMethod">Authentication</label>
-        <select id="authMethod">
-          <option value="api-key">API Key</option>
-          <option value="github-copilot">GitHub Copilot</option>
+        <label data-i18n="provider">Provider</label>
+        <select id="providerType">
+          <option value="github-copilot" data-i18n="providerGithubCopilot">GitHub Copilot</option>
+          <option value="custom-provider" data-i18n="providerCustom">Custom Provider</option>
+          <option value="azure-foundry" data-i18n="providerAzureFoundry">Azure Foundry</option>
         </select>
       </div>
       <div class="field" id="apiKeyField">
@@ -313,7 +332,7 @@
         <input type="text" id="endpoint" placeholder="https://api.omnillm.com/v1">
         <div class="hint" data-i18n="endpointHint">Use the provider base URL, such as http://localhost:5000/v1. The API format below controls the request shape.</div>
       </div>
-      <div class="field">
+      <div class="field" id="apiShapeField">
         <label data-i18n="apiFormat">API Format</label>
         <select id="apiShape">
           <option value="openai-compatible">OpenAI-compatible / Chat Completions</option>
@@ -332,6 +351,8 @@
             <label data-i18n="model">Model</label>
             <select id="modelSelect"></select>
             <input type="text" id="model" placeholder="claude-sonnet-4-5">
+            <textarea id="models" placeholder="model-one, model-two" rows="3"></textarea>
+            <button type="button" class="edit-models-btn" id="editModelsBtn" data-i18n="editModels" style="display:none">Edit models</button>
           </div>
           <button class="refresh-btn" id="refreshBtn" data-i18n-title="fetchModels" title="Fetch models">↻</button>
         </div>

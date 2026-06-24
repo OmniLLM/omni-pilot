@@ -6,6 +6,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const languageSelect = document.getElementById('languageSelect');
   let currentLanguage = OmniPilotI18n.DEFAULT_LANGUAGE;
   let hasApiKey = false;
+  let providerType = 'custom-provider';
   let authMethod = 'api-key';
 
   function label(key) {
@@ -13,7 +14,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function renderStatus() {
-    if (authMethod === 'github-copilot' || hasApiKey) {
+    if (providerType === 'github-copilot' || authMethod === 'github-copilot' || hasApiKey) {
       dot.classList.add('ok');
       text.textContent = label('ready');
     } else {
@@ -35,8 +36,9 @@ document.addEventListener('DOMContentLoaded', () => {
     if (themeValue) themeValue.textContent = theme === 'dark' ? label('dark') : label('light');
   }
 
-  chrome.storage.sync.get({ themePreference: 'dark', languagePreference: 'en', apiKey: '', authMethod: 'api-key' }, config => {
+  chrome.storage.sync.get({ themePreference: 'dark', languagePreference: 'en', apiKey: '', providerType: 'custom-provider', authMethod: 'api-key' }, config => {
     hasApiKey = Boolean(config.apiKey);
+    providerType = config.providerType || 'custom-provider';
     authMethod = config.authMethod || 'api-key';
     applyLanguage(config.languagePreference);
     applyTheme(config.themePreference);

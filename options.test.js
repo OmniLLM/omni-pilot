@@ -39,6 +39,8 @@ function createTestContext({ fetchImpl, sendMessageImpl, storageGetImpl, setTime
   const elements = {
     modelSelect: createElement(),
     model: createElement('deepseek-v4-flash'),
+    models: createElement(''),
+    editModelsBtn: createElement(),
     modelStatus: createElement(),
     refreshBtn: createElement(),
     apiShape: createElement('openai-compatible'),
@@ -47,10 +49,12 @@ function createTestContext({ fetchImpl, sendMessageImpl, storageGetImpl, setTime
     saveBtn: createElement(),
     status: createElement(),
     languageSelect: createElement('en'),
+    providerType: createElement('api-key'),
     authMethod: createElement('api-key'),
     apiKeyField: createElement(),
     copilotSection: createElement(),
     endpointField: createElement(),
+    apiShapeField: createElement(),
     modelCard: createElement(),
     copilotStatusDot: createElement(),
     copilotStatusText: createElement(),
@@ -337,7 +341,7 @@ async function testAuthMethodChangeListenerShowsCopilotUiAndFetchesBackgroundMod
   assert.strictEqual(elements.endpointField.style.display, 'none');
   assert.strictEqual(elements.apiKeyField.style.display, 'none');
   assert.strictEqual(elements.copilotSection.style.display, '');
-  assert.deepStrictEqual(JSON.parse(JSON.stringify(syncWrites)), [{ authMethod: 'github-copilot' }]);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(syncWrites)), [{ providerType: 'github-copilot' }]);
   assert.deepStrictEqual(timeoutCalls, [700]);
   assert.strictEqual(sendMessageCalls.length, 1);
   assert.strictEqual(sendMessageCalls[0].type, 'GET_MODELS');
@@ -365,6 +369,121 @@ async function testInitialApiKeyFlowStillUsesPageFetchNotBackgroundMessaging() {
   assert.deepStrictEqual(sendMessageCalls, []);
 }
 
+async function testAzureFoundryUiShowsEndpointApiKeyApiShapeAndModel() {
+  const { context, elements } = createTestContext();
+
+  context.updateProviderTypeUI('azure-foundry');
+
+  assert.strictEqual(elements.modelCard.style.display, '');
+  assert.strictEqual(elements.endpointField.style.display, '');
+  assert.strictEqual(elements.apiKeyField.style.display, '');
+  assert.strictEqual(elements.apiShapeField.style.display, '');
+  assert.strictEqual(elements.copilotSection.style.display, 'none');
+}
+
+async function testProviderChangeSavesProviderType() {
+  const { elements, domListeners, syncWrites } = createTestContext();
+  await domListeners.DOMContentLoaded();
+
+  elements.providerType.value = 'azure-foundry';
+  elements.providerType.listeners.change({ target: { value: 'azure-foundry' } });
+
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(syncWrites.at(-1))), { providerType: 'azure-foundry' });
+}
+
+async function testLegacyAuthMethodInitializesProviderType() {
+  const { elements, domListeners } = createTestContext({
+    storageGetImpl(keys, callback) {
+      callback({
+        authMethod: 'github-copilot',
+        endpoint: '',
+        apiKey: '',
+        model: 'deepseek-v4-flash',
+        languagePreference: 'en'
+      });
+    }
+  });
+
+  await domListeners.DOMContentLoaded();
+
+  assert.strictEqual(elements.providerType.value, 'github-copilot');
+}
+
+async function testCustomProviderModelFetchFailureFallsBackToManualInput() {
+  const { context, elements, fetchUrls, sendMessageCalls } = createTestContext({
+    fetchImpl: async () => ({ ok: false, status: 404 })
+  });
+
+  await context.fetchModels('http://localhost:5000', 'test-key', 'openai-compatible', 'custom-provider');
+
+  assert.deepStrictEqual(fetchUrls, ['http://localhost:5000/v1/models']);
+  assert.deepStrictEqual(sendMessageCalls, []);
+  assert.strictEqual(elements.modelSelect.style.display, 'none');
+  assert.strictEqual(elements.model.style.display, 'block');
+  assert.strictEqual(elements.modelStatus.className, 'model-status warn');
+}
+
+async function testAzureFoundryApiShapeUiRemainsVisible() {
+  const { context, elements } = createTestContext();
+
+  context.updateProviderTypeUI('azure-foundry');
+
+  assert.strictEqual(elements.apiShapeField.style.display, '');
+}
+
+async function testAzureFoundryModelFetchUsesManualModelsOnly() {
+  const { context, elements, fetchUrls, sendMessageCalls } = createTestContext({
+    fetchImpl: async url => {
+      throw new Error(`Unexpected fetch ${url}`);
+    }
+  });
+
+  elements.models.value = 'azure-gpt-4o, azure-phi-4\nazure-mai-ds-r1';
+  await context.fetchModels('https://example.services.ai.azure.com', 'azure-key', 'openai-compatible', 'azure-foundry');
+
+  assert.deepStrictEqual(fetchUrls, []);
+  assert.deepStrictEqual(sendMessageCalls, []);
+  assert.strictEqual(elements.modelSelect.style.display, 'block');
+  assert.strictEqual(elements.model.style.display, 'none');
+  assert.strictEqual(elements.models.style.display, 'none');
+  assert.deepStrictEqual(elements.modelSelect.options.map(option => option.value), [
+    'deepseek-v4-flash',
+    'azure-gpt-4o',
+    'azure-phi-4',
+    'azure-mai-ds-r1'
+  ]);
+}
+
+async function testAzureFoundryEditModelsButtonReopensManualInput() {
+  const { context, elements, domListeners } = createTestContext();
+  await domListeners.DOMContentLoaded();
+
+  elements.providerType.value = 'azure-foundry';
+  elements.models.value = 'gpt-5.4, gpt-4.1';
+  await context.fetchModels('https://example.services.ai.azure.com', 'azure-key', 'openai-compatible', 'azure-foundry');
+
+  assert.strictEqual(elements.models.style.display, 'none');
+  assert.strictEqual(elements.editModelsBtn.style.display, '');
+
+  elements.editModelsBtn.listeners.click();
+
+  assert.strictEqual(elements.models.style.display, 'block');
+  assert.strictEqual(elements.modelSelect.style.display, 'none');
+  assert.strictEqual(elements.model.style.display, 'none');
+}
+
+async function testSaveWritesProviderTypeAndNotLegacyAuthMethod() {
+  const { elements, domListeners, syncWrites } = createTestContext();
+  await domListeners.DOMContentLoaded();
+
+  elements.providerType.value = 'azure-foundry';
+  await elements.saveBtn.listeners.click();
+
+  const saved = syncWrites.at(-1);
+  assert.strictEqual(saved.providerType, 'azure-foundry');
+  assert.ok(!Object.prototype.hasOwnProperty.call(saved, 'authMethod'));
+}
+
 async function main() {
   await testStandardFetchUsesEndpointModels();
   await testGithubCopilotFetchUsesBackgroundModels();
@@ -377,6 +496,14 @@ async function main() {
   await testRefreshFetchRunsForGithubCopilotWithoutEndpoint();
   await testAuthMethodChangeListenerShowsCopilotUiAndFetchesBackgroundModels();
   await testInitialApiKeyFlowStillUsesPageFetchNotBackgroundMessaging();
+  await testAzureFoundryUiShowsEndpointApiKeyApiShapeAndModel();
+  await testProviderChangeSavesProviderType();
+  await testLegacyAuthMethodInitializesProviderType();
+  await testCustomProviderModelFetchFailureFallsBackToManualInput();
+  await testAzureFoundryApiShapeUiRemainsVisible();
+  await testAzureFoundryModelFetchUsesManualModelsOnly();
+  await testAzureFoundryEditModelsButtonReopensManualInput();
+  await testSaveWritesProviderTypeAndNotLegacyAuthMethod();
 }
 
 main().catch(err => {

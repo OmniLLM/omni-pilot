@@ -1,13 +1,46 @@
+const PROVIDER_TYPES = {
+  CUSTOM: 'custom-provider',
+  GITHUB_COPILOT: 'github-copilot',
+  AZURE_FOUNDRY: 'azure-foundry'
+};
+
+const PROVIDERS = {
+  [PROVIDER_TYPES.GITHUB_COPILOT]: {
+    showEndpoint: false,
+    showApiKey: false,
+    showApiShape: false,
+    showCopilot: true,
+    fetchModelsViaBackground: true
+  },
+  [PROVIDER_TYPES.CUSTOM]: {
+    showEndpoint: true,
+    showApiKey: true,
+    showApiShape: true,
+    showCopilot: false,
+    fetchModelsViaBackground: false
+  },
+  [PROVIDER_TYPES.AZURE_FOUNDRY]: {
+    showEndpoint: true,
+    showApiKey: true,
+    showApiShape: true,
+    showCopilot: false,
+    fetchModelsViaBackground: false,
+    usesManualModels: true
+  }
+};
+
 const DEFAULT_CONFIG = {
   endpoint: 'https://api.omnillm.com/v1',
   apiKey: '',
   model: 'claude-sonnet-4-5',
+  models: '',
   themePreference: 'dark',
   languagePreference: 'en',
-  apiShape: 'openai-compatible'
+  apiShape: 'openai-compatible',
+  providerType: PROVIDER_TYPES.CUSTOM
 };
 
-const STORAGE_KEYS = ['endpoint', 'apiKey', 'model', 'themePreference', 'apiShape', 'languagePreference', 'authMethod'];
+const STORAGE_KEYS = ['endpoint', 'apiKey', 'model', 'models', 'themePreference', 'apiShape', 'languagePreference', 'providerType', 'authMethod'];
 
 let fetchModelTimer = null;
 let currentLanguage = DEFAULT_CONFIG.languagePreference;
@@ -41,9 +74,18 @@ function normalizeEndpoint(endpoint) {
   return /^https?:\/\/[^/]+$/i.test(normalized) ? `${normalized}/v1` : normalized;
 }
 
-async function fetchModels(endpoint, apiKey, apiShape, authMethod = 'api-key') {
+function parseManualModels(value) {
+  return String(value || '')
+    .split(/[\n,]/)
+    .map(model => model.trim())
+    .filter(Boolean);
+}
+
+async function fetchModels(endpoint, apiKey, apiShape, providerType = PROVIDER_TYPES.CUSTOM) {
   const modelSelect = document.getElementById('modelSelect');
   const modelInput  = document.getElementById('model');
+  const modelsInput = document.getElementById('models');
+  const editModelsBtn = document.getElementById('editModelsBtn');
   const modelStatus = document.getElementById('modelStatus');
   const refreshBtn  = document.getElementById('refreshBtn');
 
@@ -54,7 +96,9 @@ async function fetchModels(endpoint, apiKey, apiShape, authMethod = 'api-key') {
   try {
     let models;
 
-    if (authMethod === 'github-copilot') {
+    if (getProviderDefinition(providerType).usesManualModels) {
+      models = parseManualModels(document.getElementById('models')?.value || modelInput.value);
+    } else if (getProviderDefinition(providerType).fetchModelsViaBackground) {
       models = await getModelsFromBackground();
     } else {
       const url = normalizeEndpoint(endpoint) + '/models';
@@ -99,6 +143,8 @@ async function fetchModels(endpoint, apiKey, apiShape, authMethod = 'api-key') {
 
     modelSelect.style.display = 'block';
     modelInput.style.display  = 'none';
+    if (modelsInput) modelsInput.style.display = 'none';
+    if (editModelsBtn) editModelsBtn.style.display = getProviderDefinition(providerType).usesManualModels ? '' : 'none';
     modelStatus.innerHTML = `<span class="model-status-dot"></span> ${models.length} models`;
     modelStatus.className = 'model-status ok';
 
@@ -108,6 +154,8 @@ async function fetchModels(endpoint, apiKey, apiShape, authMethod = 'api-key') {
   } catch (e) {
     modelSelect.style.display = 'none';
     modelInput.style.display  = 'block';
+    if (modelsInput) modelsInput.style.display = 'none';
+    if (editModelsBtn) editModelsBtn.style.display = 'none';
     modelStatus.innerHTML = `<span class="model-status-dot"></span> ${label('enterModelManually')}`;
     modelStatus.className = 'model-status warn';
   } finally {
@@ -127,25 +175,60 @@ function getModelsFromBackground() {
   });
 }
 
+function normalizeProviderType(value, legacyAuthMethod) {
+  if (PROVIDERS[value]) return value;
+  if (legacyAuthMethod === PROVIDER_TYPES.GITHUB_COPILOT) return PROVIDER_TYPES.GITHUB_COPILOT;
+  return PROVIDER_TYPES.CUSTOM;
+}
+
+function getProviderDefinition(providerType) {
+  return PROVIDERS[normalizeProviderType(providerType)] || PROVIDERS[PROVIDER_TYPES.CUSTOM];
+}
+
+function getSelectedProviderType() {
+  const selector = document.getElementById('providerType') || document.getElementById('authMethod');
+  const legacySelector = document.getElementById('authMethod');
+  return normalizeProviderType(selector?.value, legacySelector?.value);
+}
+
 function setElementDisplay(id, display) {
   const element = document.getElementById(id);
   if (element) element.style.display = display;
 }
 
-function updateAuthMethodUI(authMethod) {
-  if (authMethod === 'github-copilot') {
-    setElementDisplay('apiKeyField', 'none');
-    setElementDisplay('copilotSection', '');
-    setElementDisplay('endpointField', 'none');
-    setElementDisplay('modelCard', '');
-    if (typeof updateCopilotStatus === 'function') updateCopilotStatus();
-    return;
+function showManualModelsEditor() {
+  const modelSelect = document.getElementById('modelSelect');
+  const modelInput = document.getElementById('model');
+  const modelsInput = document.getElementById('models');
+  const editModelsBtn = document.getElementById('editModelsBtn');
+
+  if (modelSelect) modelSelect.style.display = 'none';
+  if (modelInput) modelInput.style.display = 'none';
+  if (modelsInput) modelsInput.style.display = 'block';
+  if (editModelsBtn) editModelsBtn.style.display = 'none';
+}
+
+function updateProviderTypeUI(providerType) {
+  const provider = getProviderDefinition(providerType);
+
+  setElementDisplay('apiKeyField', provider.showApiKey ? '' : 'none');
+  setElementDisplay('copilotSection', provider.showCopilot ? '' : 'none');
+  setElementDisplay('endpointField', provider.showEndpoint ? '' : 'none');
+  setElementDisplay('apiShapeField', provider.showApiShape ? '' : 'none');
+  setElementDisplay('modelCard', '');
+
+  if (provider.usesManualModels) {
+    showManualModelsEditor();
+  } else {
+    setElementDisplay('models', 'none');
+    setElementDisplay('editModelsBtn', 'none');
   }
 
-  setElementDisplay('apiKeyField', '');
-  setElementDisplay('copilotSection', 'none');
-  setElementDisplay('endpointField', '');
-  setElementDisplay('modelCard', '');
+  if (provider.showCopilot && typeof updateCopilotStatus === 'function') updateCopilotStatus();
+}
+
+function updateAuthMethodUI(authMethod) {
+  updateProviderTypeUI(normalizeProviderType(authMethod, authMethod));
 }
 
 function getCopilotStorageArea() {
@@ -300,8 +383,8 @@ function scheduleFetch() {
     const endpoint = document.getElementById('endpoint').value.trim();
     const apiKey   = document.getElementById('apiKey').value.trim();
     const apiShape = getSelectedApiShape(endpoint);
-    const authMethod = document.getElementById('authMethod')?.value || 'api-key';
-    if (endpoint || authMethod === 'github-copilot') fetchModels(endpoint, apiKey, apiShape, authMethod);
+    const providerType = getSelectedProviderType();
+    if (endpoint || getProviderDefinition(providerType).fetchModelsViaBackground) fetchModels(endpoint, apiKey, apiShape, providerType);
   }, 700);
 }
 
@@ -311,36 +394,54 @@ document.addEventListener('DOMContentLoaded', () => {
   chrome.storage.sync.get(STORAGE_KEYS, storedConfig => {
     const config = { ...DEFAULT_CONFIG, ...storedConfig };
     const apiShape = storedConfig.apiShape || (storedConfig.endpoint ? inferApiShape(storedConfig.endpoint) : DEFAULT_CONFIG.apiShape);
-    const authMethod = storedConfig.authMethod || 'api-key';
+    const providerType = normalizeProviderType(storedConfig.providerType, storedConfig.authMethod);
 
     document.documentElement.setAttribute('data-theme', config.themePreference);
     applyLanguage(config.languagePreference);
     document.getElementById('endpoint').value = config.endpoint;
     document.getElementById('apiKey').value   = config.apiKey;
     document.getElementById('model').value    = config.model;
+    const modelsElement = document.getElementById('models');
+    if (modelsElement) modelsElement.value = config.models || config.model;
     document.getElementById('apiShape').value = apiShape;
+    const providerTypeElement = document.getElementById('providerType') || document.getElementById('authMethod');
+    if (providerTypeElement) providerTypeElement.value = providerType;
     const authMethodElement = document.getElementById('authMethod');
-    if (authMethodElement) authMethodElement.value = authMethod;
-    updateAuthMethodUI(authMethod);
-    if (config.endpoint || authMethod === 'github-copilot') fetchModels(config.endpoint, config.apiKey, apiShape, authMethod);
+    if (authMethodElement) authMethodElement.value = providerType;
+    updateProviderTypeUI(providerType);
+    if (config.endpoint || getProviderDefinition(providerType).fetchModelsViaBackground) fetchModels(config.endpoint, config.apiKey, apiShape, providerType);
   });
 
   // Auto-fetch on change
   document.getElementById('endpoint').addEventListener('input', scheduleFetch);
   document.getElementById('apiKey').addEventListener('input', scheduleFetch);
   document.getElementById('apiShape').addEventListener('change', scheduleFetch);
+  document.getElementById('models')?.addEventListener('input', () => {
+    document.getElementById('modelStatus').innerHTML = `<span class="model-status-dot"></span> ${label('enterModelManually')}`;
+    document.getElementById('modelStatus').className = 'model-status warn';
+  });
+  document.getElementById('editModelsBtn')?.addEventListener('click', showManualModelsEditor);
   document.getElementById('languageSelect').addEventListener('change', () => {
     const languagePreference = OmniPilotI18n.normalizeLanguage(document.getElementById('languageSelect').value);
     applyLanguage(languagePreference);
     chrome.storage.sync.set({ languagePreference });
   });
 
-  const authMethodElement = document.getElementById('authMethod');
-  if (authMethodElement) {
-    authMethodElement.addEventListener('change', () => {
-      updateAuthMethodUI(authMethodElement.value);
-      chrome.storage.sync.set({ authMethod: authMethodElement.value });
-      scheduleFetch();
+  const providerTypeElement = document.getElementById('providerType') || document.getElementById('authMethod');
+  const handleProviderTypeChange = () => {
+    const providerType = normalizeProviderType(providerTypeElement.value, providerTypeElement.value);
+    updateProviderTypeUI(providerType);
+    chrome.storage.sync.set({ providerType });
+    scheduleFetch();
+  };
+  if (providerTypeElement) {
+    providerTypeElement.addEventListener('change', handleProviderTypeChange);
+  }
+  const legacyAuthMethodElement = document.getElementById('authMethod');
+  if (legacyAuthMethodElement && legacyAuthMethodElement !== providerTypeElement) {
+    legacyAuthMethodElement.addEventListener('change', () => {
+      providerTypeElement.value = normalizeProviderType(legacyAuthMethodElement.value, legacyAuthMethodElement.value);
+      handleProviderTypeChange();
     });
   }
 
@@ -349,8 +450,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const endpoint = document.getElementById('endpoint').value.trim();
     const apiKey   = document.getElementById('apiKey').value.trim();
     const apiShape = getSelectedApiShape(endpoint);
-    const authMethod = document.getElementById('authMethod')?.value || 'api-key';
-    if (endpoint || authMethod === 'github-copilot') fetchModels(endpoint, apiKey, apiShape, authMethod);
+    const providerType = getSelectedProviderType();
+    if (endpoint || getProviderDefinition(providerType).fetchModelsViaBackground) fetchModels(endpoint, apiKey, apiShape, providerType);
   });
 
   // Save
@@ -359,8 +460,9 @@ document.addEventListener('DOMContentLoaded', () => {
       endpoint: document.getElementById('endpoint').value.trim() || DEFAULT_CONFIG.endpoint,
       apiKey:   document.getElementById('apiKey').value.trim(),
       model:    document.getElementById('model').value.trim() || DEFAULT_CONFIG.model,
+      models:   (document.getElementById('models')?.value || document.getElementById('model').value).trim(),
       apiShape: document.getElementById('apiShape').value || DEFAULT_CONFIG.apiShape,
-      authMethod: document.getElementById('authMethod').value || DEFAULT_CONFIG.authMethod,
+      providerType: getSelectedProviderType(),
       languagePreference: OmniPilotI18n.normalizeLanguage(document.getElementById('languageSelect').value)
     };
 

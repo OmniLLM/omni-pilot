@@ -109,7 +109,7 @@ function loadPopup(storedConfig) {
 
 {
   const { elements } = loadPopup({
-    authMethod: 'github-copilot',
+    providerType: 'github-copilot',
     apiKey: '',
     languagePreference: 'en',
     themePreference: 'dark'

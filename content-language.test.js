@@ -153,7 +153,7 @@ async function main() {
   assert.ok(dropdown.children.some(child => child.textContent.includes('翻译')));
   assert.ok(dropdown.children.some(child => child.textContent.includes('总结')));
 
-  const copilotDropdown = await openDropdown({ authMethod: 'github-copilot', apiKey: '' });
+  const copilotDropdown = await openDropdown({ providerType: 'github-copilot', apiKey: '' });
   assert.ok(copilotDropdown.children.some(child => child.textContent.includes('翻译')));
   assert.ok(copilotDropdown.children.some(child => child.textContent.includes('总结')));
   assert.ok(!copilotDropdown.children.some(child => child.textContent.includes('设置 API 密钥')));

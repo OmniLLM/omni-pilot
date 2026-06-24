@@ -52,15 +52,18 @@ function loadOptions(storedConfig) {
   const elements = {
     modelSelect: createElement(),
     model: createElement('deepseek-v4-flash'),
+    models: createElement(''),
     modelStatus: createElement(),
     refreshBtn: createElement(),
     apiShape: createElement('openai-compatible'),
     endpoint: createElement('http://localhost:5000'),
     apiKey: createElement('test-key'),
+    providerType: createElement('custom-provider'),
     authMethod: createElement('api-key'),
     apiKeyField: createElement(),
     copilotSection: createElement(),
     endpointField: createElement(),
+    apiShapeField: createElement(),
     modelCard: createElement(),
     copilotStatusDot: createElement(),
     copilotStatusText: createElement(),
@@ -75,12 +78,14 @@ function loadOptions(storedConfig) {
     subtitle: createElement(),
     connectionTitle: createElement(),
     apiEndpointLabel: createElement(),
+    providerLabel: createElement(),
     saveLabel: createElement()
   };
 
   elements.subtitle.dataset.i18n = 'settings';
   elements.connectionTitle.dataset.i18n = 'connection';
   elements.apiEndpointLabel.dataset.i18n = 'apiEndpoint';
+  elements.providerLabel.dataset.i18n = 'provider';
   elements.saveLabel.dataset.i18n = 'save';
 
   const context = {
@@ -125,6 +130,7 @@ assert.strictEqual(documentElement.lang, 'zh');
 assert.strictEqual(elements.subtitle.textContent, '设置');
 assert.strictEqual(elements.connectionTitle.textContent, '连接');
 assert.strictEqual(elements.apiEndpointLabel.textContent, 'API 端点');
+assert.strictEqual(elements.providerLabel.textContent, '提供商');
 assert.strictEqual(elements.saveLabel.textContent, '保存');
 assert.strictEqual(elements.languageSelect.value, 'zh');
 

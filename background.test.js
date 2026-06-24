@@ -578,6 +578,123 @@ async function assertCopilotApiRequestRefreshesExpiredTokenFirst() {
   assert.strictEqual(stores.localStore.copilotAccessToken, 'fresh-copilot-token');
 }
 
+async function assertLegacyAuthMethodMigratesToProviderType() {
+  const { context } = await createBackgroundContext({
+    storage: { authMethod: 'github-copilot', endpoint: '', apiKey: '', model: 'gpt-4o' }
+  });
+
+  const config = await context.loadConfig();
+
+  assert.strictEqual(config.providerType, 'github-copilot');
+  assert.strictEqual(config.authMethod, 'github-copilot');
+}
+
+async function assertAzureFoundryModelListingUsesManualModelsOnly() {
+  const { context, requests } = await createBackgroundContext({
+    storage: {
+      providerType: 'azure-foundry',
+      endpoint: 'https://example.services.ai.azure.com',
+      apiKey: 'azure-key',
+      apiShape: 'openai-compatible',
+      models: 'azure-gpt-4o, azure-phi-4\nazure-mai-ds-r1'
+    },
+    fetchImpl: async url => {
+      throw new Error(`Unexpected fetch ${url}`);
+    }
+  });
+
+  const models = await context.handleGetModels();
+
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(models)), ['azure-gpt-4o', 'azure-phi-4', 'azure-mai-ds-r1']);
+  assert.deepStrictEqual(requests, []);
+}
+
+async function assertCustomProviderTypeUsesEndpointModels() {
+  const { context, requests } = await createBackgroundContext({
+    storage: {
+      providerType: 'custom-provider',
+      endpoint: 'http://localhost:5000',
+      apiKey: 'custom-key',
+      apiShape: 'openai-compatible'
+    },
+    fetchImpl: async url => ({
+      ok: true,
+      json: async () => ({ models: [{ name: 'local-model' }] })
+    })
+  });
+
+  const models = await context.handleGetModels();
+
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(models)), ['local-model']);
+  assert.strictEqual(requests[0].url, 'http://localhost:5000/v1/models');
+}
+
+async function assertAzureFoundryRequestUsesSelectedApiShape() {
+  const { result, request, logPayload } = await runActionTest({
+    config: {
+      providerType: 'azure-foundry',
+      endpoint: 'https://example.services.ai.azure.com',
+      apiKey: 'azure-secret',
+      apiShape: 'openai-responses',
+      model: 'azure-gpt-4o'
+    },
+    responseJson: RESPONSE_BY_SHAPE['openai-responses']
+  });
+
+  assert.strictEqual(result, 'ok');
+  assert.strictEqual(request.url, 'https://example.services.ai.azure.com/v1/responses');
+  assert.strictEqual(logPayload.apiFormat, 'openai-responses');
+  assert.strictEqual(logPayload.model, 'azure-gpt-4o');
+  assert.deepStrictEqual(logPayload.requestHeaders, {
+    'Content-Type': 'application/json',
+    Authorization: 'Bearer <redacted>'
+  });
+}
+
+async function assertCustomProviderModelListingFallsBackToEmptyOnFailure() {
+  const { context, requests } = await createBackgroundContext({
+    storage: {
+      providerType: 'custom-provider',
+      endpoint: 'http://localhost:5000',
+      apiKey: 'custom-key',
+      apiShape: 'openai-compatible'
+    },
+    fetchImpl: async () => ({ ok: false })
+  });
+
+  const models = await context.handleGetModels();
+
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(models)), []);
+  assert.strictEqual(requests[0].url, 'http://localhost:5000/v1/models');
+}
+
+async function assertProviderTypeCopilotModelListingUsesCachedToken() {
+  const { context, requests } = await createBackgroundContext({
+    storage: {
+      providerType: 'github-copilot',
+      endpoint: 'http://localhost:5000/v1',
+      apiKey: '',
+      copilotAccessToken: 'cached-copilot-token',
+      copilotTokenExpiry: Date.now() + 60_000
+    },
+    fetchImpl: async url => {
+      if (url === 'https://api.githubcopilot.com/models') {
+        return {
+          ok: true,
+          json: async () => ({ data: [{ id: 'gpt-4o' }] })
+        };
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    }
+  });
+
+  const models = await context.handleGetModels();
+
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(models)), ['gpt-4o']);
+  assert.strictEqual(requests.length, 1);
+  assert.strictEqual(requests[0].url, 'https://api.githubcopilot.com/models');
+}
+
 async function main() {
   await assertOpenAICompatibleDefault();
   await assertFreshInstallDefaultShape();
@@ -585,6 +702,12 @@ async function main() {
   await assertRootEndpointUsesV1Routes();
   await assertAnthropicMessagesShape();
   await assertOpenAIResponsesShape();
+  await assertLegacyAuthMethodMigratesToProviderType();
+  await assertAzureFoundryModelListingUsesManualModelsOnly();
+  await assertCustomProviderTypeUsesEndpointModels();
+  await assertAzureFoundryRequestUsesSelectedApiShape();
+  await assertCustomProviderModelListingFallsBackToEmptyOnFailure();
+  await assertProviderTypeCopilotModelListingUsesCachedToken();
   await assertCopilotModelListingUsesCachedToken();
   await assertCopilotModelListingRefreshesExpiredToken();
   await assertCopilotDeviceFlowAndPollingAndClearAuth();
