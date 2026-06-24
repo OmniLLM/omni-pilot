@@ -85,22 +85,35 @@ function loadPopup(storedConfig) {
   return { elements, writes, documentElement: context.document.documentElement };
 }
 
-const { elements, writes, documentElement } = loadPopup({
-  apiKey: 'test-key',
-  languagePreference: 'zh',
-  themePreference: 'dark'
-});
+{
+  const { elements, writes, documentElement } = loadPopup({
+    apiKey: 'test-key',
+    languagePreference: 'zh',
+    themePreference: 'dark'
+  });
 
-assert.strictEqual(documentElement.lang, 'zh');
-assert.strictEqual(elements.desc.textContent, '在任意页面选择文本即可使用 AI 操作。');
-assert.strictEqual(elements.statusText.textContent, '就绪');
-assert.strictEqual(elements.themeLabel.textContent, '主题');
-assert.strictEqual(elements.themeValue.textContent, '深色');
-assert.strictEqual(elements.languageLabel.textContent, '语言');
-assert.strictEqual(elements.languageSelect.value, 'zh');
-assert.strictEqual(elements.settingsLabel.textContent, '设置');
+  assert.strictEqual(documentElement.lang, 'zh');
+  assert.strictEqual(elements.desc.textContent, '在任意页面选择文本即可使用 AI 操作。');
+  assert.strictEqual(elements.statusText.textContent, '就绪');
+  assert.strictEqual(elements.themeLabel.textContent, '主题');
+  assert.strictEqual(elements.themeValue.textContent, '深色');
+  assert.strictEqual(elements.languageLabel.textContent, '语言');
+  assert.strictEqual(elements.languageSelect.value, 'zh');
+  assert.strictEqual(elements.settingsLabel.textContent, '设置');
 
-elements.languageSelect.value = 'en';
-elements.languageSelect.listeners.change();
-assert.strictEqual(writes.at(-1).languagePreference, 'en');
-assert.strictEqual(elements.statusText.textContent, 'Ready');
+  elements.languageSelect.value = 'en';
+  elements.languageSelect.listeners.change();
+  assert.strictEqual(writes.at(-1).languagePreference, 'en');
+  assert.strictEqual(elements.statusText.textContent, 'Ready');
+}
+
+{
+  const { elements } = loadPopup({
+    authMethod: 'github-copilot',
+    apiKey: '',
+    languagePreference: 'en',
+    themePreference: 'dark'
+  });
+
+  assert.strictEqual(elements.statusText.textContent, 'Ready');
+}

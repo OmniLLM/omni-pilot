@@ -80,7 +80,7 @@ function findByClass(root, className) {
   return null;
 }
 
-async function main() {
+async function createContentContext(storedConfig = {}) {
   const documentRef = {
     elementsById: {},
     listeners: {},
@@ -114,7 +114,7 @@ async function main() {
       runtime: { openOptionsPage() {}, sendMessage() {} },
       storage: {
         sync: {
-          get(defaults, cb) { cb({ ...defaults, apiKey: 'test-key', languagePreference: 'zh' }); },
+          get(defaults, cb) { cb({ ...defaults, languagePreference: 'zh', ...storedConfig }); },
           set() {}
         },
         onChanged: { addListener(handler) { storageListeners.push(handler); } }
@@ -130,6 +130,12 @@ async function main() {
   vm.runInContext(i18nSource, context);
   vm.runInContext(contentSource, context);
 
+  return { documentRef, storageListeners };
+}
+
+async function openDropdown(storedConfig) {
+  const { documentRef } = await createContentContext(storedConfig);
+
   documentRef.listeners.mouseup({ clientX: 20, clientY: 30, target: documentRef.body });
   await new Promise(resolve => setTimeout(resolve, 20));
 
@@ -139,8 +145,18 @@ async function main() {
 
   const dropdown = documentRef.getElementById('omnipilot-dropdown');
   assert.ok(dropdown, 'dropdown should be created after bubble click');
+  return dropdown;
+}
+
+async function main() {
+  const dropdown = await openDropdown({ apiKey: 'test-key' });
   assert.ok(dropdown.children.some(child => child.textContent.includes('翻译')));
   assert.ok(dropdown.children.some(child => child.textContent.includes('总结')));
+
+  const copilotDropdown = await openDropdown({ authMethod: 'github-copilot', apiKey: '' });
+  assert.ok(copilotDropdown.children.some(child => child.textContent.includes('翻译')));
+  assert.ok(copilotDropdown.children.some(child => child.textContent.includes('总结')));
+  assert.ok(!copilotDropdown.children.some(child => child.textContent.includes('设置 API 密钥')));
 }
 
 main().catch(err => {

@@ -7,7 +7,7 @@ const DEFAULT_CONFIG = {
   apiShape: 'openai-compatible'
 };
 
-const STORAGE_KEYS = ['endpoint', 'apiKey', 'model', 'themePreference', 'apiShape', 'languagePreference'];
+const STORAGE_KEYS = ['endpoint', 'apiKey', 'model', 'themePreference', 'apiShape', 'languagePreference', 'authMethod'];
 
 let fetchModelTimer = null;
 let currentLanguage = DEFAULT_CONFIG.languagePreference;
@@ -41,7 +41,7 @@ function normalizeEndpoint(endpoint) {
   return /^https?:\/\/[^/]+$/i.test(normalized) ? `${normalized}/v1` : normalized;
 }
 
-async function fetchModels(endpoint, apiKey, apiShape) {
+async function fetchModels(endpoint, apiKey, apiShape, authMethod = 'api-key') {
   const modelSelect = document.getElementById('modelSelect');
   const modelInput  = document.getElementById('model');
   const modelStatus = document.getElementById('modelStatus');
@@ -52,26 +52,35 @@ async function fetchModels(endpoint, apiKey, apiShape) {
   modelStatus.className = 'model-status loading';
 
   try {
-    const url = normalizeEndpoint(endpoint) + '/models';
-    const headers = { 'Content-Type': 'application/json' };
-    if (apiKey) {
-      if (apiShape === 'anthropic-messages') headers['x-api-key'] = apiKey;
-      else headers['Authorization'] = `Bearer ${apiKey}`;
+    let models;
+
+    if (authMethod === 'github-copilot') {
+      models = await getModelsFromBackground();
+    } else {
+      const url = normalizeEndpoint(endpoint) + '/models';
+      const headers = { 'Content-Type': 'application/json' };
+      if (apiKey) {
+        if (apiShape === 'anthropic-messages') headers['x-api-key'] = apiKey;
+        else headers['Authorization'] = `Bearer ${apiKey}`;
+      }
+
+      const resp = await fetch(url, { headers });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+
+      const data = await resp.json();
+      models = (data.data || data.models || [])
+        .map(m => m.id || m.name)
+        .filter(Boolean)
+        .sort();
     }
-
-    const resp = await fetch(url, { headers });
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-
-    const data = await resp.json();
-    const models = (data.data || data.models || [])
-      .map(m => m.id || m.name)
-      .filter(Boolean)
-      .sort();
 
     if (!models.length) throw new Error('No models returned');
 
     const currentModel = modelInput.value || DEFAULT_CONFIG.model;
     modelSelect.innerHTML = '';
+    if (Array.isArray(modelSelect.options)) {
+      modelSelect.options.length = 0;
+    }
     models.forEach(id => {
       const opt = document.createElement('option');
       opt.value = id;
@@ -106,13 +115,193 @@ async function fetchModels(endpoint, apiKey, apiShape) {
   }
 }
 
+function getModelsFromBackground() {
+  return new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage({ type: 'GET_MODELS' }, response => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+      } else {
+        resolve(response?.models || []);
+      }
+    });
+  });
+}
+
+function setElementDisplay(id, display) {
+  const element = document.getElementById(id);
+  if (element) element.style.display = display;
+}
+
+function updateAuthMethodUI(authMethod) {
+  if (authMethod === 'github-copilot') {
+    setElementDisplay('apiKeyField', 'none');
+    setElementDisplay('copilotSection', '');
+    setElementDisplay('endpointField', 'none');
+    setElementDisplay('modelCard', '');
+    if (typeof updateCopilotStatus === 'function') updateCopilotStatus();
+    return;
+  }
+
+  setElementDisplay('apiKeyField', '');
+  setElementDisplay('copilotSection', 'none');
+  setElementDisplay('endpointField', '');
+  setElementDisplay('modelCard', '');
+}
+
+function getCopilotStorageArea() {
+  return chrome.storage.local || chrome.storage.sync;
+}
+
+function getCopilotStoredState(keys) {
+  return new Promise(resolve => getCopilotStorageArea().get(keys, resolve));
+}
+
+let copilotPollTimer = null;
+
+async function updateCopilotStatus() {
+  const stored = await getCopilotStoredState([
+    'copilotGithubToken',
+    'copilotDeviceCode',
+    'copilotUserExpiry'
+  ]);
+
+  const statusDot = document.getElementById('copilotStatusDot');
+  const statusText = document.getElementById('copilotStatusText');
+  const authBtn = document.getElementById('copilotAuthBtn');
+  const deviceFlow = document.getElementById('copilotDeviceFlow');
+
+  if (stored.copilotGithubToken) {
+    statusDot.classList.add('connected');
+    statusText.textContent = label('copilotConnected');
+    authBtn.textContent = label('copilotSignOut');
+    authBtn.style.display = '';
+    authBtn.disabled = false;
+    authBtn.onclick = signOutCopilot;
+    deviceFlow.style.display = 'none';
+    stopCopilotPolling();
+  } else if (stored.copilotDeviceCode && stored.copilotUserExpiry > Date.now()) {
+    statusDot.classList.remove('connected');
+    statusText.textContent = label('copilotNotConnected');
+    authBtn.style.display = 'none';
+    deviceFlow.style.display = '';
+    startCopilotPolling(stored.copilotDeviceCode);
+  } else {
+    statusDot.classList.remove('connected');
+    statusText.textContent = label('copilotNotConnected');
+    authBtn.textContent = label('copilotSignIn');
+    authBtn.style.display = '';
+    authBtn.disabled = false;
+    authBtn.onclick = startCopilotAuth;
+    deviceFlow.style.display = 'none';
+    stopCopilotPolling();
+  }
+}
+
+async function startCopilotAuth() {
+  const authBtn = document.getElementById('copilotAuthBtn');
+  authBtn.disabled = true;
+  authBtn.textContent = label('copilotStarting');
+
+  try {
+    const response = await new Promise((resolve, reject) => {
+      chrome.runtime.sendMessage({ type: 'COPILOT_START_DEVICE_FLOW' }, result => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+        } else if (result?.success === false) {
+          reject(new Error(result.error));
+        } else if (result?.status === 'failed') {
+          reject(new Error(result.error || 'Failed to start GitHub Copilot sign-in.'));
+        } else {
+          resolve(result);
+        }
+      });
+    });
+
+    document.getElementById('copilotUserCode').textContent = response.userCode;
+    document.getElementById('copilotVerifyLink').href = response.verificationUri;
+    document.getElementById('copilotVerifyLink').textContent = response.verificationUri;
+    document.getElementById('copilotDeviceFlow').style.display = '';
+    document.getElementById('copilotPollStatus').textContent = label('copilotCodeCopied');
+    authBtn.style.display = 'none';
+
+    try {
+      await navigator.clipboard.writeText(response.userCode);
+    } catch {
+      // Clipboard API may fail in some contexts, ignore.
+    }
+    chrome.tabs.create({ url: response.verificationUri });
+
+    startCopilotPolling(response.deviceCode || null);
+  } catch (e) {
+    document.getElementById('copilotPollStatus').textContent = `${label('copilotError')} ${e.message}`;
+    authBtn.style.display = '';
+    authBtn.disabled = false;
+    authBtn.textContent = label('copilotSignIn');
+  }
+}
+
+function startCopilotPolling(deviceCode) {
+  stopCopilotPolling();
+
+  copilotPollTimer = setInterval(async () => {
+    const stored = await getCopilotStoredState(['copilotDeviceCode', 'copilotUserExpiry']);
+    const code = deviceCode || stored.copilotDeviceCode;
+
+    if (!code || (stored.copilotUserExpiry && stored.copilotUserExpiry <= Date.now())) {
+      stopCopilotPolling();
+      document.getElementById('copilotPollStatus').textContent = label('copilotExpired');
+      document.getElementById('copilotDeviceFlow').style.display = 'none';
+      document.getElementById('copilotAuthBtn').style.display = '';
+      document.getElementById('copilotAuthBtn').disabled = false;
+      document.getElementById('copilotAuthBtn').textContent = label('copilotSignIn');
+      return;
+    }
+
+    try {
+      const result = await new Promise((resolve, reject) => {
+        chrome.runtime.sendMessage({ type: 'COPILOT_POLL_TOKEN', deviceCode: code }, res => {
+          if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
+          else resolve(res);
+        });
+      });
+
+      if (result.status === 'success') {
+        stopCopilotPolling();
+        document.getElementById('copilotDeviceFlow').style.display = 'none';
+        await updateCopilotStatus();
+        scheduleFetch();
+      } else if (result.status === 'failed') {
+        stopCopilotPolling();
+        document.getElementById('copilotPollStatus').textContent = label('copilotFailed');
+      }
+    } catch {
+      // Keep polling transient extension-message failures.
+    }
+  }, 5000);
+}
+
+function stopCopilotPolling() {
+  if (copilotPollTimer) {
+    clearInterval(copilotPollTimer);
+    copilotPollTimer = null;
+  }
+}
+
+async function signOutCopilot() {
+  await new Promise(resolve =>
+    chrome.runtime.sendMessage({ type: 'COPILOT_CLEAR_AUTH' }, resolve)
+  );
+  await updateCopilotStatus();
+}
+
 function scheduleFetch() {
   clearTimeout(fetchModelTimer);
   fetchModelTimer = setTimeout(() => {
     const endpoint = document.getElementById('endpoint').value.trim();
     const apiKey   = document.getElementById('apiKey').value.trim();
     const apiShape = getSelectedApiShape(endpoint);
-    if (endpoint) fetchModels(endpoint, apiKey, apiShape);
+    const authMethod = document.getElementById('authMethod')?.value || 'api-key';
+    if (endpoint || authMethod === 'github-copilot') fetchModels(endpoint, apiKey, apiShape, authMethod);
   }, 700);
 }
 
@@ -122,6 +311,7 @@ document.addEventListener('DOMContentLoaded', () => {
   chrome.storage.sync.get(STORAGE_KEYS, storedConfig => {
     const config = { ...DEFAULT_CONFIG, ...storedConfig };
     const apiShape = storedConfig.apiShape || (storedConfig.endpoint ? inferApiShape(storedConfig.endpoint) : DEFAULT_CONFIG.apiShape);
+    const authMethod = storedConfig.authMethod || 'api-key';
 
     document.documentElement.setAttribute('data-theme', config.themePreference);
     applyLanguage(config.languagePreference);
@@ -129,7 +319,10 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('apiKey').value   = config.apiKey;
     document.getElementById('model').value    = config.model;
     document.getElementById('apiShape').value = apiShape;
-    if (config.endpoint) fetchModels(config.endpoint, config.apiKey, apiShape);
+    const authMethodElement = document.getElementById('authMethod');
+    if (authMethodElement) authMethodElement.value = authMethod;
+    updateAuthMethodUI(authMethod);
+    if (config.endpoint || authMethod === 'github-copilot') fetchModels(config.endpoint, config.apiKey, apiShape, authMethod);
   });
 
   // Auto-fetch on change
@@ -142,12 +335,22 @@ document.addEventListener('DOMContentLoaded', () => {
     chrome.storage.sync.set({ languagePreference });
   });
 
+  const authMethodElement = document.getElementById('authMethod');
+  if (authMethodElement) {
+    authMethodElement.addEventListener('change', () => {
+      updateAuthMethodUI(authMethodElement.value);
+      chrome.storage.sync.set({ authMethod: authMethodElement.value });
+      scheduleFetch();
+    });
+  }
+
   // Manual refresh
   document.getElementById('refreshBtn').addEventListener('click', () => {
     const endpoint = document.getElementById('endpoint').value.trim();
     const apiKey   = document.getElementById('apiKey').value.trim();
     const apiShape = getSelectedApiShape(endpoint);
-    if (endpoint) fetchModels(endpoint, apiKey, apiShape);
+    const authMethod = document.getElementById('authMethod')?.value || 'api-key';
+    if (endpoint || authMethod === 'github-copilot') fetchModels(endpoint, apiKey, apiShape, authMethod);
   });
 
   // Save
@@ -157,6 +360,7 @@ document.addEventListener('DOMContentLoaded', () => {
       apiKey:   document.getElementById('apiKey').value.trim(),
       model:    document.getElementById('model').value.trim() || DEFAULT_CONFIG.model,
       apiShape: document.getElementById('apiShape').value || DEFAULT_CONFIG.apiShape,
+      authMethod: document.getElementById('authMethod').value || DEFAULT_CONFIG.authMethod,
       languagePreference: OmniPilotI18n.normalizeLanguage(document.getElementById('languageSelect').value)
     };
 

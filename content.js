@@ -17,7 +17,7 @@
   let currentAction = ''; // tracks which action is running
   let panelPositionFixed = false; // true once panel has been positioned or dragged
   let abortController = null; // for cancelling in-flight requests
-  let hasApiKey = false; // tracks whether API key is configured
+  let hasApiKey = false; // tracks whether API key or Copilot auth is configured
 
   function label(key) {
     return OmniPilotI18n.t(key, currentLanguage);
@@ -55,10 +55,10 @@
   }
 
   // Load config from storage
-  chrome.storage.sync.get({ model: 'claude-sonnet-4-5', endpoint: 'https://api.omnillm.com/v1', apiKey: '' }, cfg => {
+  chrome.storage.sync.get({ model: 'claude-sonnet-4-5', endpoint: 'https://api.omnillm.com/v1', apiKey: '', authMethod: 'api-key' }, cfg => {
     currentModel = cfg.model || 'claude-sonnet-4-5';
     currentProvider = detectProvider(cfg.endpoint || '');
-    hasApiKey = Boolean(cfg.apiKey);
+    hasApiKey = cfg.authMethod === 'github-copilot' || Boolean(cfg.apiKey);
     updatePanelMeta();
   });
 
@@ -68,7 +68,11 @@
   chrome.storage.onChanged.addListener(changes => {
     if (changes.model) { currentModel = changes.model.newValue; updatePanelMeta(); }
     if (changes.endpoint) { currentProvider = detectProvider(changes.endpoint.newValue || ''); updatePanelMeta(); }
-    if (changes.apiKey) hasApiKey = Boolean(changes.apiKey.newValue);
+    if (changes.apiKey || changes.authMethod) {
+      const authMethod = changes.authMethod?.newValue;
+      const apiKey = changes.apiKey?.newValue;
+      hasApiKey = authMethod === 'github-copilot' || Boolean(apiKey);
+    }
     if (changes.themePreference) applyTheme(changes.themePreference.newValue || 'dark');
     if (changes.languagePreference) applyLanguage(changes.languagePreference.newValue || 'en');
   });
