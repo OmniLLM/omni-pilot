@@ -2,6 +2,7 @@ node_modules/
 gen_icons.py
 test_extension.js
 *.log
+*.zip
 .DS_Store
 .serena/
 test-results/
