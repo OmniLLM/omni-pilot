@@ -607,6 +607,16 @@
   opacity: 0.85;
 }
 
+/* Hide the textarea scrollbar entirely (still scrollable via keyboard/wheel) */
+.omnipilot-panel-input {
+  scrollbar-width: none;            /* Firefox */
+  -ms-overflow-style: none;         /* legacy Edge/IE */
+}
+
+.omnipilot-panel-input::-webkit-scrollbar {
+  display: none;                    /* Chrome/Edge/Safari */
+}
+
 /* Circular FAB send button */
 .omnipilot-send-btn {
   background: var(--op-accent);
