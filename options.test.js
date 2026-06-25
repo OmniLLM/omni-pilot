@@ -768,6 +768,25 @@ async function testOptionsHtmlContainsA2aControls() {
   }
 }
 
+async function testAddingA2aServerRequiresNameAndEndpoint() {
+  const { context, elements, syncWrites, localWrites } = createTestContext();
+
+  elements.a2aServerName.value = '';
+  await context.addA2aServerFromForm();
+
+  assert.deepStrictEqual(syncWrites, []);
+  assert.deepStrictEqual(localWrites, []);
+  assert.strictEqual(elements.a2aStatus.className, 'status error');
+
+  elements.a2aServerName.value = 'Demo Server';
+  elements.a2aServerEndpoint.value = '';
+  await context.addA2aServerFromForm();
+
+  assert.deepStrictEqual(syncWrites, []);
+  assert.deepStrictEqual(localWrites, []);
+  assert.strictEqual(elements.a2aStatus.className, 'status error');
+}
+
 async function testAddingA2aServerStoresMetadataInSyncAndTokenInLocalOnly() {
   const { context, elements, syncWrites, localWrites } = createTestContext();
 
@@ -792,6 +811,52 @@ async function testRenderingStoredA2aServersShowsNameAndEndpointNotToken() {
   assert.match(elements.a2aServerList.innerHTML, /Stored Server/);
   assert.match(elements.a2aServerList.innerHTML, /https:\/\/stored\.example\.com/);
   assert.doesNotMatch(elements.a2aServerList.innerHTML, /super-secret/);
+}
+
+async function testA2aServerListButtonsInvokeDiscoverAndRemove() {
+  const { context, elements, sendMessageCalls, syncWrites, localWrites, domListeners } = createTestContext({
+    sendMessageImpl(message, callback) {
+      if (message.type === 'A2A_DISCOVER_SERVER') {
+        callback({ success: true, agentCard: { name: 'Discovered Agent' } });
+        return;
+      }
+      callback({ models: [] });
+    }
+  });
+
+  await domListeners.DOMContentLoaded();
+  context.a2aServers = [{ id: 'server-1', name: 'Stored Server', endpoint: 'https://stored.example.com' }];
+  context.a2aServerTokens = { 'server-1': 'super-secret' };
+  context.renderA2aServers(context.a2aServers);
+
+  const discoverButton = {
+    getAttribute(name) {
+      if (name === 'data-action') return 'discover';
+      if (name === 'data-server-id') return 'server-1';
+      return '';
+    }
+  };
+  elements.a2aServerList.listeners.click({ target: { closest: () => discoverButton } });
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.strictEqual(sendMessageCalls.at(-1).type, 'A2A_DISCOVER_SERVER');
+  assert.strictEqual(sendMessageCalls.at(-1).serverId, 'server-1');
+  assert.strictEqual(syncWrites.at(-1).a2aServers[0].agentCard.name, 'Discovered Agent');
+
+  const removeButton = {
+    getAttribute(name) {
+      if (name === 'data-action') return 'remove';
+      if (name === 'data-server-id') return 'server-1';
+      return '';
+    }
+  };
+  elements.a2aServerList.listeners.click({ target: { closest: () => removeButton } });
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.deepStrictEqual(syncWrites.at(-1).a2aServers, []);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(localWrites.at(-1).a2aServerTokens)), {});
 }
 
 async function testStartCopilotAuthRejectsUnsafeVerificationUri() {
@@ -826,11 +891,7 @@ async function testDiscoverUpdatesAgentCardMetadataAndSavesToSync() {
   const { context, syncWrites, sendMessageCalls } = createTestContext({
     sendMessageImpl(message, callback) {
       if (message.type === 'A2A_DISCOVER_SERVER') {
-        callback({
-          name: 'Discovered Server',
-          endpoint: 'https://discovered.example.com',
-          agentCard: { name: 'Discovered Agent', version: '1.0.0' }
-        });
+        callback({ success: true, agentCard: { name: 'Discovered Agent', version: '1.0.0' } });
         return;
       }
       callback({ models: [] });
@@ -850,6 +911,7 @@ async function testDiscoverUpdatesAgentCardMetadataAndSavesToSync() {
   });
 
   assert.strictEqual(sendMessageCalls.at(-1).type, 'A2A_DISCOVER_SERVER');
+  assert.strictEqual(sendMessageCalls.at(-1).serverId, 'server-1');
   assert.deepStrictEqual(JSON.parse(JSON.stringify(server.agentCard)), { name: 'Discovered Agent', version: '1.0.0' });
   assert.deepStrictEqual(JSON.parse(JSON.stringify(syncWrites.at(-1).a2aServers[0].agentCard)), { name: 'Discovered Agent', version: '1.0.0' });
 }
@@ -882,8 +944,10 @@ async function main() {
   await testGithubCopilotPollingUsesStoredInterval();
   await testGithubCopilotSlowDownBacksOffPollingInterval();
   await testGithubCopilotFailureShowsRetryButton();
+  await testAddingA2aServerRequiresNameAndEndpoint();
   await testAddingA2aServerStoresMetadataInSyncAndTokenInLocalOnly();
   await testRenderingStoredA2aServersShowsNameAndEndpointNotToken();
+  await testA2aServerListButtonsInvokeDiscoverAndRemove();
   await testStartCopilotAuthRejectsUnsafeVerificationUri();
   await testDiscoverUpdatesAgentCardMetadataAndSavesToSync();
 }

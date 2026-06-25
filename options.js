@@ -298,10 +298,22 @@ async function addA2aServerFromForm() {
   const endpointInput = document.getElementById('a2aServerEndpoint') || document.getElementById('a2aEndpoint');
   const tokenInput = document.getElementById('a2aServerToken') || document.getElementById('a2aToken');
   const status = document.getElementById('a2aStatus');
+  const name = String(nameInput?.value || '').trim();
+  const endpoint = normalizeA2aEndpoint(endpointInput?.value);
+
+  if (!name || !endpoint) {
+    if (status) {
+      status.textContent = `${label('errorPrefix')} ${name ? 'A2A endpoint is required.' : 'A2A server name is required.'}`;
+      status.className = 'status error';
+    }
+    return null;
+  }
+
   const server = {
     id: createA2aServerId(),
-    name: String(nameInput?.value || '').trim(),
-    endpoint: normalizeA2aEndpoint(endpointInput?.value)
+    name,
+    endpoint,
+    enabled: true
   };
   const token = String(tokenInput?.value || '').trim();
 
@@ -312,29 +324,40 @@ async function addA2aServerFromForm() {
   await saveA2aTokens();
   renderA2aServers();
 
-  if (status) status.textContent = label('saved');
+  if (status) {
+    status.textContent = label('saved');
+    status.className = 'status';
+  }
   if (nameInput) nameInput.value = '';
   if (endpointInput) endpointInput.value = '';
   if (tokenInput) tokenInput.value = '';
   return server;
 }
 
-async function discoverAndSaveA2aServer(server) {
-  const discovered = await new Promise((resolve, reject) => {
-    chrome.runtime.sendMessage({ type: 'A2A_DISCOVER_SERVER', endpoint: server.endpoint, token: a2aServerTokens[server.id] || '' }, response => {
+async function discoverAndSaveA2aServer(serverOrId) {
+  const serverId = typeof serverOrId === 'string' ? serverOrId : serverOrId?.id;
+  const server = a2aServers.find(existing => existing.id === serverId) || (typeof serverOrId === 'object' ? serverOrId : null);
+  if (!server?.id) return null;
+
+  const response = await new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage({ type: 'A2A_DISCOVER_SERVER', serverId: server.id }, result => {
       if (chrome.runtime.lastError) {
         reject(new Error(chrome.runtime.lastError.message));
+      } else if (result?.success === false) {
+        reject(new Error(result.error || 'A2A discovery failed.'));
       } else {
-        resolve(response || {});
+        resolve(result || {});
       }
     });
   });
+  const agentCard = response.agentCard || response;
 
   a2aServers = a2aServers.map(existing => existing.id === server.id ? {
     ...existing,
-    name: discovered.name || existing.name,
-    endpoint: normalizeA2aEndpoint(discovered.endpoint || existing.endpoint),
-    agentCard: discovered.agentCard || existing.agentCard
+    name: agentCard.name || existing.name,
+    endpoint: normalizeA2aEndpoint(agentCard.endpoint || agentCard.url || existing.endpoint),
+    agentCard,
+    lastDiscoveredAt: new Date().toISOString()
   } : existing);
   await saveA2aServers();
   renderA2aServers();
@@ -346,7 +369,6 @@ async function removeA2aServer(serverId) {
   const { [serverId]: _removedToken, ...remainingTokens } = a2aServerTokens;
   a2aServerTokens = remainingTokens;
   await saveA2aServers();
-  await getA2aTokenStorageArea().remove?.([A2A_TOKEN_STORAGE_KEY]);
   await saveA2aTokens();
   renderA2aServers();
 }
@@ -628,6 +650,22 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('editModelsBtn')?.addEventListener('click', showManualModelsEditor);
   document.getElementById('addA2aServerBtn')?.addEventListener('click', () => {
     addA2aServerFromForm();
+  });
+  document.getElementById('a2aServerList')?.addEventListener('click', event => {
+    const button = event.target?.closest?.('[data-action][data-server-id]');
+    if (!button) return;
+    const serverId = button.getAttribute('data-server-id');
+    if (button.getAttribute('data-action') === 'discover') {
+      discoverAndSaveA2aServer(serverId).catch(error => {
+        const status = document.getElementById('a2aStatus');
+        if (status) {
+          status.textContent = `${label('errorPrefix')} ${error.message}`;
+          status.className = 'status error';
+        }
+      });
+    } else if (button.getAttribute('data-action') === 'remove') {
+      removeA2aServer(serverId);
+    }
   });
   document.getElementById('languageSelect').addEventListener('change', () => {
     const languagePreference = OmniPilotI18n.normalizeLanguage(document.getElementById('languageSelect').value);

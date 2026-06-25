@@ -6,7 +6,6 @@
 
   const MESSAGES = {
     en: {
-      a2aDelegate: 'Delegate via A2A',
       a2aEndpoint: 'A2A Endpoint',
       a2aEndpointHint: 'Use the server base URL for discovery and task delegation.',
       a2aServerName: 'Server Name',
@@ -88,7 +87,6 @@
       unknownError: 'Unknown error'
     },
     zh: {
-      a2aDelegate: '通过 A2A 委派',
       a2aEndpoint: 'A2A 端点',
       a2aEndpointHint: '使用服务器基础 URL 进行发现和任务委派。',
       a2aServerName: '服务器名称',

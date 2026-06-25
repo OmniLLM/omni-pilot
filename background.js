@@ -8,8 +8,6 @@ const PROVIDER_TYPES = {
   A2A_PREFIX: 'a2a:'
 };
 
-const A2A_PROVIDER_PREFIX = 'a2a:';
-
 const AUTH_METHODS = {
   API_KEY: 'api-key',
   GITHUB_COPILOT: PROVIDER_TYPES.GITHUB_COPILOT
@@ -272,16 +270,6 @@ function normalizeProviderType(value, legacyAuthMethod) {
   if (PROVIDERS[value]) return value;
   if (legacyAuthMethod === AUTH_METHODS.GITHUB_COPILOT) return PROVIDER_TYPES.GITHUB_COPILOT;
   return PROVIDER_TYPES.CUSTOM;
-}
-
-function isA2aProviderType(providerType) {
-  return typeof providerType === 'string' && providerType.startsWith(A2A_PROVIDER_PREFIX);
-}
-
-function getA2aServerIdFromProviderType(providerType) {
-  return isA2aProviderType(providerType)
-    ? providerType.slice(A2A_PROVIDER_PREFIX.length)
-    : '';
 }
 
 function getLatestUserMessage(messages = []) {
