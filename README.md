@@ -32,13 +32,20 @@ Click the OmniPilot toolbar icon → **Settings**, or go to the extension option
 
 | Field | Default | Description |
 |-------|---------|-------------|
-| Authentication | `API Key` | Choose API key auth or GitHub Copilot device-code sign-in |
-| API Endpoint | `https://api.omnillm.com/v1` | OmniLLM/Anthropic-compatible API endpoint for API key mode |
-| API Key | — | Your API key for API key mode |
-| API Format | `OpenAI-compatible` | Request shape for API key mode: OpenAI chat completions, Anthropic Messages, or OpenAI Responses |
-| Model | `claude-sonnet-4-5` | Any model available to your selected provider |
+| Provider | `Custom Provider` | Select `GitHub Copilot`, `Custom Provider`, or `Azure Foundry` from Settings or the in-panel provider selector |
+| API Endpoint | `https://api.omnillm.com/v1` | Base URL for the selected endpoint-based provider; OmniPilot normalizes host-only URLs to include `/v1` |
+| API Key | — | API key for the active endpoint-based provider; hidden when `GitHub Copilot` is selected |
+| API Format | `OpenAI-compatible` | Request shape for the active endpoint-based provider: OpenAI chat completions, Anthropic Messages, or OpenAI Responses |
+| Model | `claude-sonnet-4-5` | Active model for the selected provider |
+| A2A Servers | — | Comma- or newline-separated manual model/server list used for A2A-capable providers that rely on local server definitions |
 
 OmniPilot works with [OmniLLM](https://github.com/OmniLLM) by default. It also supports OpenAI-compatible providers when configured with an OpenAI-style endpoint. In GitHub Copilot mode, OmniPilot signs in through GitHub's device-code flow, exchanges the GitHub OAuth token for a Copilot API token, lists models from `https://api.githubcopilot.com/models`, and sends requests directly to GitHub Copilot.
+
+### A2A Delegation
+
+A2A client support is configured through the same provider settings. Use **Provider** to switch between the built-in providers and any A2A-capable server-backed option exposed by the extension. A2A metadata is synchronized through extension settings, while any short-lived token material remains local to the current browser profile rather than being synced.
+
+When A2A servers are configured, they appear in the in-panel provider selector alongside the built-in providers. Select the desired A2A server, then use the normal chat or action flow to delegate through that A2A target. In practice, the flow is: open OmniPilot, choose the A2A server from the provider selector, and then run your prompt/action so OmniPilot delegates the request to that A2A server.
 
 ## Usage
 
