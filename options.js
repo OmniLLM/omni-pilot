@@ -597,8 +597,11 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     };
     a2aServers = Array.isArray(storedConfig.a2aServers) ? storedConfig.a2aServers : [];
-    a2aServerTokens = await getA2aTokens();
     renderA2aServers();
+    getA2aTokens().then(tokens => {
+      a2aServerTokens = tokens;
+      renderA2aServers();
+    });
     const activeProviderConfig = getProviderConfig(providerType);
     const apiShape = activeProviderConfig.apiShape || (activeProviderConfig.endpoint ? inferApiShape(activeProviderConfig.endpoint) : DEFAULT_CONFIG.apiShape);
     activeProviderConfig.apiShape = apiShape;
