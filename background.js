@@ -142,6 +142,18 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       .catch(err => sendResponse({ success: false, error: err.message || 'Unexpected extension error' }));
     return true;
   }
+  if (request.type === 'A2A_DISCOVER_SERVER') {
+    discoverA2aServer(request.serverId)
+      .then(agentCard => sendResponse({ success: true, agentCard }))
+      .catch(err => sendResponse({ success: false, error: err.message || 'Unexpected extension error' }));
+    return true;
+  }
+  if (request.type === 'A2A_REMOVE_SERVER') {
+    removeA2aServer(request.serverId)
+      .then(() => sendResponse({ success: true }))
+      .catch(err => sendResponse({ success: false, error: err.message || 'Unexpected extension error' }));
+    return true;
+  }
 });
 
 function getConfigStorageArea() {
@@ -311,6 +323,85 @@ function createAuthHeaders(apiShape, apiKey) {
   }
 
   return headers;
+}
+
+function createA2aHeaders(token) {
+  const headers = { Accept: 'application/json' };
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+  return headers;
+}
+
+function getA2aDiscoveryUrls(endpoint) {
+  const normalizedEndpoint = String(endpoint || '').trim().replace(/\/$/, '');
+  if (!normalizedEndpoint) return [];
+
+  let endpointUrl;
+  try {
+    endpointUrl = new URL(normalizedEndpoint);
+  } catch {
+    return [];
+  }
+
+  const originDiscoveryUrl = new URL('/.well-known/agent.json', endpointUrl.origin).toString();
+  const endpointDiscoveryUrl = new URL('.well-known/agent.json', `${normalizedEndpoint}/`).toString();
+
+  return endpointDiscoveryUrl === originDiscoveryUrl
+    ? [originDiscoveryUrl]
+    : [originDiscoveryUrl, endpointDiscoveryUrl];
+}
+
+async function discoverA2aServer(serverId) {
+  const server = await getA2aServerWithToken(serverId);
+  if (!server) {
+    throw new Error('A2A server not found.');
+  }
+
+  const discoveryUrls = getA2aDiscoveryUrls(server.endpoint);
+  if (!discoveryUrls.length) {
+    throw new Error('A2A server endpoint is invalid.');
+  }
+
+  const headers = createA2aHeaders(server.token);
+  for (const url of discoveryUrls) {
+    const response = await fetch(url, { headers });
+    if (!response.ok) continue;
+    return response.json();
+  }
+
+  throw new Error('Unable to discover A2A agent card.');
+}
+
+async function removeA2aServer(serverId) {
+  if (!serverId) return;
+
+  const [stored, tokens] = await Promise.all([
+    storageGet(['a2aServers', 'providerType', 'providerConfigs'], getConfigStorageArea()),
+    loadA2aServerTokens()
+  ]);
+  const providerType = createA2aProviderType(serverId);
+  const nextServers = Array.isArray(stored.a2aServers)
+    ? stored.a2aServers.filter(server => server && server.id !== serverId)
+    : [];
+  const nextProviderConfigs = { ...(stored.providerConfigs || {}) };
+  delete nextProviderConfigs[providerType];
+
+  const nextStoredValues = {
+    a2aServers: nextServers,
+    providerConfigs: nextProviderConfigs
+  };
+
+  if (stored.providerType === providerType) {
+    nextStoredValues.providerType = PROVIDER_TYPES.CUSTOM;
+    nextStoredValues.authMethod = AUTH_METHODS.API_KEY;
+  }
+
+  await storageSet(nextStoredValues, getConfigStorageArea());
+
+  const nextTokens = { ...tokens };
+  delete nextTokens[serverId];
+  await storageSet({ [A2A_TOKEN_STORAGE_KEY]: nextTokens }, getA2aTokenStorageArea());
 }
 
 function getOpenAIChatTokenLimitParams(config) {

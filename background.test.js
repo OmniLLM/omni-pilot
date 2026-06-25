@@ -215,6 +215,7 @@ async function createBackgroundContext({
   const local = makeArea(localStore);
 
   const context = {
+    URL,
     URLSearchParams,
     console: {
       info: () => {},
@@ -1066,6 +1067,147 @@ async function assertSetModelUpdatesActiveProviderConfig() {
   assert.strictEqual(stores.syncStore.providerConfigs['azure-foundry'].model, 'azure-alt');
 }
 
+async function assertA2aDiscoveryFetchesAgentCardWithBearerToken() {
+  const { context, requests } = await createBackgroundContext({
+    storage: {
+      a2aServers: [
+        { id: 'planner', name: 'Planner', endpoint: 'https://planner.example', enabled: true }
+      ],
+      a2aServerTokens: { planner: 'secret-token' }
+    },
+    fetchImpl: async (url, options) => {
+      if (url === 'https://planner.example/.well-known/agent.json') {
+        return {
+          ok: true,
+          json: async () => ({
+            name: 'Planner Agent',
+            description: 'Plans tasks',
+            url: 'https://planner.example/a2a'
+          })
+        };
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    }
+  });
+
+  const card = await context.discoverA2aServer('planner');
+
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(card)), {
+    name: 'Planner Agent',
+    description: 'Plans tasks',
+    url: 'https://planner.example/a2a'
+  });
+  assert.strictEqual(requests.length, 1);
+  assert.strictEqual(requests[0].url, 'https://planner.example/.well-known/agent.json');
+  assert.strictEqual(requests[0].options.headers.Authorization, 'Bearer secret-token');
+}
+
+async function assertA2aDiscoveryFallsBackToEndpointAgentCard() {
+  const { context, requests } = await createBackgroundContext({
+    storage: {
+      a2aServers: [
+        { id: 'planner', name: 'Planner', endpoint: 'https://planner.example/a2a', enabled: true }
+      ],
+      a2aServerTokens: { planner: 'secret-token' }
+    },
+    fetchImpl: async (url, options) => {
+      if (url === 'https://planner.example/.well-known/agent.json') {
+        return {
+          ok: false,
+          status: 404,
+          json: async () => ({})
+        };
+      }
+      if (url === 'https://planner.example/a2a/.well-known/agent.json') {
+        return {
+          ok: true,
+          json: async () => ({
+            name: 'Planner Fallback Agent',
+            description: 'Fallback card',
+            url: 'https://planner.example/a2a'
+          })
+        };
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    }
+  });
+
+  const card = await context.discoverA2aServer('planner');
+
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(card)), {
+    name: 'Planner Fallback Agent',
+    description: 'Fallback card',
+    url: 'https://planner.example/a2a'
+  });
+  assert.deepStrictEqual(requests.map(request => request.url), [
+    'https://planner.example/.well-known/agent.json',
+    'https://planner.example/a2a/.well-known/agent.json'
+  ]);
+  assert.strictEqual(requests[0].options.headers.Authorization, 'Bearer secret-token');
+  assert.strictEqual(requests[1].options.headers.Authorization, 'Bearer secret-token');
+}
+
+async function assertRemoveA2aServerRemovesLocalTokenOnlyForThatServer() {
+  const { context, stores } = await createBackgroundContext({
+    storage: {
+      providerType: 'custom-provider',
+      endpoint: 'https://custom.example/v1',
+      apiKey: 'custom-key',
+      model: 'custom-model',
+      models: 'custom-model, custom-alt',
+      apiShape: 'openai-compatible',
+      a2aServers: [
+        { id: 'planner', name: 'Planner', endpoint: 'https://planner.example/a2a', enabled: true },
+        { id: 'writer', name: 'Writer', endpoint: 'https://writer.example/a2a', enabled: true }
+      ],
+      a2aServerTokens: {
+        planner: 'secret-token',
+        writer: 'writer-token'
+      },
+      providerConfigs: {
+        'a2a:planner': {
+          endpoint: 'https://planner.example/a2a',
+          apiKey: '',
+          model: 'planner-model',
+          models: 'planner-model',
+          apiShape: 'openai-compatible'
+        },
+        'a2a:writer': {
+          endpoint: 'https://writer.example/a2a',
+          apiKey: '',
+          model: 'writer-model',
+          models: 'writer-model',
+          apiShape: 'openai-compatible'
+        },
+        'custom-provider': {
+          endpoint: 'https://custom.example/v1',
+          apiKey: 'custom-key',
+          model: 'custom-model',
+          models: 'custom-model, custom-alt',
+          apiShape: 'openai-compatible'
+        }
+      }
+    }
+  });
+
+  await context.removeA2aServer('planner');
+
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(stores.syncStore.a2aServers)), [
+    { id: 'writer', name: 'Writer', endpoint: 'https://writer.example/a2a', enabled: true }
+  ]);
+  assert.strictEqual(stores.localStore.a2aServerTokens.planner, undefined);
+  assert.strictEqual(stores.localStore.a2aServerTokens.writer, 'writer-token');
+  assert.strictEqual(stores.syncStore.a2aServerTokens, undefined);
+  assert.strictEqual(stores.syncStore.providerConfigs['a2a:planner'], undefined);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(stores.syncStore.providerConfigs['a2a:writer'])), {
+    endpoint: 'https://writer.example/a2a',
+    apiKey: '',
+    model: 'writer-model',
+    models: 'writer-model',
+    apiShape: 'openai-compatible'
+  });
+}
+
 async function main() {
   await assertA2aServerMetadataAndTokensUseSeparateStorageAreas();
   await assertA2aProviderIdsRoundTripServerIds();
@@ -1088,6 +1230,9 @@ async function main() {
   await assertSetProviderPreservesOutgoingTopLevelConfig();
   await assertSetProviderWritesCopilotCompatibilityAuthMethod();
   await assertSetModelUpdatesActiveProviderConfig();
+  await assertA2aDiscoveryFetchesAgentCardWithBearerToken();
+  await assertA2aDiscoveryFallsBackToEndpointAgentCard();
+  await assertRemoveA2aServerRemovesLocalTokenOnlyForThatServer();
   await assertProviderTypeCopilotModelListingUsesCachedToken();
   await assertCopilotModelListingUsesCachedToken();
   await assertCopilotModelListingRefreshesExpiredToken();
