@@ -176,6 +176,9 @@ async function createBackgroundContext({
   const runtimeListeners = [];
   const syncStore = { ...storage };
   const localStore = { ...storage };
+  if (Object.prototype.hasOwnProperty.call(storage, 'a2aServerTokens')) {
+    delete syncStore.a2aServerTokens;
+  }
 
   const makeArea = store => ({
     get(keys, cb) {
@@ -237,6 +240,34 @@ async function createBackgroundContext({
     runtimeListeners,
     stores: { syncStore, localStore, activeStore: storageArea === 'local' ? localStore : syncStore }
   };
+}
+
+async function assertA2aServerMetadataAndTokensUseSeparateStorageAreas() {
+  const { context, stores } = await createBackgroundContext({
+    storage: {
+      a2aServers: [
+        { id: 'a2a-1', name: 'Planner', endpoint: 'https://planner.example/a2a', enabled: true }
+      ],
+      a2aServerTokens: { 'a2a-1': 'secret-token' }
+    }
+  });
+
+  const servers = await context.loadA2aServersWithTokens();
+
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(servers)), [
+    { id: 'a2a-1', name: 'Planner', endpoint: 'https://planner.example/a2a', enabled: true, token: 'secret-token' }
+  ]);
+  assert.strictEqual(stores.syncStore.a2aServerTokens, undefined);
+  assert.strictEqual(stores.localStore.a2aServerTokens['a2a-1'], 'secret-token');
+}
+
+async function assertA2aProviderIdsRoundTripServerIds() {
+  const { context } = await createBackgroundContext();
+
+  assert.strictEqual(context.createA2aProviderType('a2a-1'), 'a2a:a2a-1');
+  assert.strictEqual(context.isA2aProviderType('a2a:a2a-1'), true);
+  assert.strictEqual(context.isA2aProviderType('custom-provider'), false);
+  assert.strictEqual(context.getA2aServerIdFromProviderType('a2a:a2a-1'), 'a2a-1');
 }
 
 async function assertCopilotModelListingUsesCachedToken() {
@@ -1036,6 +1067,8 @@ async function assertSetModelUpdatesActiveProviderConfig() {
 }
 
 async function main() {
+  await assertA2aServerMetadataAndTokensUseSeparateStorageAreas();
+  await assertA2aProviderIdsRoundTripServerIds();
   await assertOpenAICompatibleDefault();
   await assertFreshInstallDefaultShape();
   await assertLegacyOmniEndpointMigratesToAnthropic();

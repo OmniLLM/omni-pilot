@@ -4,7 +4,8 @@
 const PROVIDER_TYPES = {
   CUSTOM: 'custom-provider',
   GITHUB_COPILOT: 'github-copilot',
-  AZURE_FOUNDRY: 'azure-foundry'
+  AZURE_FOUNDRY: 'azure-foundry',
+  A2A_PREFIX: 'a2a:'
 };
 
 const AUTH_METHODS = {
@@ -65,7 +66,8 @@ const DEFAULT_CONFIG = {
   authMethod: AUTH_METHODS.API_KEY
 };
 
-const STORAGE_KEYS = ['endpoint', 'apiKey', 'model', 'models', 'apiShape', 'providerType', 'authMethod', 'providerConfigs'];
+const STORAGE_KEYS = ['endpoint', 'apiKey', 'model', 'models', 'apiShape', 'providerType', 'authMethod', 'providerConfigs', 'a2aServers'];
+const A2A_TOKEN_STORAGE_KEY = 'a2aServerTokens';
 const PROVIDER_CONFIG_FIELDS = ['endpoint', 'apiKey', 'model', 'models', 'apiShape'];
 
 const API_SHAPES = {
@@ -162,6 +164,67 @@ function storageRemove(keys, area = getConfigStorageArea()) {
   return new Promise(resolve => area.remove(keys, resolve));
 }
 
+function getA2aTokenStorageArea() {
+  return chrome.storage.local || chrome.storage.sync;
+}
+
+function createA2aProviderType(serverId) {
+  return `${PROVIDER_TYPES.A2A_PREFIX}${serverId || ''}`;
+}
+
+function isA2aProviderType(providerType) {
+  return typeof providerType === 'string' && providerType.startsWith(PROVIDER_TYPES.A2A_PREFIX);
+}
+
+function getA2aServerIdFromProviderType(providerType) {
+  return isA2aProviderType(providerType) ? providerType.slice(PROVIDER_TYPES.A2A_PREFIX.length) : '';
+}
+
+function normalizeA2aServer(server) {
+  if (!server || typeof server !== 'object') return null;
+  const id = String(server.id || '').trim();
+  const name = String(server.name || '').trim();
+  const endpoint = String(server.endpoint || '').trim();
+  if (!id || !name || !endpoint) return null;
+  return {
+    id,
+    name,
+    endpoint,
+    enabled: server.enabled !== false
+  };
+}
+
+async function loadA2aServers() {
+  const stored = await storageGet(['a2aServers'], getConfigStorageArea());
+  return Array.isArray(stored.a2aServers)
+    ? stored.a2aServers.map(normalizeA2aServer).filter(Boolean)
+    : [];
+}
+
+async function loadA2aServerTokens() {
+  const stored = await storageGet([A2A_TOKEN_STORAGE_KEY], getA2aTokenStorageArea());
+  return stored[A2A_TOKEN_STORAGE_KEY] && typeof stored[A2A_TOKEN_STORAGE_KEY] === 'object'
+    ? stored[A2A_TOKEN_STORAGE_KEY]
+    : {};
+}
+
+async function loadA2aServersWithTokens() {
+  const [servers, tokens] = await Promise.all([
+    loadA2aServers(),
+    loadA2aServerTokens()
+  ]);
+  return servers.map(server => ({
+    ...server,
+    token: tokens[server.id] || ''
+  }));
+}
+
+async function getA2aServerWithToken(serverId) {
+  if (!serverId) return null;
+  const servers = await loadA2aServersWithTokens();
+  return servers.find(server => server.id === serverId) || null;
+}
+
 async function loadConfig() {
   const stored = await storageGet(STORAGE_KEYS, getConfigStorageArea());
   const providerType = normalizeProviderType(stored.providerType, stored.authMethod);
@@ -183,13 +246,22 @@ async function loadConfig() {
 }
 
 function normalizeProviderType(value, legacyAuthMethod) {
+  if (isA2aProviderType(value)) return value;
   if (PROVIDERS[value]) return value;
   if (legacyAuthMethod === AUTH_METHODS.GITHUB_COPILOT) return PROVIDER_TYPES.GITHUB_COPILOT;
   return PROVIDER_TYPES.CUSTOM;
 }
 
 function getProvider(config) {
-  return PROVIDERS[normalizeProviderType(config.providerType, config.authMethod)] || PROVIDERS[PROVIDER_TYPES.CUSTOM];
+  const providerType = normalizeProviderType(config.providerType, config.authMethod);
+  if (isA2aProviderType(providerType)) {
+    return {
+      usesA2a: true,
+      requiresApiKey: false,
+      supportsModelsEndpoint: false
+    };
+  }
+  return PROVIDERS[providerType] || PROVIDERS[PROVIDER_TYPES.CUSTOM];
 }
 
 async function activateStoredProvider(value) {
