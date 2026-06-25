@@ -22,6 +22,7 @@
   let currentAuthMethod = 'api-key';
   let currentApiKey = '';
   let currentEndpoint = '';
+  let lastAppendedSelectionContext = '';
   const PROVIDER_LABELS = {
     'custom-provider': 'Custom',
     'github-copilot': 'GitHub Copilot',
@@ -291,6 +292,7 @@
       closeBtn.addEventListener('click', () => {
         panel.style.display = 'none';
         conversationHistory = [];
+        lastAppendedSelectionContext = '';
         panelPositionFixed = false;
       });
       header.appendChild(closeBtn);
@@ -480,6 +482,29 @@
     );
   }
 
+  function buildSelectionContextMessage(selectedText) {
+    return `Additional selected context:\n${selectedText}`;
+  }
+
+  function renderSelectionContext(selectedText) {
+    const truncated = selectedText.length > 200 ? selectedText.slice(0, 200) + '…' : selectedText;
+    return `<div class="omnipilot-selected-context"><span class="omnipilot-context-label">${label('selectedText')}</span> ${escapeHtml(truncated)}</div>`;
+  }
+
+  function appendSelectionToConversation(selectedText) {
+    const text = selectedText.trim();
+    if (!text || text === lastAppendedSelectionContext || !panel || panel.style.display === 'none') return;
+
+    lastAppendedSelectionContext = text;
+    conversationHistory.push({ role: 'user', content: buildSelectionContextMessage(text), kind: 'selection-context' });
+
+    const body = panel.querySelector('.omnipilot-panel-body');
+    if (body) {
+      body.innerHTML += renderSelectionContext(text);
+      body.scrollTop = body.scrollHeight;
+    }
+  }
+
   function showPanelForConversation(selectedText) {
     // Show panel immediately with selected text displayed and input ready
     if (!panel) {
@@ -489,8 +514,7 @@
     }
     const body = panel.querySelector('.omnipilot-panel-body');
     // Show the selected text as context
-    const truncated = selectedText.length > 200 ? selectedText.slice(0, 200) + '…' : selectedText;
-    body.innerHTML = `<div class="omnipilot-selected-context"><span class="omnipilot-context-label">${label('selectedText')}</span> ${escapeHtml(truncated)}</div>`;
+    body.innerHTML = renderSelectionContext(selectedText);
 
     // Only position when opening fresh (not dragged)
     if (!panel.dataset.dragged) {
@@ -763,7 +787,8 @@
     currentAction = actionId;
 
     // Initialize conversation with the selected text context
-    conversationHistory = [{ role: 'user', content: text }];
+    conversationHistory = [{ role: 'user', content: buildSelectionContextMessage(text), kind: 'selection-context' }];
+    lastAppendedSelectionContext = text;
 
     // Show panel immediately with loading state
     showPanelForConversation(text);
@@ -831,6 +856,8 @@
         // Only show bubble if panel is not visible
         if (!panel || panel.style.display === 'none') {
           showBubble(rect);
+        } else if (!isOmniPilotElement(e.target)) {
+          appendSelectionToConversation(text);
         }
       } else {
         // Check if click was on our UI elements
@@ -848,7 +875,7 @@
     if (e.key === 'Escape') {
       hideBubble();
       hideDropdown();
-      if (panel) { panel.style.display = 'none'; panelPositionFixed = false; }
+      if (panel) { panel.style.display = 'none'; panelPositionFixed = false; lastAppendedSelectionContext = ''; }
     }
   });
 

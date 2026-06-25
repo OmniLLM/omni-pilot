@@ -95,7 +95,12 @@ async function createContentContext(storedConfig = {}) {
     listeners: {},
     documentElement: { setAttribute() {}, removeAttribute() {} },
     createElement(tagName) { return createElement(documentRef, tagName); },
-    addEventListener(event, handler) { this.listeners[event] = handler; },
+    addEventListener(event, handler) {
+      const previous = this.listeners[event];
+      this.listeners[event] = previous
+        ? payload => { previous(payload); handler(payload); }
+        : handler;
+    },
     getElementById(id) { return this.elementsById[id] || null; },
     querySelectorAll() { return []; }
   };
@@ -105,6 +110,7 @@ async function createContentContext(storedConfig = {}) {
   const storageListeners = [];
   const sendMessageCalls = [];
   const syncWrites = [];
+  let selectionText = 'selected text';
   const context = {
     globalThis: {},
     document: documentRef,
@@ -113,8 +119,8 @@ async function createContentContext(storedConfig = {}) {
       innerHeight: 768,
       getSelection() {
         return {
-          rangeCount: 1,
-          toString: () => 'selected text',
+          rangeCount: selectionText ? 1 : 0,
+          toString: () => selectionText,
           getRangeAt: () => ({
             getBoundingClientRect: () => ({ left: 20, top: 30, right: 120, bottom: 50, width: 100, height: 20 })
           })
@@ -157,7 +163,24 @@ async function createContentContext(storedConfig = {}) {
   vm.runInContext(i18nSource, context);
   vm.runInContext(contentSource, context);
 
-  return { documentRef, storageListeners, context, sendMessageCalls, syncWrites };
+  return {
+    documentRef,
+    storageListeners,
+    context,
+    sendMessageCalls,
+    syncWrites,
+    setSelectionText(text) { selectionText = text; }
+  };
+}
+
+function countOccurrences(value, substring) {
+  return (String(value).match(new RegExp(substring, 'g')) || []).length;
+}
+
+async function selectText(documentRef, setSelectionText, text, target = documentRef.body) {
+  setSelectionText(text);
+  documentRef.listeners.mouseup({ clientX: 20, clientY: 30, target });
+  await new Promise(resolve => setTimeout(resolve, 20));
 }
 
 async function openDropdown(storedConfig) {
@@ -226,6 +249,59 @@ async function main() {
   gpt4oItem.listeners.click({ stopPropagation() {} });
 
   assert.deepStrictEqual(JSON.parse(JSON.stringify(sendMessageCalls.at(-1))), { type: 'SET_MODEL', model: 'gpt-4o' });
+
+  await testOpenPanelAppendsNewSelectionContext();
+  await testOpenPanelIgnoresDuplicateAndPanelSelections();
+}
+
+async function testOpenPanelAppendsNewSelectionContext() {
+  const { documentRef, sendMessageCalls, setSelectionText } = await createContentContext({ apiKey: 'test-key', languagePreference: 'en' });
+
+  await selectText(documentRef, setSelectionText, 'first selected text');
+  documentRef.getElementById('omnipilot-bubble').listeners.click({ preventDefault() {}, stopPropagation() {} });
+  documentRef.getElementById('omnipilot-dropdown').children[0].listeners.click({ preventDefault() {}, stopPropagation() {} });
+
+  const panel = documentRef.getElementById('omnipilot-panel');
+  const body = panel.querySelector('.omnipilot-panel-body');
+  assert.strictEqual(panel.style.display, 'flex');
+  assert.strictEqual(countOccurrences(body.innerHTML, 'omnipilot-selected-context'), 1);
+
+  await selectText(documentRef, setSelectionText, 'second selected context');
+
+  assert.strictEqual(panel.style.display, 'flex');
+  assert.notStrictEqual(documentRef.getElementById('omnipilot-bubble')?.style.display, 'block');
+  assert.strictEqual(countOccurrences(body.innerHTML, 'omnipilot-selected-context'), 2);
+  assert.ok(body.innerHTML.includes('second selected context'));
+
+  const input = panel.querySelector('.omnipilot-panel-input');
+  input.value = 'Use all context';
+  input.listeners.keydown({ key: 'Enter', shiftKey: false, preventDefault() {}, stopPropagation() {} });
+
+  const chatMessage = sendMessageCalls.findLast(message => message.type === 'AI_CHAT');
+  assert.ok(chatMessage, 'follow-up should send AI_CHAT');
+  const messages = JSON.parse(JSON.stringify(chatMessage.messages));
+  assert.ok(messages.some(message => message.content.includes('first selected text')));
+  assert.ok(messages.some(message => message.content.includes('second selected context')));
+  assert.ok(messages.some(message => message.content === 'Use all context'));
+}
+
+async function testOpenPanelIgnoresDuplicateAndPanelSelections() {
+  const { documentRef, setSelectionText } = await createContentContext({ apiKey: 'test-key', languagePreference: 'en' });
+
+  await selectText(documentRef, setSelectionText, 'first selected text');
+  documentRef.getElementById('omnipilot-bubble').listeners.click({ preventDefault() {}, stopPropagation() {} });
+  documentRef.getElementById('omnipilot-dropdown').children[0].listeners.click({ preventDefault() {}, stopPropagation() {} });
+
+  const panel = documentRef.getElementById('omnipilot-panel');
+  const body = panel.querySelector('.omnipilot-panel-body');
+
+  await selectText(documentRef, setSelectionText, 'new context');
+  await selectText(documentRef, setSelectionText, 'new context');
+  assert.strictEqual(countOccurrences(body.innerHTML, 'omnipilot-selected-context'), 2);
+
+  await selectText(documentRef, setSelectionText, 'panel text should not be context', panel);
+  assert.strictEqual(countOccurrences(body.innerHTML, 'omnipilot-selected-context'), 2);
+  assert.ok(!body.innerHTML.includes('panel text should not be context'));
 }
 
 main().catch(err => {
