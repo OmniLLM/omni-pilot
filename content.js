@@ -147,7 +147,13 @@
       actionEl.textContent = action ? label(action.labelKey) : label('chat');
     }
     if (titleEl && currentAction) {
-      const actionLabels = { translate: label('translating'), summarize: label('summarizing'), explain: label('explaining'), improve: label('improving') };
+      const actionLabels = {
+        translate: label('translating'),
+        summarize: label('summarizing'),
+        explain: label('explaining'),
+        improve: label('improving'),
+        'delegate-a2a': label('delegating')
+      };
       titleEl.textContent = `✦ ${actionLabels[currentAction] || 'OmniPilot'}`;
     } else if (titleEl) {
       titleEl.textContent = '✦ OmniPilot';
@@ -160,6 +166,22 @@
     { id: 'explain', labelKey: 'explain', icon: '💡' },
     { id: 'improve', labelKey: 'improve', icon: '✨' }
   ];
+
+  function hasEnabledA2aServers() {
+    return a2aServers.some(server => server && server.enabled !== false);
+  }
+
+  function getDropdownActions() {
+    const actions = [...ACTIONS];
+    if (hasEnabledA2aServers()) {
+      actions.push({ id: 'delegate-a2a', labelKey: 'a2aDelegate', icon: '🤝' });
+    }
+    return actions;
+  }
+
+  function getDropdownActionIds() {
+    return getDropdownActions().map(action => action.id);
+  }
 
   // ── Bubble ──────────────────────────────────────────────────────────────────
 
@@ -221,7 +243,7 @@
       });
       el.appendChild(item);
     } else {
-      ACTIONS.forEach(action => {
+      getDropdownActions().forEach(action => {
         const item = document.createElement('div');
         item.className = 'omnipilot-dropdown-item';
         item.innerHTML = `<span class="omnipilot-action-icon">${action.icon}</span>${label(action.labelKey)}`;
@@ -229,7 +251,11 @@
         item.addEventListener('click', e => {
           e.preventDefault();
           e.stopPropagation();
-          runAction(action.id);
+          if (action.id === 'delegate-a2a') {
+            showA2aDelegationPanel();
+          } else {
+            runAction(action.id);
+          }
         });
         el.appendChild(item);
       });
@@ -550,6 +576,108 @@
     // Focus the input
     const input = panel.querySelector('.omnipilot-panel-input');
     if (input) setTimeout(() => input.focus(), 50);
+  }
+
+  function renderA2aDelegationForm() {
+    const options = a2aServers
+      .filter(server => server && server.enabled !== false)
+      .map(server => `<option value="${escapeHtml(server.id || '')}">${escapeHtml(server.name || server.id || '')}</option>`)
+      .join('');
+
+    return `<div class="omnipilot-a2a-form">
+      ${lastSelection ? renderSelectionContext(lastSelection) : ''}
+      <select class="omnipilot-a2a-select">${options}</select>
+      <textarea class="omnipilot-a2a-textarea" placeholder="${escapeHtml(label('a2aTaskPlaceholder'))}"></textarea>
+      <button class="omnipilot-a2a-submit">${escapeHtml(label('delegate'))}</button>
+    </div>`;
+  }
+
+  function showA2aDelegationPanel() {
+    hideDropdown();
+    hideBubble();
+
+    currentAction = 'delegate-a2a';
+    conversationHistory = [];
+    lastAppendedSelectionContext = '';
+
+    if (!panel) {
+      showPanel('', false, false);
+    } else {
+      panel.style.display = 'flex';
+    }
+
+    const body = panel.querySelector('.omnipilot-panel-body');
+    body.innerHTML = renderA2aDelegationForm();
+    updatePanelMeta();
+
+    const select = body.querySelector('.omnipilot-a2a-select');
+    const textarea = body.querySelector('.omnipilot-a2a-textarea');
+    const submit = body.querySelector('.omnipilot-a2a-submit');
+
+    submit?.addEventListener('click', () => sendA2aDelegation(select?.value || '', textarea?.value || ''));
+    textarea?.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        sendA2aDelegation(select?.value || '', textarea.value || '');
+      }
+      if (e.key === 'Escape') e.stopPropagation();
+    });
+
+    positionPanel();
+    panelPositionFixed = true;
+    setTimeout(() => textarea?.focus(), 50);
+  }
+
+  function sendA2aDelegation(serverId, task) {
+    const trimmedTask = task.trim();
+    const body = panel?.querySelector('.omnipilot-panel-body');
+    if (!body) return;
+
+    if (!trimmedTask) {
+      body.innerHTML = `${renderA2aDelegationForm()}<div class="omnipilot-error">${label('somethingWrong')}</div>`;
+      const select = body.querySelector('.omnipilot-a2a-select');
+      const textarea = body.querySelector('.omnipilot-a2a-textarea');
+      const submit = body.querySelector('.omnipilot-a2a-submit');
+      if (select && serverId) select.value = serverId;
+      if (textarea) textarea.value = task;
+      submit?.addEventListener('click', () => sendA2aDelegation(select?.value || '', textarea?.value || ''));
+      textarea?.addEventListener('keydown', e => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          e.stopPropagation();
+          sendA2aDelegation(select?.value || '', textarea.value || '');
+        }
+        if (e.key === 'Escape') e.stopPropagation();
+      });
+      setTimeout(() => textarea?.focus(), 50);
+      return;
+    }
+
+    body.innerHTML = `<div class="omnipilot-loading"><div class="omnipilot-spinner"></div><span class="omnipilot-loading-text">${label('delegating')}</span></div>`;
+
+    const runtime = globalThis.chrome?.runtime;
+    if (!runtime?.sendMessage) {
+      body.innerHTML = `<div class="omnipilot-error">${label('extensionContextUnavailable')}</div>`;
+      return;
+    }
+
+    runtime.sendMessage(
+      { type: 'A2A_DELEGATE_TASK', serverId, task: trimmedTask, contextText: lastSelection || '' },
+      response => {
+        if (runtime.lastError) {
+          body.innerHTML = `<div class="omnipilot-error">${humanizeError(runtime.lastError.message)}</div>`;
+          return;
+        }
+        if (!response || !response.success) {
+          body.innerHTML = `<div class="omnipilot-error">${humanizeError(response?.error)}</div>`;
+          return;
+        }
+        conversationHistory.push({ role: 'user', content: trimmedTask, kind: 'a2a-delegation' });
+        conversationHistory.push({ role: 'assistant', content: response.result, kind: 'a2a-result' });
+        body.innerHTML = `${lastSelection ? renderSelectionContext(lastSelection) : ''}<div class="omnipilot-msg omnipilot-msg-user">${escapeHtml(trimmedTask)}</div><div class="omnipilot-msg omnipilot-msg-assistant">${formatResult(response.result)}</div>`;
+      }
+    );
   }
 
   function showModelSelector(anchorEl) {
@@ -922,5 +1050,8 @@
 
   globalThis.getProviderLabel = getProviderLabel;
   globalThis.getProviderEntries = getProviderEntries;
+  globalThis.__omnipilotTestApi = {
+    getDropdownActionIds
+  };
 
 })();

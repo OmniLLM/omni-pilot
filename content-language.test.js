@@ -134,6 +134,7 @@ async function createContentContext(storedConfig = {}) {
           sendMessageCalls.push(message);
           if (message.type === 'GET_MODELS') callback({ models: ['claude-sonnet-4-5', 'gpt-4o'] });
           else if (message.type === 'AI_ACTION' || message.type === 'AI_CHAT') callback({ success: true, result: 'ok' });
+          else if (message.type === 'A2A_DELEGATE_TASK') callback({ success: true, result: 'delegated' });
           else callback({ success: true });
         }
       },
@@ -217,12 +218,35 @@ async function main() {
   assert.ok(dropdown.children.some(child => child.textContent.includes('翻译')));
   assert.ok(dropdown.children.some(child => child.textContent.includes('总结')));
 
+  const { context: delegateContext } = await createContentContext({
+    apiKey: 'test-key',
+    a2aServers: [{ id: 'server-1', name: 'Server 1', enabled: true }]
+  });
+  const delegateDropdown = await openDropdown({
+    apiKey: 'test-key',
+    a2aServers: [{ id: 'server-1', name: 'Server 1', enabled: true }]
+  });
+  assert.ok(delegateDropdown.children.some(child => child.textContent.includes('委派到 A2A')));
+  assert.ok(Array.isArray(delegateContext.globalThis.__omnipilotTestApi.getDropdownActionIds()));
+  assert.ok(delegateContext.globalThis.__omnipilotTestApi.getDropdownActionIds().includes('delegate-a2a'));
+
+  const { context: noDelegateContext } = await createContentContext({
+    apiKey: 'test-key',
+    a2aServers: [{ id: 'server-1', name: 'Server 1', enabled: false }]
+  });
+  const noDelegateDropdown = await openDropdown({
+    apiKey: 'test-key',
+    a2aServers: [{ id: 'server-1', name: 'Server 1', enabled: false }]
+  });
+  assert.ok(!noDelegateDropdown.children.some(child => child.textContent.includes('委派到 A2A')));
+  assert.ok(!noDelegateContext.globalThis.__omnipilotTestApi.getDropdownActionIds().includes('delegate-a2a'));
+
   const copilotDropdown = await openDropdown({ providerType: 'github-copilot', apiKey: '' });
   assert.ok(copilotDropdown.children.some(child => child.textContent.includes('翻译')));
   assert.ok(copilotDropdown.children.some(child => child.textContent.includes('总结')));
   assert.ok(!copilotDropdown.children.some(child => child.textContent.includes('设置 API 密钥')));
 
-  const { documentRef, storageListeners, sendMessageCalls } = await createContentContext({
+  const { documentRef, storageListeners, sendMessageCalls, context } = await createContentContext({
     providerType: 'azure-foundry',
     endpoint: 'https://example.services.ai.azure.com',
     apiKey: 'azure-key',

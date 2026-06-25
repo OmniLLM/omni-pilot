@@ -743,6 +743,57 @@
   box-shadow: none;
 }
 
+/* ── A2A Delegation Form ─────────────────────────────── */
+
+.omnipilot-a2a-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.omnipilot-a2a-select,
+.omnipilot-a2a-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--op-border);
+  border-radius: var(--op-radius-sm);
+  background: var(--op-bg);
+  color: var(--op-ink);
+  font-family: var(--op-font);
+  font-size: 13px;
+  padding: 10px 12px;
+  outline: none;
+}
+
+.omnipilot-a2a-select:focus,
+.omnipilot-a2a-textarea:focus {
+  border-color: var(--op-accent);
+  box-shadow: 0 0 0 2px var(--op-accent-ring);
+}
+
+.omnipilot-a2a-textarea {
+  min-height: 110px;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.omnipilot-a2a-submit {
+  align-self: flex-end;
+  border: none;
+  border-radius: var(--op-radius-pill);
+  background: var(--op-accent);
+  color: #fff;
+  font-family: var(--op-font);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 8px 16px;
+  cursor: pointer;
+}
+
+.omnipilot-a2a-submit:hover {
+  background: var(--op-accent-dark);
+}
+
 /* ═══════════════════════════════════════════════════════════
    DARK THEME
    Applied when data-op-theme="dark" on <html> or <body>
