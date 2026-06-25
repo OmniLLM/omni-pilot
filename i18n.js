@@ -6,6 +6,16 @@
 
   const MESSAGES = {
     en: {
+      a2aDelegate: 'Delegate via A2A',
+      a2aEndpoint: 'A2A Endpoint',
+      a2aEndpointHint: 'Use the server base URL for discovery and task delegation.',
+      a2aServerName: 'Server Name',
+      a2aServers: 'A2A Servers',
+      a2aToken: 'A2A Token',
+      a2aTokenHint: 'Stored locally only and never synced with server metadata.',
+      addA2aServer: 'Add Server',
+      discover: 'Discover',
+      remove: 'Remove',
       apiEndpoint: 'API Endpoint',
       apiFormat: 'API Format',
       apiKey: 'API Key',
@@ -76,6 +86,16 @@
       unknownError: 'Unknown error'
     },
     zh: {
+      a2aDelegate: '通过 A2A 委派',
+      a2aEndpoint: 'A2A 端点',
+      a2aEndpointHint: '使用服务器基础 URL 进行发现和任务委派。',
+      a2aServerName: '服务器名称',
+      a2aServers: 'A2A 服务器',
+      a2aToken: 'A2A 令牌',
+      a2aTokenHint: '仅存储在本地，绝不会与服务器元数据同步。',
+      addA2aServer: '添加服务器',
+      discover: '发现',
+      remove: '移除',
       apiEndpoint: 'API 端点',
       apiFormat: 'API 格式',
       apiKey: 'API 密钥',

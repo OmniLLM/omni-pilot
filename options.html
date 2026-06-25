@@ -167,6 +167,78 @@
     /* Hint */
     .hint { font-size: 11px; color: var(--ink3); margin-top: 5px; }
 
+    .compact-card {
+      padding: 16px;
+    }
+    .compact-stack {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .compact-stack .field {
+      margin-bottom: 0;
+    }
+    .inline-actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    .secondary-btn {
+      padding: 9px 11px;
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--ink);
+      font-size: 12px;
+      font-family: inherit;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s, color 0.15s;
+    }
+    .secondary-btn:hover {
+      background: var(--border);
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+    .a2a-status {
+      min-height: 16px;
+      font-size: 11px;
+      color: var(--ink2);
+    }
+    .a2a-server-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      min-height: 12px;
+    }
+    .a2a-server-item {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 12px;
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+    .a2a-server-meta {
+      min-width: 0;
+    }
+    .a2a-server-name {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--ink);
+    }
+    .a2a-server-endpoint {
+      margin-top: 3px;
+      font-size: 11px;
+      color: var(--ink2);
+      word-break: break-all;
+    }
+    .a2a-server-actions {
+      display: flex;
+      gap: 6px;
+      align-items: flex-start;
+    }
+
     .edit-models-btn {
       margin-top: 8px;
       padding: 7px 10px;
@@ -354,6 +426,31 @@
           <button class="refresh-btn" id="refreshBtn" data-i18n-title="fetchModels" title="Fetch models">↻</button>
         </div>
         <div class="model-status" id="modelStatus"></div>
+      </div>
+    </div>
+
+    <div class="card compact-card">
+      <div class="card-title" data-i18n="a2aServers">A2A Servers</div>
+      <div class="compact-stack">
+        <div class="field">
+          <label for="a2aServerName" data-i18n="a2aServerName">Server Name</label>
+          <input type="text" id="a2aServerName" data-i18n-placeholder="a2aServerName" placeholder="Server Name">
+        </div>
+        <div class="field">
+          <label for="a2aEndpoint" data-i18n="a2aEndpoint">A2A Endpoint</label>
+          <input type="text" id="a2aEndpoint" placeholder="https://a2a.example.com">
+          <div class="hint" data-i18n="a2aEndpointHint">Use the server base URL for discovery and task delegation.</div>
+        </div>
+        <div class="field">
+          <label for="a2aToken" data-i18n="a2aToken">A2A Token</label>
+          <input type="password" id="a2aToken" placeholder="token">
+          <div class="hint" data-i18n="a2aTokenHint">Stored locally only and never synced with server metadata.</div>
+        </div>
+        <div class="inline-actions">
+          <button type="button" class="secondary-btn" id="addA2aServerBtn" data-i18n="addA2aServer">Add Server</button>
+        </div>
+        <div class="a2a-status" id="a2aStatus"></div>
+        <div class="a2a-server-list" id="a2aServerList"></div>
       </div>
     </div>
 

@@ -37,6 +37,8 @@ function createTestContext({ fetchImpl, sendMessageImpl, storageGetImpl, localSt
   const domListeners = {};
   const timeoutCalls = [];
   const syncWrites = [];
+  const localWrites = [];
+  const localRemoves = [];
   const elements = {
     modelSelect: createElement(),
     model: createElement('deepseek-v4-flash'),
@@ -50,8 +52,8 @@ function createTestContext({ fetchImpl, sendMessageImpl, storageGetImpl, localSt
     saveBtn: createElement(),
     status: createElement(),
     languageSelect: createElement('en'),
-    providerType: createElement('api-key'),
-    authMethod: createElement('api-key'),
+    providerType: createElement('custom-provider'),
+    authMethod: createElement('custom-provider'),
     apiKeyField: createElement(),
     copilotSection: createElement(),
     endpointField: createElement(),
@@ -63,7 +65,13 @@ function createTestContext({ fetchImpl, sendMessageImpl, storageGetImpl, localSt
     copilotDeviceFlow: createElement(),
     copilotUserCode: createElement(),
     copilotVerifyLink: createElement(),
-    copilotPollStatus: createElement()
+    copilotPollStatus: createElement(),
+    a2aServerName: createElement('Demo Server'),
+    a2aEndpoint: createElement('https://a2a.example.com'),
+    a2aToken: createElement('secret-token'),
+    addA2aServerBtn: createElement(),
+    a2aStatus: createElement(),
+    a2aServerList: createElement()
   };
 
   const context = {
@@ -111,8 +119,8 @@ function createTestContext({ fetchImpl, sendMessageImpl, storageGetImpl, localSt
             if (localStorageGetImpl) return localStorageGetImpl(keys, callback, context);
             callback({});
           },
-          set() {},
-          remove() {}
+          set(value, callback) { localWrites.push(value); callback?.(); },
+          remove(value, callback) { localRemoves.push(value); callback?.(); }
         }
       },
       tabs: { create() {} }
@@ -133,7 +141,7 @@ function createTestContext({ fetchImpl, sendMessageImpl, storageGetImpl, localSt
   vm.runInContext(i18nSource, context);
   vm.runInContext(source, context);
 
-  return { context, elements, fetchUrls, sendMessageCalls, domListeners, timeoutCalls, syncWrites };
+  return { context, elements, fetchUrls, sendMessageCalls, domListeners, timeoutCalls, syncWrites, localWrites, localRemoves };
 }
 
 async function testStandardFetchUsesEndpointModels() {
@@ -232,6 +240,7 @@ async function testGithubCopilotSignInButtonStartsDeviceFlow() {
   });
 
   await domListeners.DOMContentLoaded();
+  await Promise.resolve();
   sendMessageCalls.length = 0;
 
   await elements.copilotAuthBtn.onclick();
@@ -253,6 +262,7 @@ async function testScheduleFetchRunsForGithubCopilotWithoutEndpoint() {
   elements.endpoint.value = '';
   elements.apiKey.value = '';
   elements.authMethod.value = 'github-copilot';
+  elements.providerType.value = 'github-copilot';
 
   context.scheduleFetch();
   await Promise.resolve();
@@ -699,6 +709,7 @@ async function testGithubCopilotSlowDownBacksOffPollingInterval() {
   await domListeners.DOMContentLoaded();
   await Promise.resolve();
   await Promise.resolve();
+  await Promise.resolve();
 
   assert.deepStrictEqual(intervalCalls.slice(0, 2), [5000, 10000]);
 }
@@ -737,6 +748,7 @@ async function testGithubCopilotFailureShowsRetryButton() {
   await domListeners.DOMContentLoaded();
   await Promise.resolve();
   await Promise.resolve();
+  await Promise.resolve();
 
   assert.strictEqual(elements.copilotAuthBtn.style.display, '');
   assert.strictEqual(elements.copilotAuthBtn.disabled, false);
@@ -745,6 +757,64 @@ async function testGithubCopilotFailureShowsRetryButton() {
 
 async function testOptionsHtmlDoesNotUseInlineScripts() {
   assert.ok(!/<script(?:\s[^>]*)?>\s*[^<\s]/i.test(htmlSource), 'options.html must not include inline script because extension CSP blocks it');
+}
+
+async function testAddingA2aServerStoresMetadataInSyncAndTokenInLocalOnly() {
+  const { context, elements, syncWrites, localWrites } = createTestContext();
+
+  await context.addA2aServerFromForm();
+
+  const savedServers = syncWrites.at(-1).a2aServers;
+  const savedTokens = localWrites.at(-1);
+  assert.strictEqual(savedServers.length, 1);
+  assert.strictEqual(savedServers[0].name, 'Demo Server');
+  assert.strictEqual(savedServers[0].endpoint, 'https://a2a.example.com');
+  assert.ok(!Object.prototype.hasOwnProperty.call(savedServers[0], 'token'));
+  assert.strictEqual(savedTokens.a2aServerTokens[savedServers[0].id], 'secret-token');
+}
+
+async function testRenderingStoredA2aServersShowsNameAndEndpointNotToken() {
+  const { context, elements } = createTestContext();
+
+  context.a2aServers = [{ id: 'server-1', name: 'Stored Server', endpoint: 'https://stored.example.com' }];
+  context.a2aServerTokens = { 'server-1': 'super-secret' };
+  context.renderA2aServers(context.a2aServers);
+
+  assert.match(elements.a2aServerList.innerHTML, /Stored Server/);
+  assert.match(elements.a2aServerList.innerHTML, /https:\/\/stored\.example\.com/);
+  assert.doesNotMatch(elements.a2aServerList.innerHTML, /super-secret/);
+}
+
+async function testDiscoverUpdatesAgentCardMetadataAndSavesToSync() {
+  const { context, syncWrites, sendMessageCalls } = createTestContext({
+    sendMessageImpl(message, callback) {
+      if (message.type === 'A2A_DISCOVER_SERVER') {
+        callback({
+          name: 'Discovered Server',
+          endpoint: 'https://discovered.example.com',
+          agentCard: { name: 'Discovered Agent', version: '1.0.0' }
+        });
+        return;
+      }
+      callback({ models: [] });
+    }
+  });
+
+  context.renderA2aServers([{
+    id: 'server-1',
+    name: 'Pending Server',
+    endpoint: 'https://discovered.example.com'
+  }]);
+
+  const server = await context.discoverAndSaveA2aServer({
+    id: 'server-1',
+    name: 'Pending Server',
+    endpoint: 'https://discovered.example.com'
+  });
+
+  assert.strictEqual(sendMessageCalls.at(-1).type, 'A2A_DISCOVER_SERVER');
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(server.agentCard)), { name: 'Discovered Agent', version: '1.0.0' });
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(syncWrites.at(-1).a2aServers[0].agentCard)), { name: 'Discovered Agent', version: '1.0.0' });
 }
 
 async function main() {
@@ -774,6 +844,9 @@ async function main() {
   await testGithubCopilotPollingUsesStoredInterval();
   await testGithubCopilotSlowDownBacksOffPollingInterval();
   await testGithubCopilotFailureShowsRetryButton();
+  await testAddingA2aServerStoresMetadataInSyncAndTokenInLocalOnly();
+  await testRenderingStoredA2aServersShowsNameAndEndpointNotToken();
+  await testDiscoverUpdatesAgentCardMetadataAndSavesToSync();
 }
 
 main().catch(err => {

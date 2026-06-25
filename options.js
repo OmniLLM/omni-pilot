@@ -40,13 +40,16 @@ const DEFAULT_CONFIG = {
   providerType: PROVIDER_TYPES.CUSTOM
 };
 
-const STORAGE_KEYS = ['endpoint', 'apiKey', 'model', 'models', 'themePreference', 'apiShape', 'languagePreference', 'providerType', 'authMethod', 'providerConfigs'];
+const STORAGE_KEYS = ['endpoint', 'apiKey', 'model', 'models', 'themePreference', 'apiShape', 'languagePreference', 'providerType', 'authMethod', 'providerConfigs', 'a2aServers'];
+const A2A_TOKEN_STORAGE_KEY = 'a2aServerTokens';
 const PROVIDER_CONFIG_FIELDS = ['endpoint', 'apiKey', 'model', 'models', 'apiShape'];
 
 let fetchModelTimer = null;
 let currentLanguage = DEFAULT_CONFIG.languagePreference;
 let providerConfigs = {};
 let activeProviderType = PROVIDER_TYPES.CUSTOM;
+let a2aServers = [];
+let a2aServerTokens = {};
 
 function label(key) {
   return OmniPilotI18n.t(key, currentLanguage);
@@ -226,6 +229,128 @@ function setElementDisplay(id, display) {
   if (element) element.style.display = display;
 }
 
+function createA2aServerId() {
+  return `a2a-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function normalizeA2aEndpoint(endpoint) {
+  return String(endpoint || '').trim().replace(/\/+$/, '');
+}
+
+function escapeHtml(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function getA2aTokenStorageArea() {
+  return chrome.storage.local || chrome.storage.sync;
+}
+
+function getA2aStoredState(keys) {
+  return new Promise(resolve => getA2aTokenStorageArea().get(keys, resolve));
+}
+
+function getA2aTokens() {
+  return new Promise(resolve => {
+    getA2aTokenStorageArea().get([A2A_TOKEN_STORAGE_KEY], stored => {
+      resolve(stored?.[A2A_TOKEN_STORAGE_KEY] || {});
+    });
+  });
+}
+
+function saveA2aServers() {
+  return new Promise(resolve => {
+    chrome.storage.sync.set({ a2aServers }, resolve);
+  });
+}
+
+function saveA2aTokens() {
+  return new Promise(resolve => {
+    getA2aTokenStorageArea().set({ [A2A_TOKEN_STORAGE_KEY]: a2aServerTokens }, resolve);
+  });
+}
+
+function renderA2aServers(serverList = a2aServers) {
+  const normalizedList = Array.isArray(serverList) ? serverList : [];
+  a2aServers = normalizedList;
+  const list = document.getElementById('a2aServerList');
+  if (!list) return;
+  list.innerHTML = normalizedList.map(server => `
+    <div class="a2a-server-item" data-server-id="${escapeHtml(server.id)}">
+      <div class="a2a-server-meta">
+        <div class="a2a-server-name">${escapeHtml(server.name)}</div>
+        <div class="a2a-server-endpoint">${escapeHtml(server.endpoint)}</div>
+      </div>
+      <div class="a2a-server-actions">
+        <button type="button" class="secondary-btn" data-action="discover" data-server-id="${escapeHtml(server.id)}">${escapeHtml(label('discover'))}</button>
+        <button type="button" class="secondary-btn" data-action="remove" data-server-id="${escapeHtml(server.id)}">${escapeHtml(label('remove'))}</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+async function addA2aServerFromForm() {
+  const nameInput = document.getElementById('a2aServerName');
+  const endpointInput = document.getElementById('a2aEndpoint');
+  const tokenInput = document.getElementById('a2aToken');
+  const status = document.getElementById('a2aStatus');
+  const server = {
+    id: createA2aServerId(),
+    name: String(nameInput?.value || '').trim(),
+    endpoint: normalizeA2aEndpoint(endpointInput?.value)
+  };
+  const token = String(tokenInput?.value || '').trim();
+
+  a2aServers = [...a2aServers, server];
+  if (token) a2aServerTokens = { ...a2aServerTokens, [server.id]: token };
+
+  await saveA2aServers();
+  await saveA2aTokens();
+  renderA2aServers();
+
+  if (status) status.textContent = label('saved');
+  if (nameInput) nameInput.value = '';
+  if (endpointInput) endpointInput.value = '';
+  if (tokenInput) tokenInput.value = '';
+  return server;
+}
+
+async function discoverAndSaveA2aServer(server) {
+  const discovered = await new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage({ type: 'A2A_DISCOVER_SERVER', endpoint: server.endpoint, token: a2aServerTokens[server.id] || '' }, response => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+      } else {
+        resolve(response || {});
+      }
+    });
+  });
+
+  a2aServers = a2aServers.map(existing => existing.id === server.id ? {
+    ...existing,
+    name: discovered.name || existing.name,
+    endpoint: normalizeA2aEndpoint(discovered.endpoint || existing.endpoint),
+    agentCard: discovered.agentCard || existing.agentCard
+  } : existing);
+  await saveA2aServers();
+  renderA2aServers();
+  return a2aServers.find(existing => existing.id === server.id);
+}
+
+async function removeA2aServer(serverId) {
+  a2aServers = a2aServers.filter(server => server.id !== serverId);
+  const { [serverId]: _removedToken, ...remainingTokens } = a2aServerTokens;
+  a2aServerTokens = remainingTokens;
+  await saveA2aServers();
+  await getA2aTokenStorageArea().remove?.([A2A_TOKEN_STORAGE_KEY]);
+  await saveA2aTokens();
+  renderA2aServers();
+}
+
 function showManualModelsEditor() {
   const modelSelect = document.getElementById('modelSelect');
   const modelInput = document.getElementById('model');
@@ -254,7 +379,9 @@ function updateProviderTypeUI(providerType) {
     setElementDisplay('editModelsBtn', 'none');
   }
 
-  if (provider.showCopilot && typeof updateCopilotStatus === 'function') updateCopilotStatus();
+  if (provider.showCopilot && typeof updateCopilotStatus === 'function') {
+    Promise.resolve(updateCopilotStatus()).catch(() => {});
+  }
 }
 
 function updateAuthMethodUI(authMethod) {
@@ -441,14 +568,20 @@ function scheduleFetch() {
 // ── Init ─────────────────────────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', () => {
-  chrome.storage.sync.get(STORAGE_KEYS, storedConfig => {
+  chrome.storage.sync.get(STORAGE_KEYS, async storedConfig => {
     const config = { ...DEFAULT_CONFIG, ...storedConfig };
     const providerType = normalizeProviderType(storedConfig.providerType, storedConfig.authMethod);
     activeProviderType = providerType;
     providerConfigs = {
-      [providerType]: Object.fromEntries(PROVIDER_CONFIG_FIELDS.map(field => [field, config[field]])),
-      ...(storedConfig.providerConfigs || {})
+      ...(storedConfig.providerConfigs || {}),
+      [providerType]: {
+        ...(storedConfig.providerConfigs?.[providerType] || {}),
+        ...Object.fromEntries(PROVIDER_CONFIG_FIELDS.map(field => [field, config[field]]))
+      }
     };
+    a2aServers = Array.isArray(storedConfig.a2aServers) ? storedConfig.a2aServers : [];
+    a2aServerTokens = await getA2aTokens();
+    renderA2aServers();
     const activeProviderConfig = getProviderConfig(providerType);
     const apiShape = activeProviderConfig.apiShape || (activeProviderConfig.endpoint ? inferApiShape(activeProviderConfig.endpoint) : DEFAULT_CONFIG.apiShape);
     activeProviderConfig.apiShape = apiShape;
@@ -473,6 +606,9 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('modelStatus').className = 'model-status warn';
   });
   document.getElementById('editModelsBtn')?.addEventListener('click', showManualModelsEditor);
+  document.getElementById('addA2aServerBtn')?.addEventListener('click', () => {
+    addA2aServerFromForm();
+  });
   document.getElementById('languageSelect').addEventListener('change', () => {
     const languagePreference = OmniPilotI18n.normalizeLanguage(document.getElementById('languageSelect').value);
     applyLanguage(languagePreference);
