@@ -1208,6 +1208,157 @@ async function assertRemoveA2aServerRemovesLocalTokenOnlyForThatServer() {
   });
 }
 
+async function assertA2aDelegateTaskReturnsImmediateTextResult() {
+  const { context, requests } = await createBackgroundContext({
+    storage: {
+      a2aServers: [
+        { id: 'planner', name: 'Planner', endpoint: 'https://a2a.example/rpc', enabled: true }
+      ],
+      a2aServerTokens: { planner: 'server-token' }
+    },
+    fetchImpl: async (url, options) => {
+      return {
+        ok: true,
+        json: async () => ({
+          result: {
+            message: {
+              parts: [
+                { type: 'text', text: 'Immediate result text' }
+              ]
+            }
+          }
+        })
+      };
+    }
+  });
+
+  const result = await context.delegateA2aTask({
+    serverId: 'planner',
+    task: 'Summarize the article',
+    contextText: 'Selected context from page'
+  });
+
+  assert.strictEqual(result, 'Immediate result text');
+  assert.strictEqual(requests.length, 1);
+  assert.strictEqual(requests[0].url, 'https://a2a.example/rpc');
+  assert.strictEqual(requests[0].options.method, 'POST');
+  assert.strictEqual(requests[0].options.headers['Content-Type'], 'application/json');
+  assert.strictEqual(requests[0].options.headers.Authorization, 'Bearer server-token');
+
+  const body = JSON.parse(requests[0].options.body);
+  assert.strictEqual(body.jsonrpc, '2.0');
+  assert.strictEqual(body.method, 'message/send');
+  assert.strictEqual(body.params.message.parts[0].type, 'text');
+  assert.ok(body.params.message.parts[0].text.includes('Summarize the article'));
+  assert.ok(body.params.message.parts[0].text.includes('Selected context from page'));
+}
+
+async function assertA2aDelegateTaskPollsUntilCompleted() {
+  const waits = [];
+  const { context, requests } = await createBackgroundContext({
+    storage: {
+      a2aServers: [
+        { id: 'planner', name: 'Planner', endpoint: 'https://a2a.example/rpc', enabled: true }
+      ],
+      a2aServerTokens: { planner: 'server-token' }
+    },
+    fetchImpl: async (url, options) => {
+      const body = JSON.parse(options.body);
+      if (body.method === 'message/send') {
+        return {
+          ok: true,
+          json: async () => ({
+            result: {
+              id: 'task-123',
+              state: 'working'
+            }
+          })
+        };
+      }
+
+      if (body.method === 'tasks/get' && requests.filter(request => JSON.parse(request.options.body).method === 'tasks/get').length === 1) {
+        return {
+          ok: true,
+          json: async () => ({
+            result: {
+              id: 'task-123',
+              state: 'working'
+            }
+          })
+        };
+      }
+
+      return {
+        ok: true,
+        json: async () => ({
+          result: {
+            id: 'task-123',
+            state: 'completed',
+            artifacts: [
+              {
+                parts: [
+                  { type: 'text', text: 'Async done' }
+                ]
+              }
+            ]
+          }
+        })
+      };
+    }
+  });
+
+  context.wait = async ms => {
+    waits.push(ms);
+  };
+
+  const result = await context.delegateA2aTask({
+    serverId: 'planner',
+    task: 'Analyze async work',
+    contextText: 'Context block'
+  });
+
+  assert.strictEqual(result, 'Async done');
+  assert.deepStrictEqual(requests.map(request => JSON.parse(request.options.body).method), ['message/send', 'tasks/get', 'tasks/get']);
+  assert.deepStrictEqual(waits, [500, 500]);
+}
+
+async function assertA2aDelegateTaskSurfacesFailedTaskState() {
+  const { context } = await createBackgroundContext({
+    storage: {
+      a2aServers: [
+        { id: 'planner', name: 'Planner', endpoint: 'https://a2a.example/rpc', enabled: true }
+      ],
+      a2aServerTokens: { planner: 'server-token' }
+    },
+    fetchImpl: async () => ({
+      ok: true,
+      json: async () => ({
+        result: {
+          id: 'task-123',
+          state: 'failed',
+          status: {
+            message: {
+              parts: [
+                { type: 'text', text: 'No access' }
+              ]
+            }
+          }
+        }
+      })
+    })
+  });
+
+  await assert.rejects(
+    () => context.delegateA2aTask({
+      serverId: 'planner',
+      task: 'Restricted task',
+      contextText: 'Context block'
+    }),
+    err => err.message === 'No access'
+  );
+}
+
+
 async function main() {
   await assertA2aServerMetadataAndTokensUseSeparateStorageAreas();
   await assertA2aProviderIdsRoundTripServerIds();
@@ -1244,6 +1395,9 @@ async function main() {
   await assertCopilotGpt54UsesMaxCompletionTokens();
   await assertCopilotUnsupportedStoredModelRetriesWithAvailableModel();
   await assertCopilotApiRequestRefreshesExpiredTokenFirst();
+  await assertA2aDelegateTaskReturnsImmediateTextResult();
+  await assertA2aDelegateTaskPollsUntilCompleted();
+  await assertA2aDelegateTaskSurfacesFailedTaskState();
 }
 
 main().catch(err => {

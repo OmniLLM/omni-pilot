@@ -69,6 +69,8 @@ const DEFAULT_CONFIG = {
 const STORAGE_KEYS = ['endpoint', 'apiKey', 'model', 'models', 'apiShape', 'providerType', 'authMethod', 'providerConfigs', 'a2aServers'];
 const A2A_TOKEN_STORAGE_KEY = 'a2aServerTokens';
 const PROVIDER_CONFIG_FIELDS = ['endpoint', 'apiKey', 'model', 'models', 'apiShape'];
+const A2A_POLL_INTERVAL_MS = 500;
+const A2A_MAX_POLL_ATTEMPTS = 20;
 
 const API_SHAPES = {
   OPENAI_COMPATIBLE: 'openai-compatible',
@@ -151,6 +153,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.type === 'A2A_REMOVE_SERVER') {
     removeA2aServer(request.serverId)
       .then(() => sendResponse({ success: true }))
+      .catch(err => sendResponse({ success: false, error: err.message || 'Unexpected extension error' }));
+    return true;
+  }
+  if (request.type === 'A2A_DELEGATE_TASK') {
+    delegateA2aTask(request)
+      .then(result => sendResponse({ success: true, result }))
       .catch(err => sendResponse({ success: false, error: err.message || 'Unexpected extension error' }));
     return true;
   }
@@ -552,6 +560,143 @@ function redactHeaders(headers) {
 
 function encodeFormBody(values) {
   return new URLSearchParams(values).toString();
+}
+
+function wait(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function buildA2aTaskText(task, contextText) {
+  const sections = [`Task:\n${String(task || '').trim()}`];
+  const trimmedContext = String(contextText || '').trim();
+  if (trimmedContext) sections.push(`Selected context:\n${trimmedContext}`);
+  return sections.join('\n\n');
+}
+
+function createA2aRpcRequest(method, params) {
+  return {
+    jsonrpc: '2.0',
+    id: `${Date.now()}-${Math.random()}`,
+    method,
+    params
+  };
+}
+
+function createA2aMessageParams(task, contextText) {
+  return {
+    message: {
+      role: 'user',
+      parts: [
+        {
+          type: 'text',
+          text: buildA2aTaskText(task, contextText)
+        }
+      ]
+    }
+  };
+}
+
+function extractA2aTextFromParts(parts) {
+  if (!Array.isArray(parts)) return '';
+  return parts
+    .filter(part => part && typeof part.text === 'string')
+    .map(part => part.text)
+    .join('\n')
+    .trim();
+}
+
+function extractA2aText(payload) {
+  if (!payload || typeof payload !== 'object') return '';
+
+  const directPartsText = extractA2aTextFromParts(payload.parts);
+  if (directPartsText) return directPartsText;
+
+  const messageText = extractA2aText(payload.message);
+  if (messageText) return messageText;
+
+  const statusText = extractA2aText(payload.status);
+  if (statusText) return statusText;
+
+  for (const artifact of payload.artifacts || []) {
+    const artifactText = extractA2aText(artifact);
+    if (artifactText) return artifactText;
+  }
+
+  return '';
+}
+
+function getA2aTaskState(task) {
+  return task?.state || task?.status?.state || '';
+}
+
+function getA2aTaskId(task) {
+  return task?.id || task?.taskId || task?.task?.id || '';
+}
+
+function assertA2aTaskNotFailed(task) {
+  if (getA2aTaskState(task) !== 'failed') return task;
+  throw new Error(extractA2aText(task.status) || extractA2aText(task) || 'A2A task failed.');
+}
+
+function isA2aTaskComplete(task) {
+  return getA2aTaskState(task) === 'completed';
+}
+
+async function postA2aRpc(server, method, params) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (server.token) headers.Authorization = `Bearer ${server.token}`;
+
+  const response = await fetch(server.endpoint, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(createA2aRpcRequest(method, params))
+  });
+
+  if (!response.ok) {
+    throw new Error(`A2A request failed: ${response.status}`);
+  }
+
+  const payload = await response.json();
+  if (payload.error) {
+    throw new Error(payload.error.message || 'A2A request failed.');
+  }
+
+  return payload.result;
+}
+
+async function pollA2aTask(server, taskId) {
+  for (let attempt = 0; attempt < A2A_MAX_POLL_ATTEMPTS; attempt += 1) {
+    await wait(A2A_POLL_INTERVAL_MS);
+    const task = assertA2aTaskNotFailed(await postA2aRpc(server, 'tasks/get', { id: taskId }));
+    if (isA2aTaskComplete(task)) return task;
+  }
+
+  throw new Error('A2A task polling timed out.');
+}
+
+async function delegateA2aTask({ serverId, task, contextText }) {
+  const server = await getA2aServerWithToken(serverId);
+
+  if (!server?.endpoint) {
+    throw new Error(`A2A server not configured: ${serverId}`);
+  }
+
+  const initialTask = assertA2aTaskNotFailed(await postA2aRpc(server, 'message/send', createA2aMessageParams(task, contextText)));
+  const immediateText = extractA2aText(initialTask);
+  if (immediateText) return immediateText;
+
+  const taskId = getA2aTaskId(initialTask);
+  if (!taskId) {
+    throw new Error('A2A task did not include a task id or text result.');
+  }
+
+  const completedTask = await pollA2aTask(server, taskId);
+  const completedText = extractA2aText(completedTask);
+  if (!completedText) {
+    throw new Error('A2A task completed without text result.');
+  }
+
+  return completedText;
 }
 
 function validateCopilotDeviceFlowResponse(data) {
