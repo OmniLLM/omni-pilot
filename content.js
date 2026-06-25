@@ -22,6 +22,7 @@
   let currentAuthMethod = 'api-key';
   let currentApiKey = '';
   let currentEndpoint = '';
+  let a2aServers = [];
   let lastAppendedSelectionContext = '';
   const PROVIDER_LABELS = {
     'custom-provider': 'Custom',
@@ -65,14 +66,15 @@
   }
 
   // Load config from storage
-  chrome.storage.sync.get({ model: 'claude-sonnet-4-5', endpoint: 'https://api.omnillm.com/v1', apiKey: '', providerType: 'custom-provider', authMethod: 'api-key' }, cfg => {
+  chrome.storage.sync.get({ model: 'claude-sonnet-4-5', endpoint: 'https://api.omnillm.com/v1', apiKey: '', providerType: 'custom-provider', authMethod: 'api-key', a2aServers: [] }, cfg => {
+    a2aServers = cfg.a2aServers || [];
     currentModel = cfg.model || 'claude-sonnet-4-5';
     currentProviderType = cfg.providerType || 'custom-provider';
     currentAuthMethod = cfg.authMethod || 'api-key';
     currentApiKey = cfg.apiKey || '';
     currentEndpoint = cfg.endpoint || '';
     currentProvider = getProviderLabel(currentProviderType || currentAuthMethod, currentEndpoint);
-    hasApiKey = currentProviderType === 'github-copilot' || currentAuthMethod === 'github-copilot' || Boolean(currentApiKey);
+    hasApiKey = currentProviderType === 'github-copilot' || currentAuthMethod === 'github-copilot' || isA2aProviderType(currentProviderType) || Boolean(currentApiKey);
     updatePanelMeta();
   });
 
@@ -85,18 +87,42 @@
     if (changes.providerType) currentProviderType = changes.providerType.newValue || 'custom-provider';
     if (changes.authMethod) currentAuthMethod = changes.authMethod.newValue || 'api-key';
     if (changes.apiKey) currentApiKey = changes.apiKey.newValue || '';
-    if (changes.endpoint || changes.providerType || changes.authMethod) {
+    if (changes.a2aServers) a2aServers = changes.a2aServers.newValue || [];
+    if (changes.endpoint || changes.providerType || changes.authMethod || changes.a2aServers) {
       currentProvider = getProviderLabel(currentProviderType || currentAuthMethod, currentEndpoint);
       updatePanelMeta();
     }
-    if (changes.apiKey || changes.authMethod || changes.providerType) {
-      hasApiKey = currentProviderType === 'github-copilot' || currentAuthMethod === 'github-copilot' || Boolean(currentApiKey);
+    if (changes.apiKey || changes.authMethod || changes.providerType || changes.a2aServers) {
+      hasApiKey = currentProviderType === 'github-copilot' || currentAuthMethod === 'github-copilot' || isA2aProviderType(currentProviderType) || Boolean(currentApiKey);
     }
     if (changes.themePreference) applyTheme(changes.themePreference.newValue || 'dark');
     if (changes.languagePreference) applyLanguage(changes.languagePreference.newValue || 'en');
   });
 
+  function isA2aProviderType(providerType) {
+    return typeof providerType === 'string' && providerType.startsWith('a2a:');
+  }
+
+  function getA2aServerIdFromProviderType(providerType) {
+    return isA2aProviderType(providerType) ? providerType.slice(4) : '';
+  }
+
+  function getA2aServerLabel(providerType) {
+    const serverId = getA2aServerIdFromProviderType(providerType);
+    return a2aServers.find(server => server.id === serverId)?.name || 'A2A';
+  }
+
+  function getProviderEntries() {
+    return [
+      ...Object.entries(PROVIDER_LABELS).map(([providerType, label]) => ({ providerType, label })),
+      ...a2aServers
+        .filter(server => server.enabled !== false)
+        .map(server => ({ providerType: `a2a:${server.id}`, label: server.name || 'A2A' }))
+    ];
+  }
+
   function getProviderLabel(providerType, endpoint) {
+    if (isA2aProviderType(providerType)) return getA2aServerLabel(providerType);
     return PROVIDER_LABELS[providerType] || detectProvider(endpoint || '');
   }
 
@@ -615,7 +641,7 @@
     selector.id = 'omnipilot-provider-selector';
     applyThemeTo(selector);
 
-    Object.entries(PROVIDER_LABELS).forEach(([providerType, providerLabel]) => {
+    getProviderEntries().forEach(({ providerType, label: providerLabel }) => {
       const item = document.createElement('div');
       item.className = 'omnipilot-model-item' + (providerType === currentProviderType ? ' omnipilot-model-current' : '');
       item.textContent = providerLabel;
@@ -893,5 +919,8 @@
       el.closest?.('#omnipilot-panel')
     );
   }
+
+  globalThis.getProviderLabel = getProviderLabel;
+  globalThis.getProviderEntries = getProviderEntries;
 
 })();

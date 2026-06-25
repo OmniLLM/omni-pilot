@@ -198,7 +198,21 @@ async function openDropdown(storedConfig) {
   return dropdown;
 }
 
+async function testA2aProviderLabelUsesConfiguredServerName() {
+  const { context } = await createContentContext({
+    providerType: 'a2a:a2a-1',
+    a2aServers: [
+      { id: 'a2a-1', name: 'Planner', endpoint: 'https://planner.example/a2a', enabled: true }
+    ]
+  });
+
+  assert.strictEqual(context.getProviderLabel('a2a:a2a-1', ''), 'Planner');
+  assert.ok(context.getProviderEntries().some(entry => entry.providerType === 'a2a:a2a-1' && entry.label === 'Planner'));
+}
+
 async function main() {
+  await testA2aProviderLabelUsesConfiguredServerName();
+
   const dropdown = await openDropdown({ apiKey: 'test-key' });
   assert.ok(dropdown.children.some(child => child.textContent.includes('翻译')));
   assert.ok(dropdown.children.some(child => child.textContent.includes('总结')));
