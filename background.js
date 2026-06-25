@@ -8,6 +8,8 @@ const PROVIDER_TYPES = {
   A2A_PREFIX: 'a2a:'
 };
 
+const A2A_PROVIDER_PREFIX = 'a2a:';
+
 const AUTH_METHODS = {
   API_KEY: 'api-key',
   GITHUB_COPILOT: PROVIDER_TYPES.GITHUB_COPILOT
@@ -203,9 +205,9 @@ function getA2aServerIdFromProviderType(providerType) {
 function normalizeA2aServer(server) {
   if (!server || typeof server !== 'object') return null;
   const id = String(server.id || '').trim();
-  const name = String(server.name || '').trim();
+  const name = String(server.name || server.agentCard?.name || id || '').trim();
   const endpoint = String(server.endpoint || '').trim();
-  if (!id || !name || !endpoint) return null;
+  if (!id || !endpoint) return null;
   return {
     id,
     name,
@@ -270,6 +272,31 @@ function normalizeProviderType(value, legacyAuthMethod) {
   if (PROVIDERS[value]) return value;
   if (legacyAuthMethod === AUTH_METHODS.GITHUB_COPILOT) return PROVIDER_TYPES.GITHUB_COPILOT;
   return PROVIDER_TYPES.CUSTOM;
+}
+
+function isA2aProviderType(providerType) {
+  return typeof providerType === 'string' && providerType.startsWith(A2A_PROVIDER_PREFIX);
+}
+
+function getA2aServerIdFromProviderType(providerType) {
+  return isA2aProviderType(providerType)
+    ? providerType.slice(A2A_PROVIDER_PREFIX.length)
+    : '';
+}
+
+function getLatestUserMessage(messages = []) {
+  return messages
+    .filter(message => message?.role === 'user' && typeof message.content === 'string')
+    .at(-1)?.content?.trim() || '';
+}
+
+function getA2aConversationContext(messages = []) {
+  return messages
+    .slice(0, -1)
+    .filter(message => message?.role === 'user' && typeof message.content === 'string')
+    .map(message => message.content.trim())
+    .filter(Boolean)
+    .join('\n\n');
 }
 
 function getProvider(config) {
@@ -896,8 +923,25 @@ async function handleGetModels() {
   return (data.data || data.models || []).map(m => m.id || m.name).filter(Boolean).sort();
 }
 
+async function handleA2aProviderChat(config, messages) {
+  const latestUserMessage = getLatestUserMessage(messages);
+  if (!latestUserMessage) throw new Error('No user message available for A2A chat.');
+
+  return delegateA2aTask({
+    serverId: getA2aServerIdFromProviderType(config.providerType),
+    task: latestUserMessage,
+    contextText: getA2aConversationContext(messages)
+  });
+}
+
 async function handleAIChat(messages) {
+  const config = await loadConfig();
+  if (isA2aProviderType(config.providerType)) {
+    return handleA2aProviderChat(config, messages);
+  }
+
   return executeApiRequest({
+    config,
     messages,
     systemPrompt: 'You are a helpful assistant. Continue the conversation naturally.'
   });
@@ -913,8 +957,8 @@ async function handleAIAction(action, text) {
   });
 }
 
-async function executeApiRequest({ messages, systemPrompt }) {
-  const config = await loadConfig();
+async function executeApiRequest({ config: preloadedConfig, messages, systemPrompt }) {
+  const config = preloadedConfig || await loadConfig();
   const provider = getProvider(config);
   let copilotToken = '';
 

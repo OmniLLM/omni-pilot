@@ -1359,6 +1359,51 @@ async function assertA2aDelegateTaskSurfacesFailedTaskState() {
 }
 
 
+async function assertA2aProviderChatDelegatesLatestUserMessageWithHistoryContext() {
+  const { context, requests } = await createBackgroundContext({
+    storage: {
+      providerType: 'a2a:a2a-1',
+      a2aServers: [{ id: 'a2a-1', endpoint: 'https://planner.example/a2a', enabled: true }],
+      a2aServerTokens: { 'a2a-1': 'secret-token' }
+    },
+    fetchImpl: async (url, options) => {
+      if (url === 'https://planner.example/a2a') {
+        return {
+          ok: true,
+          json: async () => ({
+            result: {
+              message: {
+                parts: [{ text: 'A2A chat response' }]
+              }
+            }
+          })
+        };
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    }
+  });
+
+  const messages = [
+    { role: 'user', content: 'Selected page context: Todo list priorities and deadlines.' },
+    { role: 'assistant', content: 'I see the planning context and can help.' },
+    { role: 'user', content: 'What should I do next?' }
+  ];
+
+  const result = await context.handleAIChat(messages);
+
+  assert.strictEqual(result, 'A2A chat response');
+  assert.strictEqual(requests.length, 1);
+  assert.strictEqual(requests[0].url, 'https://planner.example/a2a');
+  assert.strictEqual(requests[0].options.method, 'POST');
+  assert.strictEqual(requests[0].options.headers.Authorization, 'Bearer secret-token');
+
+  const body = JSON.parse(requests[0].options.body);
+  assert.strictEqual(body.method, 'message/send');
+  assert.ok(body.params.message.parts[0].text.includes('What should I do next?'));
+  assert.ok(body.params.message.parts[0].text.includes('Selected page context: Todo list priorities and deadlines.'));
+  assert.ok(!body.params.message.parts[0].text.includes('I see the planning context and can help.'));
+}
+
 async function main() {
   await assertA2aServerMetadataAndTokensUseSeparateStorageAreas();
   await assertA2aProviderIdsRoundTripServerIds();
@@ -1384,6 +1429,7 @@ async function main() {
   await assertA2aDiscoveryFetchesAgentCardWithBearerToken();
   await assertA2aDiscoveryFallsBackToEndpointAgentCard();
   await assertRemoveA2aServerRemovesLocalTokenOnlyForThatServer();
+  await assertA2aProviderChatDelegatesLatestUserMessageWithHistoryContext();
   await assertProviderTypeCopilotModelListingUsesCachedToken();
   await assertCopilotModelListingUsesCachedToken();
   await assertCopilotModelListingRefreshesExpiredToken();
