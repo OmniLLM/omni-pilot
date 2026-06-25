@@ -904,6 +904,137 @@ async function assertProviderTypeCopilotModelListingUsesCachedToken() {
   assert.strictEqual(requests[0].url, 'https://api.githubcopilot.com/models');
 }
 
+async function sendRuntimeMessage(runtimeListeners, message) {
+  return new Promise(resolve => {
+    let responded = false;
+    runtimeListeners[0](message, {}, response => {
+      responded = true;
+      resolve(response);
+    });
+    setTimeout(() => {
+      if (!responded) resolve(undefined);
+    }, 0);
+  });
+}
+
+async function assertSetProviderActivatesStoredProviderConfig() {
+  const { runtimeListeners, stores } = await createBackgroundContext({
+    storage: {
+      providerType: 'custom-provider',
+      endpoint: 'https://custom.example/v1',
+      apiKey: 'custom-key',
+      model: 'custom-model',
+      models: 'custom-model, custom-alt',
+      apiShape: 'anthropic-messages',
+      providerConfigs: {
+        'custom-provider': {
+          endpoint: 'https://custom.example/v1',
+          apiKey: 'custom-key',
+          model: 'custom-model',
+          models: 'custom-model, custom-alt',
+          apiShape: 'anthropic-messages'
+        },
+        'azure-foundry': {
+          endpoint: 'https://azure.example.services.ai.azure.com',
+          apiKey: 'azure-key',
+          model: 'azure-model',
+          models: 'azure-model, azure-alt',
+          apiShape: 'openai-responses'
+        }
+      }
+    }
+  });
+
+  const response = await sendRuntimeMessage(runtimeListeners, { type: 'SET_PROVIDER', providerType: 'azure-foundry' });
+
+  assert.deepStrictEqual(response.success, true);
+  assert.strictEqual(stores.syncStore.providerType, 'azure-foundry');
+  assert.strictEqual(stores.syncStore.authMethod, 'api-key');
+  assert.strictEqual(stores.syncStore.endpoint, 'https://azure.example.services.ai.azure.com');
+  assert.strictEqual(stores.syncStore.apiKey, 'azure-key');
+  assert.strictEqual(stores.syncStore.model, 'azure-model');
+  assert.strictEqual(stores.syncStore.models, 'azure-model, azure-alt');
+  assert.strictEqual(stores.syncStore.apiShape, 'openai-responses');
+  assert.strictEqual(stores.syncStore.providerConfigs['custom-provider'].model, 'custom-model');
+}
+
+async function assertSetProviderPreservesOutgoingTopLevelConfig() {
+  const { runtimeListeners, stores } = await createBackgroundContext({
+    storage: {
+      providerType: 'custom-provider',
+      endpoint: 'https://legacy-custom.example/v1',
+      apiKey: 'legacy-key',
+      model: 'legacy-model',
+      models: 'legacy-model, legacy-alt',
+      apiShape: 'anthropic-messages',
+      providerConfigs: {
+        'azure-foundry': {
+          endpoint: 'https://azure.example.services.ai.azure.com',
+          apiKey: 'azure-key',
+          model: 'azure-model',
+          models: 'azure-model, azure-alt',
+          apiShape: 'openai-responses'
+        }
+      }
+    }
+  });
+
+  await sendRuntimeMessage(runtimeListeners, { type: 'SET_PROVIDER', providerType: 'azure-foundry' });
+
+  assert.strictEqual(stores.syncStore.providerConfigs['custom-provider'].endpoint, 'https://legacy-custom.example/v1');
+  assert.strictEqual(stores.syncStore.providerConfigs['custom-provider'].apiKey, 'legacy-key');
+  assert.strictEqual(stores.syncStore.providerConfigs['custom-provider'].model, 'legacy-model');
+  assert.strictEqual(stores.syncStore.providerConfigs['custom-provider'].models, 'legacy-model, legacy-alt');
+  assert.strictEqual(stores.syncStore.providerConfigs['custom-provider'].apiShape, 'anthropic-messages');
+}
+
+async function assertSetProviderWritesCopilotCompatibilityAuthMethod() {
+  const { runtimeListeners, stores } = await createBackgroundContext({
+    storage: {
+      providerType: 'custom-provider',
+      providerConfigs: {
+        'github-copilot': {
+          endpoint: '',
+          apiKey: '',
+          model: 'gpt-4o',
+          models: '',
+          apiShape: 'openai-compatible'
+        }
+      }
+    }
+  });
+
+  await sendRuntimeMessage(runtimeListeners, { type: 'SET_PROVIDER', providerType: 'github-copilot' });
+
+  assert.strictEqual(stores.syncStore.providerType, 'github-copilot');
+  assert.strictEqual(stores.syncStore.authMethod, 'github-copilot');
+  assert.strictEqual(stores.syncStore.model, 'gpt-4o');
+}
+
+async function assertSetModelUpdatesActiveProviderConfig() {
+  const { runtimeListeners, stores } = await createBackgroundContext({
+    storage: {
+      providerType: 'azure-foundry',
+      model: 'azure-model',
+      providerConfigs: {
+        'azure-foundry': {
+          endpoint: 'https://azure.example.services.ai.azure.com',
+          apiKey: 'azure-key',
+          model: 'azure-model',
+          models: 'azure-model, azure-alt',
+          apiShape: 'openai-responses'
+        }
+      }
+    }
+  });
+
+  const response = await sendRuntimeMessage(runtimeListeners, { type: 'SET_MODEL', model: 'azure-alt' });
+
+  assert.deepStrictEqual(response.success, true);
+  assert.strictEqual(stores.syncStore.model, 'azure-alt');
+  assert.strictEqual(stores.syncStore.providerConfigs['azure-foundry'].model, 'azure-alt');
+}
+
 async function main() {
   await assertOpenAICompatibleDefault();
   await assertFreshInstallDefaultShape();
@@ -920,6 +1051,10 @@ async function main() {
   await assertCustomProviderGpt54KeepsMaxTokens();
   await assertCustomProviderModelListingFallsBackToEmptyOnFailure();
   await assertLoadConfigUsesActiveProviderSpecificConfig();
+  await assertSetProviderActivatesStoredProviderConfig();
+  await assertSetProviderPreservesOutgoingTopLevelConfig();
+  await assertSetProviderWritesCopilotCompatibilityAuthMethod();
+  await assertSetModelUpdatesActiveProviderConfig();
   await assertProviderTypeCopilotModelListingUsesCachedToken();
   await assertCopilotModelListingUsesCachedToken();
   await assertCopilotModelListingRefreshesExpiredToken();

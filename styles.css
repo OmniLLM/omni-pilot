@@ -239,7 +239,8 @@
   font-size: 11px;
 }
 
-.omnipilot-meta-model-wrap {
+.omnipilot-meta-model-wrap,
+.omnipilot-meta-provider-wrap {
   display: flex;
   align-items: center;
   gap: 2px;
@@ -252,7 +253,8 @@
     border-color  0.12s var(--op-ease-standard);
 }
 
-.omnipilot-meta-model-wrap:hover {
+.omnipilot-meta-model-wrap:hover,
+.omnipilot-meta-provider-wrap:hover {
   background: var(--op-accent-dim);
   border-color: rgba(26, 115, 232, 0.25);
 }
@@ -270,7 +272,8 @@
 
 /* ── Model Selector Dropdown ───────────────────────────── */
 
-#omnipilot-model-selector {
+#omnipilot-model-selector,
+#omnipilot-provider-selector {
   position: fixed;
   z-index: 2147483647;
   background: var(--op-bg);
@@ -749,6 +752,7 @@
 [data-op-theme="dark"] #omnipilot-dropdown,
 [data-op-theme="dark"] #omnipilot-panel,
 [data-op-theme="dark"] #omnipilot-model-selector,
+[data-op-theme="dark"] #omnipilot-provider-selector,
 [data-op-theme="dark"] #omnipilot-action-selector {
   --op-bg:           #202124;
   --op-bg2:          #2d2e30;
@@ -795,6 +799,7 @@
 [data-op-theme="light"] #omnipilot-dropdown,
 [data-op-theme="light"] #omnipilot-panel,
 [data-op-theme="light"] #omnipilot-model-selector,
+[data-op-theme="light"] #omnipilot-provider-selector,
 [data-op-theme="light"] #omnipilot-action-selector {
   --op-bg:           #ffffff;
   --op-bg2:          #f8f9fa;

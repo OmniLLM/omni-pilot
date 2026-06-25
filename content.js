@@ -253,7 +253,10 @@
             <span class="omnipilot-meta-arrow">▾</span>
           </span>
           <span class="omnipilot-meta-sep">·</span>
-          <span class="omnipilot-meta-provider">${escapeHtml(currentProvider)}</span>
+          <span class="omnipilot-meta-provider-wrap">
+            <span class="omnipilot-meta-provider">${escapeHtml(currentProvider)}</span>
+            <span class="omnipilot-meta-arrow">▾</span>
+          </span>
           <span class="omnipilot-meta-sep">·</span>
           <span class="omnipilot-meta-model-wrap">
             <span class="omnipilot-meta-model">${escapeHtml(currentModel)}</span>
@@ -266,6 +269,13 @@
       actionWrap.addEventListener('click', e => {
         e.stopPropagation();
         showActionSelector(actionWrap);
+      });
+
+      // Provider selector dropdown
+      const providerWrap = header.querySelector('.omnipilot-meta-provider-wrap');
+      providerWrap.addEventListener('click', e => {
+        e.stopPropagation();
+        showProviderSelector(providerWrap);
       });
 
       // Model selector dropdown
@@ -291,7 +301,7 @@
       let dragOffsetY = 0;
 
       header.addEventListener('mousedown', e => {
-        if (e.target === closeBtn || e.target.closest('.omnipilot-meta-action-wrap') || e.target.closest('.omnipilot-meta-model-wrap')) return;
+        if (e.target === closeBtn || e.target.closest('.omnipilot-meta-action-wrap') || e.target.closest('.omnipilot-meta-provider-wrap') || e.target.closest('.omnipilot-meta-model-wrap')) return;
         dragging = true;
         const panelLeft = parseFloat(panel.style.left) || 0;
         const panelTop = parseFloat(panel.style.top) || 0;
@@ -543,7 +553,7 @@
         item.addEventListener('click', e => {
           e.stopPropagation();
           currentModel = model;
-          chrome.storage.sync.set({ model });
+          runtime.sendMessage({ type: 'SET_MODEL', model });
           updatePanelMeta();
           selector.remove();
         });
@@ -564,6 +574,44 @@
     });
 
     // Close on click outside
+    const closeHandler = e => {
+      if (!selector.contains(e.target) && !anchorEl.contains(e.target)) {
+        selector.remove();
+        document.removeEventListener('mousedown', closeHandler);
+      }
+    };
+    setTimeout(() => document.addEventListener('mousedown', closeHandler), 0);
+  }
+
+  function showProviderSelector(anchorEl) {
+    const existing = document.getElementById('omnipilot-provider-selector');
+    if (existing) { existing.remove(); return; }
+
+    const selector = document.createElement('div');
+    selector.id = 'omnipilot-provider-selector';
+    applyThemeTo(selector);
+
+    Object.entries(PROVIDER_LABELS).forEach(([providerType, providerLabel]) => {
+      const item = document.createElement('div');
+      item.className = 'omnipilot-model-item' + (providerType === currentProviderType ? ' omnipilot-model-current' : '');
+      item.textContent = providerLabel;
+      item.addEventListener('click', e => {
+        e.stopPropagation();
+        const runtime = globalThis.chrome?.runtime;
+        if (runtime?.sendMessage) {
+          runtime.sendMessage({ type: 'SET_PROVIDER', providerType });
+        }
+        selector.remove();
+      });
+      selector.appendChild(item);
+    });
+
+    document.body.appendChild(selector);
+
+    const rect = anchorEl.getBoundingClientRect();
+    selector.style.left = `${rect.left}px`;
+    selector.style.top = `${rect.bottom + 4}px`;
+
     const closeHandler = e => {
       if (!selector.contains(e.target) && !anchorEl.contains(e.target)) {
         selector.remove();

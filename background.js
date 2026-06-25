@@ -104,6 +104,18 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     loadConfig().then(config => sendResponse(config));
     return true;
   }
+  if (request.type === 'SET_PROVIDER') {
+    activateStoredProvider(request.providerType)
+      .then(config => sendResponse({ success: true, config }))
+      .catch(err => sendResponse({ success: false, error: err.message || 'Unexpected extension error' }));
+    return true;
+  }
+  if (request.type === 'SET_MODEL') {
+    replaceStoredModel(request.model)
+      .then(() => sendResponse({ success: true }))
+      .catch(err => sendResponse({ success: false, error: err.message || 'Unexpected extension error' }));
+    return true;
+  }
   if (request.type === 'GET_MODELS') {
     handleGetModels()
       .then(models => sendResponse({ models }))
@@ -178,6 +190,31 @@ function normalizeProviderType(value, legacyAuthMethod) {
 
 function getProvider(config) {
   return PROVIDERS[normalizeProviderType(config.providerType, config.authMethod)] || PROVIDERS[PROVIDER_TYPES.CUSTOM];
+}
+
+async function activateStoredProvider(value) {
+  const stored = await storageGet(STORAGE_KEYS, getConfigStorageArea());
+  const providerType = normalizeProviderType(value, stored.authMethod);
+  const providerConfigs = stored.providerConfigs || {};
+  const currentProviderType = normalizeProviderType(stored.providerType, stored.authMethod);
+  const nextProviderConfigs = {
+    ...providerConfigs,
+    [currentProviderType]: Object.fromEntries(PROVIDER_CONFIG_FIELDS.map(field => [field, stored[field]]))
+  };
+  const providerConfig = {
+    ...DEFAULT_CONFIG,
+    ...(nextProviderConfigs[providerType] || {})
+  };
+  const activeConfig = Object.fromEntries(PROVIDER_CONFIG_FIELDS.map(field => [field, providerConfig[field]]));
+
+  await storageSet({
+    ...activeConfig,
+    providerType,
+    authMethod: providerType === PROVIDER_TYPES.GITHUB_COPILOT ? AUTH_METHODS.GITHUB_COPILOT : AUTH_METHODS.API_KEY,
+    providerConfigs: nextProviderConfigs
+  }, getConfigStorageArea());
+
+  return loadConfig();
 }
 
 function inferApiShape(endpoint) {

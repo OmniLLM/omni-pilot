@@ -103,6 +103,8 @@ async function createContentContext(storedConfig = {}) {
   documentRef.body.setAttribute = function () {};
 
   const storageListeners = [];
+  const sendMessageCalls = [];
+  const syncWrites = [];
   const context = {
     globalThis: {},
     document: documentRef,
@@ -120,11 +122,22 @@ async function createContentContext(storedConfig = {}) {
       }
     },
     chrome: {
-      runtime: { openOptionsPage() {}, sendMessage() {} },
+      runtime: {
+        openOptionsPage() {},
+        sendMessage(message, callback = () => {}) {
+          sendMessageCalls.push(message);
+          if (message.type === 'GET_MODELS') callback({ models: ['claude-sonnet-4-5', 'gpt-4o'] });
+          else if (message.type === 'AI_ACTION' || message.type === 'AI_CHAT') callback({ success: true, result: 'ok' });
+          else callback({ success: true });
+        }
+      },
       storage: {
         sync: {
           get(defaults, cb) { cb({ ...defaults, languagePreference: 'zh', ...storedConfig }); },
-          set() {}
+          set(values, cb = () => {}) {
+            syncWrites.push(values);
+            cb();
+          }
         },
         onChanged: { addListener(handler) { storageListeners.push(handler); } }
       }
@@ -144,7 +157,7 @@ async function createContentContext(storedConfig = {}) {
   vm.runInContext(i18nSource, context);
   vm.runInContext(contentSource, context);
 
-  return { documentRef, storageListeners, context };
+  return { documentRef, storageListeners, context, sendMessageCalls, syncWrites };
 }
 
 async function openDropdown(storedConfig) {
@@ -172,7 +185,7 @@ async function main() {
   assert.ok(copilotDropdown.children.some(child => child.textContent.includes('总结')));
   assert.ok(!copilotDropdown.children.some(child => child.textContent.includes('设置 API 密钥')));
 
-  const { documentRef, storageListeners } = await createContentContext({
+  const { documentRef, storageListeners, sendMessageCalls } = await createContentContext({
     providerType: 'azure-foundry',
     endpoint: 'https://example.services.ai.azure.com',
     apiKey: 'azure-key',
@@ -190,6 +203,29 @@ async function main() {
   storageListeners[0]({ providerType: { newValue: 'github-copilot' } });
 
   assert.strictEqual(providerEl.textContent, 'GitHub Copilot');
+
+  const providerWrap = documentRef.getElementById('omnipilot-panel').querySelector('.omnipilot-meta-provider-wrap');
+  assert.ok(providerWrap, 'provider label should be rendered as a clickable dropdown control');
+  providerWrap.listeners.click({ stopPropagation() {} });
+
+  const providerSelector = documentRef.getElementById('omnipilot-provider-selector');
+  assert.ok(providerSelector, 'provider selector should open from the panel header');
+  const copilotItem = providerSelector.children.find(child => child.textContent === 'GitHub Copilot');
+  assert.ok(copilotItem, 'provider selector should include GitHub Copilot');
+  copilotItem.listeners.click({ stopPropagation() {} });
+
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(sendMessageCalls.at(-1))), { type: 'SET_PROVIDER', providerType: 'github-copilot' });
+
+  const modelWrap = documentRef.getElementById('omnipilot-panel').querySelector('.omnipilot-meta-model-wrap');
+  modelWrap.listeners.click({ stopPropagation() {} });
+
+  const modelSelector = documentRef.getElementById('omnipilot-model-selector');
+  assert.ok(modelSelector, 'model selector should open from the panel header');
+  const gpt4oItem = modelSelector.querySelector('.omnipilot-model-list').children.find(child => child.textContent === 'gpt-4o');
+  assert.ok(gpt4oItem, 'model selector should include fetched models');
+  gpt4oItem.listeners.click({ stopPropagation() {} });
+
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(sendMessageCalls.at(-1))), { type: 'SET_MODEL', model: 'gpt-4o' });
 }
 
 main().catch(err => {
