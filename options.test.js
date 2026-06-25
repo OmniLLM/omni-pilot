@@ -67,6 +67,8 @@ function createTestContext({ fetchImpl, sendMessageImpl, storageGetImpl, localSt
     copilotVerifyLink: createElement(),
     copilotPollStatus: createElement(),
     a2aServerName: createElement('Demo Server'),
+    a2aServerEndpoint: createElement('https://a2a.example.com'),
+    a2aServerToken: createElement('secret-token'),
     a2aEndpoint: createElement('https://a2a.example.com'),
     a2aToken: createElement('secret-token'),
     addA2aServerBtn: createElement(),
@@ -76,6 +78,7 @@ function createTestContext({ fetchImpl, sendMessageImpl, storageGetImpl, localSt
 
   const context = {
     console,
+    URL,
     setTimeout(fn, delay) {
       timeoutCalls.push(delay);
       if (setTimeoutImpl) return setTimeoutImpl(fn, delay, context);
@@ -759,6 +762,12 @@ async function testOptionsHtmlDoesNotUseInlineScripts() {
   assert.ok(!/<script(?:\s[^>]*)?>\s*[^<\s]/i.test(htmlSource), 'options.html must not include inline script because extension CSP blocks it');
 }
 
+async function testOptionsHtmlContainsA2aControls() {
+  for (const expectedId of ['a2aCard', 'a2aServerName', 'a2aServerEndpoint', 'a2aServerToken', 'addA2aServerBtn', 'a2aStatus', 'a2aServerList']) {
+    assert.match(htmlSource, new RegExp(`id=\"${expectedId}\"`), `options.html should contain #${expectedId}`);
+  }
+}
+
 async function testAddingA2aServerStoresMetadataInSyncAndTokenInLocalOnly() {
   const { context, elements, syncWrites, localWrites } = createTestContext();
 
@@ -783,6 +792,34 @@ async function testRenderingStoredA2aServersShowsNameAndEndpointNotToken() {
   assert.match(elements.a2aServerList.innerHTML, /Stored Server/);
   assert.match(elements.a2aServerList.innerHTML, /https:\/\/stored\.example\.com/);
   assert.doesNotMatch(elements.a2aServerList.innerHTML, /super-secret/);
+}
+
+async function testStartCopilotAuthRejectsUnsafeVerificationUri() {
+  const tabsCreated = [];
+  const { elements, context } = createTestContext({
+    sendMessageImpl(message, callback, runtimeContext) {
+      if (message.type === 'COPILOT_START_DEVICE_FLOW') {
+        callback({
+          success: true,
+          userCode: 'ABCD-EFGH',
+          verificationUri: 'https://evil.example/login/device',
+          deviceCode: 'device-code',
+          interval: 5
+        });
+        return;
+      }
+      callback({ models: [] });
+    }
+  });
+  context.chrome.tabs.create = payload => tabsCreated.push(payload);
+
+  await context.startCopilotAuth();
+
+  assert.strictEqual(elements.copilotDeviceFlow.style.display, undefined);
+  assert.strictEqual(elements.copilotAuthBtn.style.display, '');
+  assert.strictEqual(elements.copilotAuthBtn.disabled, false);
+  assert.match(elements.copilotPollStatus.textContent, /Invalid GitHub verification URL\./);
+  assert.deepStrictEqual(tabsCreated, []);
 }
 
 async function testDiscoverUpdatesAgentCardMetadataAndSavesToSync() {
@@ -819,6 +856,7 @@ async function testDiscoverUpdatesAgentCardMetadataAndSavesToSync() {
 
 async function main() {
   await testOptionsHtmlDoesNotUseInlineScripts();
+  await testOptionsHtmlContainsA2aControls();
   await testStandardFetchUsesEndpointModels();
   await testGithubCopilotFetchUsesBackgroundModels();
   await testGithubCopilotEmptyModelsFallsBackToManualInput();
@@ -846,6 +884,7 @@ async function main() {
   await testGithubCopilotFailureShowsRetryButton();
   await testAddingA2aServerStoresMetadataInSyncAndTokenInLocalOnly();
   await testRenderingStoredA2aServersShowsNameAndEndpointNotToken();
+  await testStartCopilotAuthRejectsUnsafeVerificationUri();
   await testDiscoverUpdatesAgentCardMetadataAndSavesToSync();
 }
 

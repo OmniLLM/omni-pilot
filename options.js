@@ -295,8 +295,8 @@ function renderA2aServers(serverList = a2aServers) {
 
 async function addA2aServerFromForm() {
   const nameInput = document.getElementById('a2aServerName');
-  const endpointInput = document.getElementById('a2aEndpoint');
-  const tokenInput = document.getElementById('a2aToken');
+  const endpointInput = document.getElementById('a2aServerEndpoint') || document.getElementById('a2aEndpoint');
+  const tokenInput = document.getElementById('a2aServerToken') || document.getElementById('a2aToken');
   const status = document.getElementById('a2aStatus');
   const server = {
     id: createA2aServerId(),
@@ -427,10 +427,7 @@ async function updateCopilotStatus() {
     statusText.textContent = label('copilotNotConnected');
     authBtn.style.display = 'none';
     if (stored.copilotUserCode) document.getElementById('copilotUserCode').textContent = stored.copilotUserCode;
-    if (stored.copilotVerificationUri) {
-      document.getElementById('copilotVerifyLink').href = stored.copilotVerificationUri;
-      document.getElementById('copilotVerifyLink').textContent = stored.copilotVerificationUri;
-    }
+    applyCopilotVerificationUri(stored.copilotVerificationUri);
     document.getElementById('copilotPollStatus').textContent = label('copilotWaiting');
     deviceFlow.style.display = '';
     startCopilotPolling(stored.copilotDeviceCode, stored.copilotPollInterval);
@@ -467,8 +464,9 @@ async function startCopilotAuth() {
     });
 
     document.getElementById('copilotUserCode').textContent = response.userCode;
-    document.getElementById('copilotVerifyLink').href = response.verificationUri;
-    document.getElementById('copilotVerifyLink').textContent = response.verificationUri;
+    if (!applyCopilotVerificationUri(response.verificationUri)) {
+      throw new Error('Invalid GitHub verification URL.');
+    }
     document.getElementById('copilotDeviceFlow').style.display = '';
     document.getElementById('copilotPollStatus').textContent = label('copilotCodeCopied');
     authBtn.style.display = 'none';
@@ -478,7 +476,9 @@ async function startCopilotAuth() {
     } catch {
       // Clipboard API may fail in some contexts, ignore.
     }
-    chrome.tabs.create({ url: response.verificationUri });
+    if (isSafeCopilotVerificationUri(response.verificationUri)) {
+      chrome.tabs.create({ url: response.verificationUri });
+    }
 
     startCopilotPolling(response.deviceCode || null, response.interval);
   } catch (e) {
@@ -491,6 +491,23 @@ async function startCopilotAuth() {
 
 function getCopilotPollDelay(interval) {
   return Math.max(1, Number(interval) || 5) * 1000;
+}
+
+function isSafeCopilotVerificationUri(uri) {
+  try {
+    const parsed = new URL(String(uri || ''));
+    return parsed.protocol === 'https:' && parsed.hostname === 'github.com' && parsed.pathname === '/login/device';
+  } catch {
+    return false;
+  }
+}
+
+function applyCopilotVerificationUri(uri) {
+  const verifyLink = document.getElementById('copilotVerifyLink');
+  if (!verifyLink || !isSafeCopilotVerificationUri(uri)) return false;
+  verifyLink.href = uri;
+  verifyLink.textContent = uri;
+  return true;
 }
 
 function startCopilotPolling(deviceCode, interval) {

@@ -429,7 +429,7 @@
       </div>
     </div>
 
-    <div class="card compact-card">
+    <div class="card compact-card" id="a2aCard">
       <div class="card-title" data-i18n="a2aServers">A2A Servers</div>
       <div class="compact-stack">
         <div class="field">
@@ -437,13 +437,13 @@
           <input type="text" id="a2aServerName" data-i18n-placeholder="a2aServerName" placeholder="Server Name">
         </div>
         <div class="field">
-          <label for="a2aEndpoint" data-i18n="a2aEndpoint">A2A Endpoint</label>
-          <input type="text" id="a2aEndpoint" placeholder="https://a2a.example.com">
+          <label for="a2aServerEndpoint" data-i18n="a2aEndpoint">A2A Endpoint</label>
+          <input type="text" id="a2aServerEndpoint" placeholder="https://a2a.example.com">
           <div class="hint" data-i18n="a2aEndpointHint">Use the server base URL for discovery and task delegation.</div>
         </div>
         <div class="field">
-          <label for="a2aToken" data-i18n="a2aToken">A2A Token</label>
-          <input type="password" id="a2aToken" placeholder="token">
+          <label for="a2aServerToken" data-i18n="a2aToken">A2A Token</label>
+          <input type="password" id="a2aServerToken" placeholder="token">
           <div class="hint" data-i18n="a2aTokenHint">Stored locally only and never synced with server metadata.</div>
         </div>
         <div class="inline-actions">
