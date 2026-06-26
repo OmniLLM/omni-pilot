@@ -1208,6 +1208,271 @@ async function assertRemoveA2aServerRemovesLocalTokenOnlyForThatServer() {
   });
 }
 
+async function assertA2aDelegateTaskBuildsStandaloneTaskText() {
+  const { context, requests } = await createBackgroundContext({
+    storage: {
+      a2aServers: [
+        { id: 'planner', name: 'Planner', endpoint: 'https://a2a.example/rpc', enabled: true }
+      ],
+      a2aServerTokens: { planner: 'server-token' }
+    },
+    fetchImpl: async () => ({
+      ok: true,
+      json: async () => ({ result: { message: { parts: [{ type: 'text', text: 'ok' }] } } })
+    })
+  });
+
+  await context.delegateA2aTask({
+    serverId: 'planner',
+    task: 'Answer from popup context',
+    contextText: 'Popup user asked: What is this?\nPopup assistant answered: It is selected text.'
+  });
+
+  const body = JSON.parse(requests[0].options.body);
+  const text = body.params.message.parts[0].text;
+  assert.ok(text.includes('Use only the task and popup context below'));
+  assert.ok(text.includes('Ignore any prior conversation or session state in the A2A backend'));
+  assert.ok(text.includes('Answer from popup context'));
+  assert.ok(text.includes('Popup user asked: What is this?'));
+  assert.ok(text.includes('Popup assistant answered: It is selected text.'));
+}
+
+async function assertA2aDelegateTaskUsesAgentCardRpcUrl() {
+  const { context, requests } = await createBackgroundContext({
+    storage: {
+      a2aServers: [
+        {
+          id: 'planner',
+          name: 'Planner',
+          endpoint: 'https://planner.example',
+          enabled: true,
+          agentCard: { url: 'https://planner.example/a2a' }
+        }
+      ],
+      a2aServerTokens: { planner: 'server-token' }
+    },
+    fetchImpl: async (url) => {
+      assert.strictEqual(url, 'https://planner.example/a2a');
+      return {
+        ok: true,
+        json: async () => ({
+          result: {
+            message: {
+              parts: [{ type: 'text', text: 'Agent card URL result' }]
+            }
+          }
+        })
+      };
+    }
+  });
+
+  const result = await context.delegateA2aTask({
+    serverId: 'planner',
+    task: 'Use the advertised RPC URL',
+    contextText: ''
+  });
+
+  assert.strictEqual(result, 'Agent card URL result');
+  assert.strictEqual(requests[0].url, 'https://planner.example/a2a');
+}
+
+async function assertA2aDelegateTaskNormalizesLocalhostEndpointToLoopback() {
+  const { context, requests } = await createBackgroundContext({
+    storage: {
+      a2aServers: [
+        { id: 'local', name: 'A2A localhost', endpoint: 'http://localhost:1423', enabled: true }
+      ],
+      a2aServerTokens: { local: 'server-token' }
+    },
+    fetchImpl: async (url, options) => {
+      assert.ok(!String(url).includes('localhost'), `expected loopback URL, got ${url}`);
+      if (url === 'http://127.0.0.1:1423') {
+        return { ok: false, status: 404, text: async () => 'not found' };
+      }
+      if (url === 'http://127.0.0.1:1423/message:send') {
+        return {
+          ok: true,
+          json: async () => ({
+            id: 'task-1',
+            status: {
+              state: 'completed',
+              message: { role: 'agent', parts: [{ type: 'text', text: 'Loopback REST result' }] }
+            }
+          })
+        };
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    }
+  });
+
+  const result = await context.delegateA2aTask({ serverId: 'local', task: 'hi', contextText: '' });
+
+  assert.strictEqual(result, 'Loopback REST result');
+  assert.deepStrictEqual(requests.map(request => request.url), [
+    'http://127.0.0.1:1423',
+    'http://127.0.0.1:1423/message:send'
+  ]);
+}
+
+async function assertA2aDelegateTaskFallsBackFromStoredAgentCardBaseUrlToRestRoutes() {
+  const { context, requests } = await createBackgroundContext({
+    storage: {
+      a2aServers: [
+        {
+          id: 'local',
+          name: 'A2A localhost',
+          endpoint: 'http://localhost:1423',
+          enabled: true,
+          agentCard: { name: 'OmniLauncher', url: 'http://localhost:1423' }
+        }
+      ],
+      a2aServerTokens: { local: 'server-token' }
+    },
+    fetchImpl: async (url) => {
+      assert.ok(!String(url).includes('localhost'), `expected loopback URL, got ${url}`);
+      if (url === 'http://127.0.0.1:1423') {
+        return { ok: false, status: 404, text: async () => 'not found' };
+      }
+      if (url === 'http://127.0.0.1:1423/message:send') {
+        return {
+          ok: true,
+          json: async () => ({
+            id: 'task-1',
+            status: {
+              state: 'completed',
+              message: { role: 'agent', parts: [{ type: 'text', text: 'Stored card REST result' }] }
+            }
+          })
+        };
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    }
+  });
+
+  const result = await context.delegateA2aTask({ serverId: 'local', task: 'hi', contextText: '' });
+
+  assert.strictEqual(result, 'Stored card REST result');
+  assert.deepStrictEqual(requests.map(request => request.url), [
+    'http://127.0.0.1:1423',
+    'http://127.0.0.1:1423/message:send'
+  ]);
+}
+
+async function assertA2aDelegateTaskFallsBackToRestRoutesAfterJsonRpc404() {
+  const waits = [];
+  const { context, requests } = await createBackgroundContext({
+    storage: {
+      a2aServers: [
+        { id: 'planner', name: 'Planner', endpoint: 'https://planner.example', enabled: true }
+      ],
+      a2aServerTokens: { planner: 'server-token' }
+    },
+    fetchImpl: async (url, options) => {
+      if (url === 'https://planner.example' && options.method === 'POST') {
+        return { ok: false, status: 404, text: async () => 'not found' };
+      }
+      if (url === 'https://planner.example/message:send') {
+        return {
+          ok: true,
+          json: async () => ({ id: 'task-123', status: { state: 'working' } })
+        };
+      }
+      if (url === 'https://planner.example/tasks/task-123') {
+        return {
+          ok: true,
+          json: async () => ({
+            id: 'task-123',
+            status: { state: 'completed' },
+            artifacts: [{ parts: [{ type: 'text', text: 'REST completed result' }] }]
+          })
+        };
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    }
+  });
+  context.wait = async ms => waits.push(ms);
+
+  const result = await context.delegateA2aTask({
+    serverId: 'planner',
+    task: 'Use REST A2A routes',
+    contextText: ''
+  });
+
+  assert.strictEqual(result, 'REST completed result');
+  assert.deepStrictEqual(requests.map(request => request.url), [
+    'https://planner.example',
+    'https://planner.example/message:send',
+    'https://planner.example/tasks/task-123'
+  ]);
+  assert.deepStrictEqual(waits, [500]);
+}
+
+async function assertA2aDelegateTaskDiscoversRpcUrlAfterBaseEndpoint404() {
+  const waits = [];
+  const { context, requests } = await createBackgroundContext({
+    storage: {
+      a2aServers: [
+        { id: 'planner', name: 'Planner', endpoint: 'https://planner.example', enabled: true }
+      ],
+      a2aServerTokens: { planner: 'server-token' }
+    },
+    fetchImpl: async (url, options) => {
+      if (url === 'https://planner.example' && options.method === 'POST') {
+        return { ok: false, status: 404, text: async () => 'not found' };
+      }
+      if (url === 'https://planner.example/message:send') {
+        return { ok: false, status: 404, text: async () => 'not found' };
+      }
+      if (url === 'https://planner.example/.well-known/agent.json') {
+        return {
+          ok: true,
+          json: async () => ({ name: 'Planner Agent', url: 'https://planner.example/a2a' })
+        };
+      }
+      if (url === 'https://planner.example/a2a') {
+        const body = JSON.parse(options.body);
+        if (body.method === 'message/send') {
+          return {
+            ok: true,
+            json: async () => ({ result: { id: 'task-123', state: 'working' } })
+          };
+        }
+        if (body.method === 'tasks/get') {
+          return {
+            ok: true,
+            json: async () => ({
+              result: {
+                id: 'task-123',
+                state: 'completed',
+                artifacts: [{ parts: [{ type: 'text', text: 'Discovered RPC URL result' }] }]
+              }
+            })
+          };
+        }
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    }
+  });
+  context.wait = async ms => waits.push(ms);
+
+  const result = await context.delegateA2aTask({
+    serverId: 'planner',
+    task: 'Retry with discovered RPC URL',
+    contextText: ''
+  });
+
+  assert.strictEqual(result, 'Discovered RPC URL result');
+  assert.deepStrictEqual(requests.map(request => request.url), [
+    'https://planner.example',
+    'https://planner.example/message:send',
+    'https://planner.example/.well-known/agent.json',
+    'https://planner.example/a2a',
+    'https://planner.example/a2a'
+  ]);
+  assert.deepStrictEqual(requests.slice(3).map(request => JSON.parse(request.options.body).method), ['message/send', 'tasks/get']);
+  assert.deepStrictEqual(waits, [500]);
+}
+
 async function assertA2aDelegateTaskReturnsImmediateTextResult() {
   const { context, requests } = await createBackgroundContext({
     storage: {
@@ -1359,49 +1624,45 @@ async function assertA2aDelegateTaskSurfacesFailedTaskState() {
 }
 
 
-async function assertA2aProviderChatDelegatesLatestUserMessageWithHistoryContext() {
-  const { context, requests } = await createBackgroundContext({
+async function assertLegacyA2aProviderTypeFallsBackToCustomProvider() {
+  const { context } = await createBackgroundContext({
     storage: {
       providerType: 'a2a:a2a-1',
-      a2aServers: [{ id: 'a2a-1', endpoint: 'https://planner.example/a2a', enabled: true }],
-      a2aServerTokens: { 'a2a-1': 'secret-token' }
-    },
-    fetchImpl: async (url, options) => {
-      if (url === 'https://planner.example/a2a') {
-        return {
-          ok: true,
-          json: async () => ({
-            result: {
-              message: {
-                parts: [{ text: 'A2A chat response' }]
-              }
-            }
-          })
-        };
-      }
-      throw new Error(`Unexpected fetch ${url}`);
+      endpoint: 'https://custom.example/v1',
+      apiKey: 'custom-key',
+      model: 'custom-model',
+      apiShape: 'openai-compatible',
+      a2aServers: [{ id: 'a2a-1', endpoint: 'https://planner.example/a2a', enabled: true }]
     }
   });
 
-  const messages = [
-    { role: 'user', content: 'Selected page context: Todo list priorities and deadlines.' },
-    { role: 'assistant', content: 'I see the planning context and can help.' },
-    { role: 'user', content: 'What should I do next?' }
-  ];
+  const config = await context.loadConfig();
 
-  const result = await context.handleAIChat(messages);
+  assert.strictEqual(config.providerType, 'custom-provider');
+  assert.strictEqual(config.model, 'custom-model');
+}
 
-  assert.strictEqual(result, 'A2A chat response');
+async function assertConfiguredA2aServerDoesNotAutomaticallyHandleChat() {
+  const { context, requests } = await createBackgroundContext({
+    storage: {
+      providerType: 'custom-provider',
+      endpoint: 'https://custom.example/v1',
+      apiKey: 'custom-key',
+      model: 'custom-model',
+      apiShape: 'openai-compatible',
+      a2aServers: [{ id: 'planner', name: 'Planner', endpoint: 'https://planner.example/a2a', enabled: true }]
+    },
+    fetchImpl: async (url) => {
+      assert.strictEqual(url, 'https://custom.example/v1/chat/completions');
+      return { ok: true, json: async () => RESPONSE_BY_SHAPE['openai-compatible'] };
+    }
+  });
+
+  const result = await context.handleAIChat([{ role: 'user', content: 'Plan my day' }]);
+
+  assert.strictEqual(result, 'ok');
   assert.strictEqual(requests.length, 1);
-  assert.strictEqual(requests[0].url, 'https://planner.example/a2a');
-  assert.strictEqual(requests[0].options.method, 'POST');
-  assert.strictEqual(requests[0].options.headers.Authorization, 'Bearer secret-token');
-
-  const body = JSON.parse(requests[0].options.body);
-  assert.strictEqual(body.method, 'message/send');
-  assert.ok(body.params.message.parts[0].text.includes('What should I do next?'));
-  assert.ok(body.params.message.parts[0].text.includes('Selected page context: Todo list priorities and deadlines.'));
-  assert.ok(!body.params.message.parts[0].text.includes('I see the planning context and can help.'));
+  assert.strictEqual(requests[0].url, 'https://custom.example/v1/chat/completions');
 }
 
 async function main() {
@@ -1429,7 +1690,8 @@ async function main() {
   await assertA2aDiscoveryFetchesAgentCardWithBearerToken();
   await assertA2aDiscoveryFallsBackToEndpointAgentCard();
   await assertRemoveA2aServerRemovesLocalTokenOnlyForThatServer();
-  await assertA2aProviderChatDelegatesLatestUserMessageWithHistoryContext();
+  await assertLegacyA2aProviderTypeFallsBackToCustomProvider();
+  await assertConfiguredA2aServerDoesNotAutomaticallyHandleChat();
   await assertProviderTypeCopilotModelListingUsesCachedToken();
   await assertCopilotModelListingUsesCachedToken();
   await assertCopilotModelListingRefreshesExpiredToken();
@@ -1441,6 +1703,12 @@ async function main() {
   await assertCopilotGpt54UsesMaxCompletionTokens();
   await assertCopilotUnsupportedStoredModelRetriesWithAvailableModel();
   await assertCopilotApiRequestRefreshesExpiredTokenFirst();
+  await assertA2aDelegateTaskBuildsStandaloneTaskText();
+  await assertA2aDelegateTaskUsesAgentCardRpcUrl();
+  await assertA2aDelegateTaskNormalizesLocalhostEndpointToLoopback();
+  await assertA2aDelegateTaskFallsBackFromStoredAgentCardBaseUrlToRestRoutes();
+  await assertA2aDelegateTaskFallsBackToRestRoutesAfterJsonRpc404();
+  await assertA2aDelegateTaskDiscoversRpcUrlAfterBaseEndpoint404();
   await assertA2aDelegateTaskReturnsImmediateTextResult();
   await assertA2aDelegateTaskPollsUntilCompleted();
   await assertA2aDelegateTaskSurfacesFailedTaskState();

@@ -237,6 +237,24 @@ function normalizeA2aEndpoint(endpoint) {
   return String(endpoint || '').trim().replace(/\/+$/, '');
 }
 
+function normalizeA2aServers(servers) {
+  return (Array.isArray(servers) ? servers : [])
+    .map(server => {
+      if (!server || typeof server !== 'object') return null;
+      const endpoint = normalizeA2aEndpoint(server.endpoint);
+      const name = String(server.name || server.agentCard?.name || '').trim();
+      if (!endpoint || !name) return null;
+      return {
+        ...server,
+        id: String(server.id || '').trim() || createA2aServerId(),
+        name,
+        endpoint,
+        enabled: server.enabled !== false
+      };
+    })
+    .filter(Boolean);
+}
+
 function escapeHtml(value) {
   return String(value || '')
     .replace(/&/g, '&amp;')
@@ -275,7 +293,7 @@ function saveA2aTokens() {
 }
 
 function renderA2aServers(serverList = a2aServers) {
-  const normalizedList = Array.isArray(serverList) ? serverList : [];
+  const normalizedList = normalizeA2aServers(serverList);
   a2aServers = normalizedList;
   const list = document.getElementById('a2aServerList');
   if (!list) return;
@@ -618,7 +636,11 @@ document.addEventListener('DOMContentLoaded', () => {
         ...Object.fromEntries(PROVIDER_CONFIG_FIELDS.map(field => [field, config[field]]))
       }
     };
-    a2aServers = Array.isArray(storedConfig.a2aServers) ? storedConfig.a2aServers : [];
+    const storedA2aServers = Array.isArray(storedConfig.a2aServers) ? storedConfig.a2aServers : [];
+    a2aServers = normalizeA2aServers(storedA2aServers);
+    if (JSON.stringify(a2aServers) !== JSON.stringify(storedA2aServers)) {
+      await saveA2aServers();
+    }
     renderA2aServers();
     getA2aTokens().then(tokens => {
       a2aServerTokens = tokens;

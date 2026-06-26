@@ -200,18 +200,45 @@ function getA2aServerIdFromProviderType(providerType) {
   return isA2aProviderType(providerType) ? providerType.slice(PROVIDER_TYPES.A2A_PREFIX.length) : '';
 }
 
+function getFirstEnabledA2aServerId(servers) {
+  const server = Array.isArray(servers)
+    ? servers.map(normalizeA2aServer).find(candidate => candidate?.enabled !== false)
+    : null;
+  return server?.id || '';
+}
+
+function normalizeA2aEndpoint(endpoint) {
+  const value = String(endpoint || '').trim();
+  if (!value) return '';
+
+  try {
+    const url = new URL(value);
+    if (url.hostname === 'localhost') {
+      url.hostname = '127.0.0.1';
+    }
+    return url.toString().replace(/\/$/, '');
+  } catch {
+    return value;
+  }
+}
+
 function normalizeA2aServer(server) {
   if (!server || typeof server !== 'object') return null;
   const id = String(server.id || '').trim();
   const name = String(server.name || server.agentCard?.name || id || '').trim();
-  const endpoint = String(server.endpoint || '').trim();
+  const endpoint = normalizeA2aEndpoint(server.endpoint);
   if (!id || !endpoint) return null;
   return {
     id,
     name,
     endpoint,
-    enabled: server.enabled !== false
+    enabled: server.enabled !== false,
+    ...(server.agentCard && typeof server.agentCard === 'object' ? { agentCard: server.agentCard } : {})
   };
+}
+
+function getA2aRpcEndpoint(server) {
+  return normalizeA2aEndpoint(server?.agentCard?.endpoint || server?.agentCard?.url || server?.endpoint || '');
 }
 
 async function loadA2aServers() {
@@ -266,7 +293,6 @@ async function loadConfig() {
 }
 
 function normalizeProviderType(value, legacyAuthMethod) {
-  if (isA2aProviderType(value)) return value;
   if (PROVIDERS[value]) return value;
   if (legacyAuthMethod === AUTH_METHODS.GITHUB_COPILOT) return PROVIDER_TYPES.GITHUB_COPILOT;
   return PROVIDER_TYPES.CUSTOM;
@@ -289,13 +315,6 @@ function getA2aConversationContext(messages = []) {
 
 function getProvider(config) {
   const providerType = normalizeProviderType(config.providerType, config.authMethod);
-  if (isA2aProviderType(providerType)) {
-    return {
-      usesA2a: true,
-      requiresApiKey: false,
-      supportsModelsEndpoint: false
-    };
-  }
   return PROVIDERS[providerType] || PROVIDERS[PROVIDER_TYPES.CUSTOM];
 }
 
@@ -582,9 +601,12 @@ function wait(ms) {
 }
 
 function buildA2aTaskText(task, contextText) {
-  const sections = [`Task:\n${String(task || '').trim()}`];
+  const sections = [
+    'Use only the task and popup context below. Ignore any prior conversation or session state in the A2A backend.',
+    `Task:\n${String(task || '').trim()}`
+  ];
   const trimmedContext = String(contextText || '').trim();
-  if (trimmedContext) sections.push(`Selected context:\n${trimmedContext}`);
+  if (trimmedContext) sections.push(`Popup context:\n${trimmedContext}`);
   return sections.join('\n\n');
 }
 
@@ -657,18 +679,67 @@ function isA2aTaskComplete(task) {
   return getA2aTaskState(task) === 'completed';
 }
 
+function createA2aHttpError(status) {
+  const error = new Error(`A2A request failed: ${status}`);
+  error.status = status;
+  return error;
+}
+
+function joinA2aPath(endpoint, path) {
+  return `${String(endpoint || '').replace(/\/$/, '')}${path}`;
+}
+
+function createA2aRestMessageRequest(task, contextText) {
+  return {
+    messages: [createA2aMessageParams(task, contextText).message]
+  };
+}
+
+async function postA2aRestMessage(server, task, contextText) {
+  const headers = { 'Content-Type': 'application/json', Accept: 'application/json' };
+  if (server.token) headers.Authorization = `Bearer ${server.token}`;
+
+  const response = await fetch(joinA2aPath(server.endpoint, '/message:send'), {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(createA2aRestMessageRequest(task, contextText))
+  });
+
+  if (!response.ok) {
+    throw createA2aHttpError(response.status);
+  }
+
+  return response.json();
+}
+
+async function getA2aRestTask(server, taskId) {
+  const headers = { Accept: 'application/json' };
+  if (server.token) headers.Authorization = `Bearer ${server.token}`;
+
+  const response = await fetch(joinA2aPath(server.endpoint, `/tasks/${encodeURIComponent(taskId)}`), {
+    method: 'GET',
+    headers
+  });
+
+  if (!response.ok) {
+    throw createA2aHttpError(response.status);
+  }
+
+  return response.json();
+}
+
 async function postA2aRpc(server, method, params) {
   const headers = { 'Content-Type': 'application/json' };
   if (server.token) headers.Authorization = `Bearer ${server.token}`;
 
-  const response = await fetch(server.endpoint, {
+  const response = await fetch(getA2aRpcEndpoint(server), {
     method: 'POST',
     headers,
     body: JSON.stringify(createA2aRpcRequest(method, params))
   });
 
   if (!response.ok) {
-    throw new Error(`A2A request failed: ${response.status}`);
+    throw createA2aHttpError(response.status);
   }
 
   const payload = await response.json();
@@ -682,11 +753,48 @@ async function postA2aRpc(server, method, params) {
 async function pollA2aTask(server, taskId) {
   for (let attempt = 0; attempt < A2A_MAX_POLL_ATTEMPTS; attempt += 1) {
     await wait(A2A_POLL_INTERVAL_MS);
-    const task = assertA2aTaskNotFailed(await postA2aRpc(server, 'tasks/get', { id: taskId }));
+    const task = assertA2aTaskNotFailed(server.protocol === 'rest'
+      ? await getA2aRestTask(server, taskId)
+      : await postA2aRpc(server, 'tasks/get', { id: taskId }));
     if (isA2aTaskComplete(task)) return task;
   }
 
   throw new Error('A2A task polling timed out.');
+}
+
+async function discoverA2aRpcEndpoint(server) {
+  const agentCard = await discoverA2aServer(server.id);
+  const endpoint = getA2aRpcEndpoint({ ...server, agentCard });
+  return endpoint && endpoint !== server.endpoint ? { ...server, agentCard } : server;
+}
+
+async function sendInitialA2aTask(server, task, contextText) {
+  try {
+    return {
+      server,
+      task: assertA2aTaskNotFailed(await postA2aRpc(server, 'message/send', createA2aMessageParams(task, contextText)))
+    };
+  } catch (error) {
+    if (error.status !== 404) throw error;
+
+    try {
+      return {
+        server: { ...server, protocol: 'rest' },
+        task: assertA2aTaskNotFailed(await postA2aRestMessage(server, task, contextText))
+      };
+    } catch (restError) {
+      if (restError.status !== 404) throw restError;
+    }
+
+    if (server.agentCard) throw error;
+
+    const discoveredServer = await discoverA2aRpcEndpoint(server);
+    if (getA2aRpcEndpoint(discoveredServer) === getA2aRpcEndpoint(server)) throw error;
+    return {
+      server: discoveredServer,
+      task: assertA2aTaskNotFailed(await postA2aRpc(discoveredServer, 'message/send', createA2aMessageParams(task, contextText)))
+    };
+  }
 }
 
 async function delegateA2aTask({ serverId, task, contextText }) {
@@ -696,7 +804,8 @@ async function delegateA2aTask({ serverId, task, contextText }) {
     throw new Error(`A2A server not configured: ${serverId}`);
   }
 
-  const initialTask = assertA2aTaskNotFailed(await postA2aRpc(server, 'message/send', createA2aMessageParams(task, contextText)));
+  const initial = await sendInitialA2aTask(server, task, contextText);
+  const initialTask = initial.task;
   const immediateText = extractA2aText(initialTask);
   if (immediateText) return immediateText;
 
@@ -705,7 +814,7 @@ async function delegateA2aTask({ serverId, task, contextText }) {
     throw new Error('A2A task did not include a task id or text result.');
   }
 
-  const completedTask = await pollA2aTask(server, taskId);
+  const completedTask = await pollA2aTask(initial.server, taskId);
   const completedText = extractA2aText(completedTask);
   if (!completedText) {
     throw new Error('A2A task completed without text result.');
@@ -924,9 +1033,6 @@ async function handleA2aProviderChat(config, messages) {
 
 async function handleAIChat(messages) {
   const config = await loadConfig();
-  if (isA2aProviderType(config.providerType)) {
-    return handleA2aProviderChat(config, messages);
-  }
 
   return executeApiRequest({
     config,

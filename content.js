@@ -69,7 +69,7 @@
   chrome.storage.sync.get({ model: 'claude-sonnet-4-5', endpoint: 'https://api.omnillm.com/v1', apiKey: '', providerType: 'custom-provider', authMethod: 'api-key', a2aServers: [] }, cfg => {
     a2aServers = cfg.a2aServers || [];
     currentModel = cfg.model || 'claude-sonnet-4-5';
-    currentProviderType = cfg.providerType || 'custom-provider';
+    currentProviderType = normalizeProviderType(cfg.providerType || 'custom-provider');
     currentAuthMethod = cfg.authMethod || 'api-key';
     currentApiKey = cfg.apiKey || '';
     currentEndpoint = cfg.endpoint || '';
@@ -84,7 +84,7 @@
   chrome.storage.onChanged.addListener(changes => {
     if (changes.model) { currentModel = changes.model.newValue; updatePanelMeta(); }
     if (changes.endpoint) currentEndpoint = changes.endpoint.newValue || '';
-    if (changes.providerType) currentProviderType = changes.providerType.newValue || 'custom-provider';
+    if (changes.providerType) currentProviderType = normalizeProviderType(changes.providerType.newValue || 'custom-provider');
     if (changes.authMethod) currentAuthMethod = changes.authMethod.newValue || 'api-key';
     if (changes.apiKey) currentApiKey = changes.apiKey.newValue || '';
     if (changes.a2aServers) a2aServers = changes.a2aServers.newValue || [];
@@ -103,6 +103,10 @@
     return typeof providerType === 'string' && providerType.startsWith('a2a:');
   }
 
+  function normalizeProviderType(providerType) {
+    return PROVIDER_LABELS[providerType] ? providerType : 'custom-provider';
+  }
+
   function getA2aServerIdFromProviderType(providerType) {
     return isA2aProviderType(providerType) ? providerType.slice(4) : '';
   }
@@ -113,17 +117,12 @@
   }
 
   function getProviderEntries() {
-    return [
-      ...Object.entries(PROVIDER_LABELS).map(([providerType, label]) => ({ providerType, label })),
-      ...a2aServers
-        .filter(server => server.enabled !== false)
-        .map(server => ({ providerType: `a2a:${server.id}`, label: server.name || 'A2A' }))
-    ];
+    return Object.entries(PROVIDER_LABELS)
+      .map(([providerType, label]) => ({ providerType, label }));
   }
 
   function getProviderLabel(providerType, endpoint) {
-    if (isA2aProviderType(providerType)) return getA2aServerLabel(providerType);
-    return PROVIDER_LABELS[providerType] || detectProvider(endpoint || '');
+    return PROVIDER_LABELS[normalizeProviderType(providerType)] || detectProvider(endpoint || '');
   }
 
   function detectProvider(endpoint) {
@@ -172,15 +171,47 @@
   }
 
   function getDropdownActions() {
-    const actions = [...ACTIONS];
-    if (hasEnabledA2aServers()) {
-      actions.push({ id: 'delegate-a2a', labelKey: 'a2aDelegate', icon: '🤝' });
-    }
-    return actions;
+    return [...ACTIONS];
   }
 
   function getDropdownActionIds() {
     return getDropdownActions().map(action => action.id);
+  }
+
+  function normalizeA2aTag(value) {
+    return String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  }
+
+  function findA2aServerByMention(tag) {
+    const normalizedTag = normalizeA2aTag(tag);
+    return a2aServers
+      .filter(server => server && server.enabled !== false)
+      .find(server => normalizeA2aTag(server.name || server.id || '') === normalizedTag) || null;
+  }
+
+  function parseA2aMentionTask(text) {
+    const match = String(text || '').trim().match(/^@(\S+)(?:\s+([\s\S]*))?$/);
+    if (!match) return null;
+
+    const rawTag = match[1];
+    const normalizedTag = normalizeA2aTag(rawTag);
+    if (!normalizedTag.startsWith('a2a')) return null;
+
+    const server = findA2aServerByMention(rawTag);
+    if (!server) return { error: `A2A server not found: @${rawTag}` };
+
+    const task = String(match[2] || '').trim();
+    if (!task) return { error: 'A2A task is required.' };
+
+    return { server, task };
+  }
+
+  function getA2aDelegationContext() {
+    return conversationHistory
+      .filter(message => typeof message?.content === 'string' && !message.kind?.startsWith?.('a2a-') && !parseA2aMentionTask(message.content))
+      .map(message => `${message.role === 'assistant' ? 'Popup assistant' : 'Popup user'}: ${message.content.trim()}`)
+      .filter(Boolean)
+      .join('\n\n') || lastSelection || '';
   }
 
   // ── Bubble ──────────────────────────────────────────────────────────────────
@@ -495,6 +526,7 @@
 
   function sendFollowUp(question) {
     conversationHistory.push({ role: 'user', content: question });
+    const a2aMentionTask = parseA2aMentionTask(question);
 
     // Append user message to panel body
     const body = panel.querySelector('.omnipilot-panel-body');
@@ -512,6 +544,39 @@
 
     abortController = new AbortController();
     const signal = abortController.signal;
+
+    if (a2aMentionTask?.error) {
+      body.querySelector('.omnipilot-loading')?.remove();
+      body.innerHTML += `<div class="omnipilot-error">${escapeHtml(a2aMentionTask.error)}</div>`;
+      return;
+    }
+
+    if (a2aMentionTask?.server) {
+      runtime.sendMessage(
+        {
+          type: 'A2A_DELEGATE_TASK',
+          serverId: a2aMentionTask.server.id,
+          task: a2aMentionTask.task,
+          contextText: getA2aDelegationContext()
+        },
+        response => {
+          if (signal.aborted) return;
+          body.querySelector('.omnipilot-loading')?.remove();
+          if (runtime.lastError) {
+            body.innerHTML += `<div class="omnipilot-error">${humanizeError(runtime.lastError.message)}</div>`;
+            return;
+          }
+          if (!response || !response.success) {
+            body.innerHTML += `<div class="omnipilot-error">${humanizeError(response?.error)}</div>`;
+            return;
+          }
+          conversationHistory.push({ role: 'assistant', content: response.result, kind: 'a2a-result' });
+          body.innerHTML += `<div class="omnipilot-msg omnipilot-msg-assistant">${formatResult(response.result)}</div>`;
+          body.scrollTop = body.scrollHeight;
+        }
+      );
+      return;
+    }
 
     runtime.sendMessage(
       { type: 'AI_CHAT', messages: conversationHistory },
@@ -1051,7 +1116,8 @@
   globalThis.getProviderLabel = getProviderLabel;
   globalThis.getProviderEntries = getProviderEntries;
   globalThis.__omnipilotTestApi = {
-    getDropdownActionIds
+    getDropdownActionIds,
+    parseA2aMentionTask
   };
 
 })();

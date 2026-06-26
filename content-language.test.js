@@ -199,7 +199,86 @@ async function openDropdown(storedConfig) {
   return dropdown;
 }
 
-async function testA2aProviderLabelUsesConfiguredServerName() {
+async function testA2aMentionFollowUpDelegatesInsteadOfChat() {
+  const { documentRef, sendMessageCalls, setSelectionText } = await createContentContext({
+    apiKey: 'test-key',
+    languagePreference: 'en',
+    a2aServers: [{ id: 'server-1', name: 'A2A localhost', endpoint: 'http://127.0.0.1:1423', enabled: true }]
+  });
+
+  await selectText(documentRef, setSelectionText, 'selected context for A2A');
+  documentRef.getElementById('omnipilot-bubble').listeners.click({ preventDefault() {}, stopPropagation() {} });
+  documentRef.getElementById('omnipilot-dropdown').children[0].listeners.click({ preventDefault() {}, stopPropagation() {} });
+
+  const input = documentRef.getElementById('omnipilot-panel').querySelector('.omnipilot-panel-input');
+  input.value = '@A2Alocalhost hihihi';
+  input.listeners.keydown({ key: 'Enter', shiftKey: false, preventDefault() {}, stopPropagation() {} });
+
+  const delegateMessage = sendMessageCalls.findLast(message => message.type === 'A2A_DELEGATE_TASK');
+  assert.ok(delegateMessage, 'A2A mention should send A2A_DELEGATE_TASK');
+  assert.strictEqual(delegateMessage.serverId, 'server-1');
+  assert.strictEqual(delegateMessage.task, 'hihihi');
+  assert.ok(delegateMessage.contextText.includes('selected context for A2A'));
+  assert.ok(!sendMessageCalls.some(message => message.type === 'AI_CHAT' && message.messages?.some(item => item.content === '@A2Alocalhost hihihi')));
+}
+
+async function testA2aMentionFollowUpSendsPopupTranscriptContext() {
+  const { documentRef, sendMessageCalls, setSelectionText } = await createContentContext({
+    apiKey: 'test-key',
+    languagePreference: 'en',
+    a2aServers: [{ id: 'server-1', name: 'A2A localhost', endpoint: 'http://127.0.0.1:1423', enabled: true }]
+  });
+
+  await selectText(documentRef, setSelectionText, 'popup selected context');
+  documentRef.getElementById('omnipilot-bubble').listeners.click({ preventDefault() {}, stopPropagation() {} });
+  documentRef.getElementById('omnipilot-dropdown').children[0].listeners.click({ preventDefault() {}, stopPropagation() {} });
+
+  const input = documentRef.getElementById('omnipilot-panel').querySelector('.omnipilot-panel-input');
+  input.value = 'What does this mean?';
+  input.listeners.keydown({ key: 'Enter', shiftKey: false, preventDefault() {}, stopPropagation() {} });
+
+  input.value = '@A2Alocalhost summarize using this popup';
+  input.listeners.keydown({ key: 'Enter', shiftKey: false, preventDefault() {}, stopPropagation() {} });
+
+  const delegateMessage = sendMessageCalls.findLast(message => message.type === 'A2A_DELEGATE_TASK');
+  assert.ok(delegateMessage, 'A2A mention should delegate');
+  assert.ok(delegateMessage.contextText.includes('popup selected context'));
+  assert.ok(delegateMessage.contextText.includes('What does this mean?'));
+  assert.ok(delegateMessage.contextText.includes('ok'));
+  assert.ok(!delegateMessage.contextText.includes('@A2Alocalhost summarize using this popup'));
+}
+
+async function testA2aMentionMatchingIgnoresCaseSpacesAndPunctuation() {
+  const { context } = await createContentContext({
+    a2aServers: [{ id: 'server-1', name: 'A2A localhost', endpoint: 'http://127.0.0.1:1423', enabled: true }]
+  });
+
+  assert.strictEqual(context.globalThis.__omnipilotTestApi.parseA2aMentionTask('@a2a-localhost run').server.id, 'server-1');
+  assert.strictEqual(context.globalThis.__omnipilotTestApi.parseA2aMentionTask('@A2Alocalhost run').server.id, 'server-1');
+}
+
+async function testUnknownA2aMentionShowsErrorWithoutChat() {
+  const { documentRef, sendMessageCalls, setSelectionText } = await createContentContext({
+    apiKey: 'test-key',
+    languagePreference: 'en',
+    a2aServers: [{ id: 'server-1', name: 'A2A localhost', endpoint: 'http://127.0.0.1:1423', enabled: true }]
+  });
+
+  await selectText(documentRef, setSelectionText, 'selected context');
+  documentRef.getElementById('omnipilot-bubble').listeners.click({ preventDefault() {}, stopPropagation() {} });
+  documentRef.getElementById('omnipilot-dropdown').children[0].listeners.click({ preventDefault() {}, stopPropagation() {} });
+
+  const input = documentRef.getElementById('omnipilot-panel').querySelector('.omnipilot-panel-input');
+  input.value = '@A2Aunknown hi';
+  input.listeners.keydown({ key: 'Enter', shiftKey: false, preventDefault() {}, stopPropagation() {} });
+
+  const body = documentRef.getElementById('omnipilot-panel').querySelector('.omnipilot-panel-body');
+  assert.ok(body.textContent.includes('A2A server not found: @A2Aunknown'));
+  assert.ok(!sendMessageCalls.some(message => message.type === 'AI_CHAT'));
+  assert.ok(!sendMessageCalls.some(message => message.type === 'A2A_DELEGATE_TASK'));
+}
+
+async function testA2aServersDoNotAppearAsProviderEntries() {
   const { context } = await createContentContext({
     providerType: 'a2a:a2a-1',
     a2aServers: [
@@ -207,12 +286,17 @@ async function testA2aProviderLabelUsesConfiguredServerName() {
     ]
   });
 
-  assert.strictEqual(context.getProviderLabel('a2a:a2a-1', ''), 'Planner');
-  assert.ok(context.getProviderEntries().some(entry => entry.providerType === 'a2a:a2a-1' && entry.label === 'Planner'));
+  assert.strictEqual(context.getProviderLabel('a2a:a2a-1', ''), 'Custom');
+  assert.ok(!context.getProviderEntries().some(entry => entry.providerType === 'a2a:a2a-1'));
+  assert.ok(!context.getProviderEntries().some(entry => entry.label === 'Planner'));
 }
 
 async function main() {
-  await testA2aProviderLabelUsesConfiguredServerName();
+  await testA2aServersDoNotAppearAsProviderEntries();
+  await testA2aMentionFollowUpDelegatesInsteadOfChat();
+  await testA2aMentionFollowUpSendsPopupTranscriptContext();
+  await testA2aMentionMatchingIgnoresCaseSpacesAndPunctuation();
+  await testUnknownA2aMentionShowsErrorWithoutChat();
 
   const dropdown = await openDropdown({ apiKey: 'test-key' });
   assert.ok(dropdown.children.some(child => child.textContent.includes('翻译')));
@@ -226,9 +310,9 @@ async function main() {
     apiKey: 'test-key',
     a2aServers: [{ id: 'server-1', name: 'Server 1', enabled: true }]
   });
-  assert.ok(delegateDropdown.children.some(child => child.textContent.includes('委派到 A2A')));
+  assert.ok(!delegateDropdown.children.some(child => child.textContent.includes('委派到 A2A')));
   assert.ok(Array.isArray(delegateContext.globalThis.__omnipilotTestApi.getDropdownActionIds()));
-  assert.ok(delegateContext.globalThis.__omnipilotTestApi.getDropdownActionIds().includes('delegate-a2a'));
+  assert.ok(!delegateContext.globalThis.__omnipilotTestApi.getDropdownActionIds().includes('delegate-a2a'));
 
   const { context: noDelegateContext } = await createContentContext({
     apiKey: 'test-key',

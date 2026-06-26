@@ -916,6 +916,45 @@ async function testDiscoverUpdatesAgentCardMetadataAndSavesToSync() {
   assert.deepStrictEqual(JSON.parse(JSON.stringify(syncWrites.at(-1).a2aServers[0].agentCard)), { name: 'Discovered Agent', version: '1.0.0' });
 }
 
+async function testLegacyA2aServerWithoutIdIsPersistedBeforeDiscovery() {
+  const { context, domListeners, syncWrites, sendMessageCalls } = createTestContext({
+    storageGetImpl(keys, callback) {
+      callback({
+        providerType: 'custom-provider',
+        endpoint: 'http://localhost:5000',
+        apiKey: 'test-key',
+        model: 'deepseek-v4-flash',
+        languagePreference: 'en',
+        a2aServers: [
+          { name: 'OmniLauncher', endpoint: 'http://127.0.0.1:1423', enabled: true }
+        ]
+      });
+    },
+    sendMessageImpl(message, callback) {
+      if (message.type === 'A2A_DISCOVER_SERVER') {
+        callback({ success: true, agentCard: { name: 'OmniLauncher' } });
+        return;
+      }
+      callback({ models: [] });
+    }
+  });
+
+  await domListeners.DOMContentLoaded();
+  await Promise.resolve();
+
+  const migratedServers = syncWrites.find(write => Array.isArray(write.a2aServers))?.a2aServers;
+  assert.strictEqual(migratedServers?.length, 1);
+  assert.ok(migratedServers[0].id);
+  assert.notStrictEqual(migratedServers[0].id, 'undefined');
+  assert.strictEqual(migratedServers[0].name, 'OmniLauncher');
+  assert.strictEqual(migratedServers[0].endpoint, 'http://127.0.0.1:1423');
+
+  await context.discoverAndSaveA2aServer(migratedServers[0].id);
+
+  assert.strictEqual(sendMessageCalls.at(-1).type, 'A2A_DISCOVER_SERVER');
+  assert.strictEqual(sendMessageCalls.at(-1).serverId, migratedServers[0].id);
+}
+
 async function main() {
   await testOptionsHtmlDoesNotUseInlineScripts();
   await testOptionsHtmlContainsA2aControls();
@@ -950,6 +989,7 @@ async function main() {
   await testA2aServerListButtonsInvokeDiscoverAndRemove();
   await testStartCopilotAuthRejectsUnsafeVerificationUri();
   await testDiscoverUpdatesAgentCardMetadataAndSavesToSync();
+  await testLegacyA2aServerWithoutIdIsPersistedBeforeDiscovery();
 }
 
 main().catch(err => {
