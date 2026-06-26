@@ -219,6 +219,7 @@ async function createBackgroundContext({
     URLSearchParams,
     console: {
       info: () => {},
+      warn: () => {},
       error: () => {}
     },
     chrome: {
@@ -1665,6 +1666,318 @@ async function assertConfiguredA2aServerDoesNotAutomaticallyHandleChat() {
   assert.strictEqual(requests[0].url, 'https://custom.example/v1/chat/completions');
 }
 
+// ── A2A auto-routing helpers ────────────────────────────────────────────────
+
+const AUTO_ROUTE_STORAGE = {
+  providerType: 'custom-provider',
+  endpoint: 'https://custom.example/v1',
+  apiKey: 'custom-key',
+  model: 'custom-model',
+  apiShape: 'openai-compatible',
+  a2aServers: [
+    {
+      id: 'planner',
+      name: 'Planner',
+      endpoint: 'https://a2a.example/rpc',
+      enabled: true,
+      agentCard: {
+        name: 'Planner Agent',
+        description: 'Plans complex tasks and breaks them into steps.',
+        skills: [
+          { name: 'planning', description: 'Decomposes goals into actionable steps' },
+          { name: 'scheduling', description: 'Orders steps by dependencies' }
+        ]
+      }
+    }
+  ],
+  a2aServerTokens: { planner: 'server-token' }
+};
+
+function makeAutoRouteResponse(apiShape, { withToolCall = false, toolName = 'a2a__planner', task = 'Plan my day' } = {}) {
+  if (apiShape === 'anthropic-messages') {
+    if (withToolCall) {
+      return {
+        content: [
+          { type: 'tool_use', id: 'call-1', name: toolName, input: { task } }
+        ]
+      };
+    }
+    return RESPONSE_BY_SHAPE['anthropic-messages'];
+  }
+
+  if (apiShape === 'openai-responses') {
+    if (withToolCall) {
+      return {
+        output: [
+          { type: 'function_call', call_id: 'call-1', name: toolName, arguments: JSON.stringify({ task }) }
+        ]
+      };
+    }
+    return RESPONSE_BY_SHAPE['openai-responses'];
+  }
+
+  if (withToolCall) {
+    return {
+      choices: [{
+        message: {
+          role: 'assistant',
+          content: null,
+          tool_calls: [
+            { id: 'call-1', type: 'function', function: { name: toolName, arguments: JSON.stringify({ task }) } }
+          ]
+        }
+      }]
+    };
+  }
+  return RESPONSE_BY_SHAPE['openai-compatible'];
+}
+
+async function assertAutoRouteInjectsOpenAIToolsByDefault() {
+  const { context, requests } = await createBackgroundContext({
+    storage: AUTO_ROUTE_STORAGE,
+    fetchImpl: async (url, options) => {
+      assert.strictEqual(url, 'https://custom.example/v1/chat/completions');
+      return { ok: true, json: async () => makeAutoRouteResponse('openai-compatible') };
+    }
+  });
+
+  const result = await context.handleAIChat([{ role: 'user', content: 'Plan my day' }]);
+
+  assert.strictEqual(result, 'ok');
+  assert.strictEqual(requests.length, 1);
+  const body = JSON.parse(requests[0].options.body);
+  assert.ok(Array.isArray(body.tools), 'expected tools array on request body');
+  assert.strictEqual(body.tools.length, 1);
+  assert.strictEqual(body.tools[0].type, 'function');
+  assert.strictEqual(body.tools[0].function.name, 'a2a__planner');
+  assert.ok(body.tools[0].function.description.includes('Planner Agent'));
+  assert.ok(body.tools[0].function.description.includes('planning'));
+  assert.strictEqual(body.tool_choice, 'auto');
+  assert.deepStrictEqual(body.tools[0].function.parameters.required, ['task']);
+}
+
+async function assertAutoRouteInjectsAnthropicTools() {
+  const { context, requests } = await createBackgroundContext({
+    storage: { ...AUTO_ROUTE_STORAGE, apiShape: 'anthropic-messages' },
+    fetchImpl: async (url) => {
+      assert.strictEqual(url, 'https://custom.example/v1/messages');
+      return { ok: true, json: async () => makeAutoRouteResponse('anthropic-messages') };
+    }
+  });
+
+  await context.handleAIChat([{ role: 'user', content: 'Plan my day' }]);
+
+  const body = JSON.parse(requests[0].options.body);
+  assert.ok(Array.isArray(body.tools));
+  assert.strictEqual(body.tools.length, 1);
+  assert.strictEqual(body.tools[0].name, 'a2a__planner');
+  assert.ok(body.tools[0].description.includes('Planner Agent'));
+  assert.deepStrictEqual(body.tools[0].input_schema.required, ['task']);
+  assert.strictEqual(body.tool_choice, undefined, 'Anthropic defaults to auto; explicit tool_choice not required');
+}
+
+async function assertAutoRouteInjectsResponsesTools() {
+  const { context, requests } = await createBackgroundContext({
+    storage: { ...AUTO_ROUTE_STORAGE, apiShape: 'openai-responses' },
+    fetchImpl: async (url) => {
+      assert.strictEqual(url, 'https://custom.example/v1/responses');
+      return { ok: true, json: async () => makeAutoRouteResponse('openai-responses') };
+    }
+  });
+
+  await context.handleAIChat([{ role: 'user', content: 'Plan my day' }]);
+
+  const body = JSON.parse(requests[0].options.body);
+  assert.ok(Array.isArray(body.tools));
+  assert.strictEqual(body.tools.length, 1);
+  assert.strictEqual(body.tools[0].type, 'function');
+  assert.strictEqual(body.tools[0].name, 'a2a__planner');
+  assert.strictEqual(body.tool_choice, 'auto');
+}
+
+async function assertAutoRouteRespectsDisableToggle() {
+  const { context, requests } = await createBackgroundContext({
+    storage: { ...AUTO_ROUTE_STORAGE, a2aAutoRoute: false },
+    fetchImpl: async () => ({ ok: true, json: async () => RESPONSE_BY_SHAPE['openai-compatible'] })
+  });
+
+  await context.handleAIChat([{ role: 'user', content: 'Plan my day' }]);
+
+  assert.strictEqual(requests.length, 1);
+  const body = JSON.parse(requests[0].options.body);
+  assert.strictEqual(body.tools, undefined, 'tools must not be sent when a2aAutoRoute is false');
+  assert.strictEqual(body.tool_choice, undefined);
+}
+
+async function assertAutoRouteSkippedWithoutAgentCard() {
+  // Same storage as default-on test, but strip the agent card so the server is "undiscovered"
+  const storageWithoutCard = {
+    ...AUTO_ROUTE_STORAGE,
+    a2aServers: AUTO_ROUTE_STORAGE.a2aServers.map(server => {
+      const copy = { ...server };
+      delete copy.agentCard;
+      return copy;
+    })
+  };
+
+  const { context, requests } = await createBackgroundContext({
+    storage: storageWithoutCard,
+    fetchImpl: async () => ({ ok: true, json: async () => RESPONSE_BY_SHAPE['openai-compatible'] })
+  });
+
+  await context.handleAIChat([{ role: 'user', content: 'Plan my day' }]);
+
+  const body = JSON.parse(requests[0].options.body);
+  assert.strictEqual(body.tools, undefined, 'tools must not be sent when no server has been discovered');
+}
+
+async function assertAutoRouteSkippedWhenServerDisabled() {
+  const storage = {
+    ...AUTO_ROUTE_STORAGE,
+    a2aServers: AUTO_ROUTE_STORAGE.a2aServers.map(server => ({ ...server, enabled: false }))
+  };
+
+  const { context, requests } = await createBackgroundContext({
+    storage,
+    fetchImpl: async () => ({ ok: true, json: async () => RESPONSE_BY_SHAPE['openai-compatible'] })
+  });
+
+  await context.handleAIChat([{ role: 'user', content: 'Plan my day' }]);
+
+  const body = JSON.parse(requests[0].options.body);
+  assert.strictEqual(body.tools, undefined, 'disabled servers must not contribute tools');
+}
+
+async function assertAutoRouteToolCallTriggersDelegateA2aTask() {
+  let llmCalled = 0;
+  let a2aCalled = 0;
+  const { context, requests } = await createBackgroundContext({
+    storage: AUTO_ROUTE_STORAGE,
+    fetchImpl: async (url, options) => {
+      if (url === 'https://custom.example/v1/chat/completions') {
+        llmCalled += 1;
+        return { ok: true, json: async () => makeAutoRouteResponse('openai-compatible', { withToolCall: true, task: 'Plan my day, in detail' }) };
+      }
+      if (url === 'https://a2a.example/rpc') {
+        a2aCalled += 1;
+        return {
+          ok: true,
+          json: async () => ({
+            result: {
+              message: { parts: [{ type: 'text', text: 'Day plan: 1) wake, 2) work, 3) rest.' }] }
+            }
+          })
+        };
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    }
+  });
+
+  const result = await context.handleAIChat([{ role: 'user', content: 'Plan my day' }]);
+
+  assert.strictEqual(result, 'Day plan: 1) wake, 2) work, 3) rest.');
+  assert.strictEqual(llmCalled, 1, 'one LLM call with tools');
+  assert.strictEqual(a2aCalled, 1, 'tool call dispatches to A2A endpoint');
+  assert.strictEqual(requests.length, 2);
+
+  const a2aRequest = requests.find(req => req.url === 'https://a2a.example/rpc');
+  assert.ok(a2aRequest, 'expected an A2A request');
+  assert.strictEqual(a2aRequest.options.headers.Authorization, 'Bearer server-token');
+  const a2aBody = JSON.parse(a2aRequest.options.body);
+  assert.strictEqual(a2aBody.method, 'message/send');
+  assert.ok(a2aBody.params.message.parts[0].text.includes('Plan my day, in detail'));
+}
+
+async function assertAutoRouteToolCallWithUnknownServerThrows() {
+  const { context } = await createBackgroundContext({
+    storage: AUTO_ROUTE_STORAGE,
+    fetchImpl: async (url) => {
+      if (url === 'https://custom.example/v1/chat/completions') {
+        return { ok: true, json: async () => makeAutoRouteResponse('openai-compatible', { withToolCall: true, toolName: 'a2a__ghost' }) };
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    }
+  });
+
+  await assert.rejects(
+    () => context.handleAIChat([{ role: 'user', content: 'Plan my day' }]),
+    err => /A2A server not found/.test(err.message)
+  );
+}
+
+async function assertAutoRouteToolCallWithEmptyTaskThrows() {
+  const { context } = await createBackgroundContext({
+    storage: AUTO_ROUTE_STORAGE,
+    fetchImpl: async (url) => {
+      if (url === 'https://custom.example/v1/chat/completions') {
+        return { ok: true, json: async () => makeAutoRouteResponse('openai-compatible', { withToolCall: true, task: '' }) };
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    }
+  });
+
+  await assert.rejects(
+    () => context.handleAIChat([{ role: 'user', content: 'Plan my day' }]),
+    err => /A2A task is required/.test(err.message)
+  );
+}
+
+async function assertAutoRouteRetriesWithoutToolsWhenProviderRejectsTools() {
+  let attempts = 0;
+  const { context, requests } = await createBackgroundContext({
+    storage: AUTO_ROUTE_STORAGE,
+    fetchImpl: async (url, options) => {
+      attempts += 1;
+      const body = JSON.parse(options.body);
+      if (attempts === 1) {
+        assert.ok(body.tools, 'first attempt should include tools');
+        return {
+          ok: false,
+          status: 400,
+          text: async () => JSON.stringify({ error: { message: 'tools are not supported for this model' } }),
+          headers: new Map(),
+        };
+      }
+      // Second attempt: no tools, plain success.
+      assert.strictEqual(body.tools, undefined, 'fallback attempt must omit tools');
+      return { ok: true, json: async () => RESPONSE_BY_SHAPE['openai-compatible'] };
+    }
+  });
+
+  // Patch fetch response shape to include .headers.entries() expected by the error logger.
+  const result = await context.handleAIChat([{ role: 'user', content: 'Plan my day' }]);
+  assert.strictEqual(result, 'ok');
+  assert.strictEqual(requests.length, 2);
+}
+
+async function assertAutoRouteToolNameRoundTrip() {
+  const { context } = await createBackgroundContext();
+  assert.strictEqual(context.buildA2aToolName('planner'), 'a2a__planner');
+  assert.strictEqual(context.parseA2aToolName('a2a__planner'), 'planner');
+  assert.strictEqual(context.parseA2aToolName('some_other_tool'), null);
+  // Sanitization: special chars collapsed to _, lowercased, trimmed.
+  assert.strictEqual(context.buildA2aToolName('My Cool Agent!!'), 'a2a__my_cool_agent');
+  // Length capped to 64 total.
+  const long = 'x'.repeat(200);
+  const built = context.buildA2aToolName(long);
+  assert.ok(built.length <= 64, `tool name length ${built.length} exceeds 64`);
+  assert.ok(built.startsWith('a2a__'));
+}
+
+async function assertAutoRouteToolDescriptionTruncates() {
+  const { context } = await createBackgroundContext();
+  const bigSkills = Array.from({ length: 50 }, (_, i) => ({
+    name: `skill_${i}`,
+    description: 'A very long description that pads the total length considerably ' + 'x'.repeat(80)
+  }));
+  const description = context.buildA2aToolDescription({
+    id: 'planner',
+    name: 'Planner',
+    agentCard: { name: 'Planner', description: 'desc', skills: bigSkills }
+  });
+  assert.ok(description.length <= 1024, `description length ${description.length} exceeds 1024`);
+}
+
 async function main() {
   await assertA2aServerMetadataAndTokensUseSeparateStorageAreas();
   await assertA2aProviderIdsRoundTripServerIds();
@@ -1712,6 +2025,18 @@ async function main() {
   await assertA2aDelegateTaskReturnsImmediateTextResult();
   await assertA2aDelegateTaskPollsUntilCompleted();
   await assertA2aDelegateTaskSurfacesFailedTaskState();
+  await assertAutoRouteInjectsOpenAIToolsByDefault();
+  await assertAutoRouteInjectsAnthropicTools();
+  await assertAutoRouteInjectsResponsesTools();
+  await assertAutoRouteRespectsDisableToggle();
+  await assertAutoRouteSkippedWithoutAgentCard();
+  await assertAutoRouteSkippedWhenServerDisabled();
+  await assertAutoRouteToolCallTriggersDelegateA2aTask();
+  await assertAutoRouteToolCallWithUnknownServerThrows();
+  await assertAutoRouteToolCallWithEmptyTaskThrows();
+  await assertAutoRouteRetriesWithoutToolsWhenProviderRejectsTools();
+  await assertAutoRouteToolNameRoundTrip();
+  await assertAutoRouteToolDescriptionTruncates();
 }
 
 main().catch(err => {

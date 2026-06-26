@@ -166,6 +166,8 @@
 
     /* Hint */
     .hint { font-size: 11px; color: var(--ink3); margin-top: 5px; }
+    .inline-label { display: flex; align-items: center; gap: 8px; font-weight: normal; cursor: pointer; }
+    .inline-label input[type="checkbox"] { margin: 0; }
 
     .compact-card {
       padding: 16px;
@@ -451,6 +453,13 @@
         </div>
         <div class="a2a-status" id="a2aStatus"></div>
         <div class="a2a-server-list" id="a2aServerList"></div>
+        <div class="field">
+          <label class="inline-label" for="a2aAutoRoute">
+            <input type="checkbox" id="a2aAutoRoute" checked>
+            <span data-i18n="a2aAutoRouteLabel">Auto-route to A2A agents</span>
+          </label>
+          <div class="hint" data-i18n="a2aAutoRouteHint">When on, OmniPilot lets the model pick the right enabled A2A agent for your prompt based on its discovered capabilities. Use <code>@AgentName task</code> to override manually.</div>
+        </div>
       </div>
     </div>
 

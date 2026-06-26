@@ -47,6 +47,14 @@ A2A client support is configured through the same provider settings. Use **Provi
 
 When A2A servers are configured, they appear in the in-panel provider selector alongside the built-in providers. Select the desired A2A server, then use the normal chat or action flow to delegate through that A2A target. In practice, the flow is: open OmniPilot, choose the A2A server from the provider selector, and then run your prompt/action so OmniPilot delegates the request to that A2A server.
 
+#### Auto-routing to A2A agents
+
+When the **Auto-route to A2A agents** setting is enabled (the default), OmniPilot exposes each discovered, enabled A2A server to the active model as a tool. The model decides per prompt whether to delegate to one of those agents based on each agent card's name, description, and skills. The tool call is intercepted by the background script, dispatched to the matching A2A endpoint via `delegateA2aTask`, and the agent's response is fed back to the model to produce the final reply.
+
+Auto-routing is supported across all three API formats (OpenAI chat completions, Anthropic Messages, and OpenAI Responses). If a provider rejects tools for the active model, OmniPilot transparently retries the request without tools so chat keeps working.
+
+You can always override auto-routing by **@-mentioning** a server in your prompt (for example, `@Planner draft a weekly plan`). Mentions are matched in the content script before the request reaches the model, so they bypass auto-routing entirely. Turn the toggle off if you prefer mention-only routing.
+
 ## Usage
 
 1. Visit any webpage

@@ -63,14 +63,18 @@ const DEFAULT_CONFIG = {
   models: '',
   apiShape: 'openai-compatible',
   providerType: PROVIDER_TYPES.CUSTOM,
-  authMethod: AUTH_METHODS.API_KEY
+  authMethod: AUTH_METHODS.API_KEY,
+  a2aAutoRoute: true
 };
 
-const STORAGE_KEYS = ['endpoint', 'apiKey', 'model', 'models', 'apiShape', 'providerType', 'authMethod', 'providerConfigs', 'a2aServers'];
+const STORAGE_KEYS = ['endpoint', 'apiKey', 'model', 'models', 'apiShape', 'providerType', 'authMethod', 'providerConfigs', 'a2aServers', 'a2aAutoRoute'];
 const A2A_TOKEN_STORAGE_KEY = 'a2aServerTokens';
 const PROVIDER_CONFIG_FIELDS = ['endpoint', 'apiKey', 'model', 'models', 'apiShape'];
 const A2A_POLL_INTERVAL_MS = 500;
 const A2A_MAX_POLL_ATTEMPTS = 20;
+const A2A_TOOL_NAME_PREFIX = 'a2a__';
+const A2A_TOOL_NAME_MAX_LEN = 64;
+const A2A_TOOL_DESCRIPTION_MAX_LEN = 1024;
 
 const API_SHAPES = {
   OPENAI_COMPATIBLE: 'openai-compatible',
@@ -272,6 +276,195 @@ async function getA2aServerWithToken(serverId) {
   return servers.find(server => server.id === serverId) || null;
 }
 
+async function loadEnabledA2aServersWithAgentCards() {
+  const servers = await loadA2aServers();
+  return servers.filter(server => server && server.enabled !== false && server.agentCard && typeof server.agentCard === 'object');
+}
+
+function sanitizeA2aToolNameSegment(serverId) {
+  const lowered = String(serverId || '').toLowerCase();
+  const replaced = lowered.replace(/[^a-z0-9_-]+/g, '_');
+  const collapsed = replaced.replace(/_+/g, '_').replace(/^[-_]+|[-_]+$/g, '');
+  const maxSegmentLen = A2A_TOOL_NAME_MAX_LEN - A2A_TOOL_NAME_PREFIX.length;
+  return collapsed.slice(0, maxSegmentLen) || 'agent';
+}
+
+function buildA2aToolName(serverId) {
+  return `${A2A_TOOL_NAME_PREFIX}${sanitizeA2aToolNameSegment(serverId)}`;
+}
+
+function parseA2aToolName(toolName) {
+  if (typeof toolName !== 'string' || !toolName.startsWith(A2A_TOOL_NAME_PREFIX)) return null;
+  return toolName.slice(A2A_TOOL_NAME_PREFIX.length) || null;
+}
+
+function buildA2aToolDescription(server) {
+  const card = server?.agentCard && typeof server.agentCard === 'object' ? server.agentCard : {};
+  const displayName = String(card.name || server?.name || server?.id || 'Agent').trim();
+  const summary = String(card.description || '').trim();
+  const skillsList = Array.isArray(card.skills) ? card.skills : [];
+  const skillText = skillsList
+    .filter(skill => skill && (skill.name || skill.id))
+    .map(skill => {
+      const name = String(skill.name || skill.id).trim();
+      const desc = String(skill.description || '').trim();
+      return desc ? `${name} (${desc})` : name;
+    })
+    .filter(Boolean)
+    .join('; ');
+
+  const parts = [`Delegate this task to the remote agent "${displayName}".`];
+  if (summary) parts.push(`Agent description: ${summary}`);
+  if (skillText) parts.push(`Skills: ${skillText}`);
+  parts.push('Call this tool when the user request clearly matches the agent\'s capabilities. The "task" argument should restate what the user wants the agent to do.');
+
+  const joined = parts.join(' ');
+  return joined.length <= A2A_TOOL_DESCRIPTION_MAX_LEN
+    ? joined
+    : `${joined.slice(0, A2A_TOOL_DESCRIPTION_MAX_LEN - 1)}…`;
+}
+
+function buildA2aToolParameters() {
+  return {
+    type: 'object',
+    properties: {
+      task: {
+        type: 'string',
+        description: 'The self-contained task to delegate to this remote agent. Restate what the user wants the agent to do; do not include unrelated conversation history.'
+      }
+    },
+    required: ['task'],
+    additionalProperties: false
+  };
+}
+
+function buildA2aToolSchemas(servers) {
+  const entries = (Array.isArray(servers) ? servers : [])
+    .filter(server => server && server.id)
+    .map(server => ({
+      server,
+      name: buildA2aToolName(server.id),
+      description: buildA2aToolDescription(server),
+      parameters: buildA2aToolParameters()
+    }));
+
+  return {
+    openai: entries.map(entry => ({
+      type: 'function',
+      function: {
+        name: entry.name,
+        description: entry.description,
+        parameters: entry.parameters
+      }
+    })),
+    anthropic: entries.map(entry => ({
+      name: entry.name,
+      description: entry.description,
+      input_schema: entry.parameters
+    })),
+    responses: entries.map(entry => ({
+      type: 'function',
+      name: entry.name,
+      description: entry.description,
+      parameters: entry.parameters
+    }))
+  };
+}
+
+function getA2aToolsForApiShape(toolSchemas, apiShape) {
+  if (!toolSchemas) return [];
+  if (apiShape === API_SHAPES.ANTHROPIC_MESSAGES) return toolSchemas.anthropic || [];
+  if (apiShape === API_SHAPES.OPENAI_RESPONSES) return toolSchemas.responses || [];
+  return toolSchemas.openai || [];
+}
+
+function parseA2aToolCallArguments(rawArgs) {
+  if (rawArgs == null) return {};
+  if (typeof rawArgs === 'object') return rawArgs;
+  if (typeof rawArgs !== 'string') return {};
+  try {
+    const parsed = JSON.parse(rawArgs);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function extractA2aToolCallFromOpenAIChat(data) {
+  const choice = data?.choices?.[0];
+  const toolCalls = choice?.message?.tool_calls;
+  if (!Array.isArray(toolCalls)) return null;
+  for (const call of toolCalls) {
+    const serverId = parseA2aToolName(call?.function?.name);
+    if (!serverId) continue;
+    const args = parseA2aToolCallArguments(call.function?.arguments);
+    return { serverId, task: String(args.task || '').trim(), callId: call.id || call.function?.name || '' };
+  }
+  return null;
+}
+
+function extractA2aToolCallFromAnthropic(data) {
+  const blocks = Array.isArray(data?.content) ? data.content : [];
+  for (const block of blocks) {
+    if (block?.type !== 'tool_use') continue;
+    const serverId = parseA2aToolName(block.name);
+    if (!serverId) continue;
+    const args = block.input && typeof block.input === 'object' ? block.input : {};
+    return { serverId, task: String(args.task || '').trim(), callId: block.id || block.name || '' };
+  }
+  return null;
+}
+
+function extractA2aToolCallFromResponses(data) {
+  const output = Array.isArray(data?.output) ? data.output : [];
+  for (const item of output) {
+    if (item?.type === 'function_call' || item?.type === 'tool_call') {
+      const serverId = parseA2aToolName(item.name);
+      if (!serverId) continue;
+      const args = parseA2aToolCallArguments(item.arguments);
+      return { serverId, task: String(args.task || '').trim(), callId: item.call_id || item.id || item.name || '' };
+    }
+    const innerBlocks = Array.isArray(item?.content) ? item.content : [];
+    for (const block of innerBlocks) {
+      if (block?.type !== 'tool_use' && block?.type !== 'function_call') continue;
+      const serverId = parseA2aToolName(block.name);
+      if (!serverId) continue;
+      const args = block.input && typeof block.input === 'object'
+        ? block.input
+        : parseA2aToolCallArguments(block.arguments);
+      return { serverId, task: String(args.task || '').trim(), callId: block.id || block.call_id || block.name || '' };
+    }
+  }
+  return null;
+}
+
+function extractA2aToolCallFromResponse(data, apiShape) {
+  if (!data || typeof data !== 'object') return null;
+  if (apiShape === API_SHAPES.ANTHROPIC_MESSAGES) return extractA2aToolCallFromAnthropic(data);
+  if (apiShape === API_SHAPES.OPENAI_RESPONSES) return extractA2aToolCallFromResponses(data);
+  return extractA2aToolCallFromOpenAIChat(data);
+}
+
+function isToolsUnsupportedError(status, errorText) {
+  if (status !== 400) return false;
+  try {
+    const err = JSON.parse(errorText);
+    const message = err.error?.message || err.message || '';
+    const code = err.error?.code || err.code || '';
+    if (/tools?/i.test(code) && /support|allowed|enabled/i.test(code)) return true;
+    return /tool/i.test(message) && /(not\s+support|unsupported|not\s+allowed|cannot|disabled)/i.test(message);
+  } catch {
+    return /tool/i.test(errorText) && /(not\s+support|unsupported|not\s+allowed)/i.test(errorText);
+  }
+}
+
+class ToolsUnsupportedError extends Error {
+  constructor(message) {
+    super(message || 'The active provider rejected tool calls.');
+    this.name = 'ToolsUnsupportedError';
+  }
+}
+
 async function loadConfig() {
   const stored = await storageGet(STORAGE_KEYS, getConfigStorageArea());
   const providerType = normalizeProviderType(stored.providerType, stored.authMethod);
@@ -456,7 +649,9 @@ function getOpenAIChatTokenLimitParams(config) {
     : { max_tokens: 1024 };
 }
 
-function buildApiRequest({ config, messages, systemPrompt, copilotToken }) {
+function buildApiRequest({ config, messages, systemPrompt, copilotToken, tools }) {
+  const hasTools = Array.isArray(tools) && tools.length > 0;
+
   if (getProvider(config).usesCopilotAuth) {
     return {
       apiShape: API_SHAPES.OPENAI_COMPATIBLE,
@@ -465,7 +660,8 @@ function buildApiRequest({ config, messages, systemPrompt, copilotToken }) {
       requestBody: {
         model: config.model,
         ...getOpenAIChatTokenLimitParams(config),
-        messages: [{ role: 'system', content: systemPrompt }, ...messages]
+        messages: [{ role: 'system', content: systemPrompt }, ...messages],
+        ...(hasTools ? { tools, tool_choice: 'auto' } : {})
       },
       parseContent: parseOpenAIChatText
     };
@@ -484,7 +680,8 @@ function buildApiRequest({ config, messages, systemPrompt, copilotToken }) {
         model: config.model,
         max_tokens: 1024,
         system: systemPrompt,
-        messages
+        messages,
+        ...(hasTools ? { tools } : {})
       },
       parseContent: parseAnthropicText
     };
@@ -498,7 +695,8 @@ function buildApiRequest({ config, messages, systemPrompt, copilotToken }) {
       requestBody: {
         model: config.model,
         instructions: systemPrompt,
-        input: messages
+        input: messages,
+        ...(hasTools ? { tools, tool_choice: 'auto' } : {})
       },
       parseContent: parseOpenAIResponsesText
     };
@@ -511,7 +709,8 @@ function buildApiRequest({ config, messages, systemPrompt, copilotToken }) {
     requestBody: {
       model: config.model,
       ...getOpenAIChatTokenLimitParams(config),
-      messages: [{ role: 'system', content: systemPrompt }, ...messages]
+      messages: [{ role: 'system', content: systemPrompt }, ...messages],
+      ...(hasTools ? { tools, tool_choice: 'auto' } : {})
     },
     parseContent: parseOpenAIChatText
   };
@@ -1033,11 +1232,92 @@ async function handleA2aProviderChat(config, messages) {
 
 async function handleAIChat(messages) {
   const config = await loadConfig();
+  const systemPrompt = 'You are a helpful assistant. Continue the conversation naturally.';
 
-  return executeApiRequest({
-    config,
-    messages,
-    systemPrompt: 'You are a helpful assistant. Continue the conversation naturally.'
+  if (!shouldAutoRouteA2a(config)) {
+    return executeApiRequest({ config, messages, systemPrompt });
+  }
+
+  const servers = await loadEnabledA2aServersWithAgentCards();
+  if (servers.length === 0) {
+    return executeApiRequest({ config, messages, systemPrompt });
+  }
+
+  const toolSchemas = buildA2aToolSchemas(servers);
+  return executeApiRequestWithA2aRouting({ config, messages, systemPrompt, toolSchemas, servers });
+}
+
+function shouldAutoRouteA2a(config) {
+  if (config.a2aAutoRoute === false) return false;
+  if (isA2aProviderType(config.providerType)) return false;
+  return true;
+}
+
+async function executeApiRequestWithA2aRouting({ config, messages, systemPrompt, toolSchemas, servers }) {
+  const provider = getProvider(config);
+  let copilotToken = '';
+
+  if (provider.usesCopilotAuth) {
+    try {
+      copilotToken = await getCopilotAccessToken();
+      config.apiKey = copilotToken;
+    } catch (e) {
+      throw new Error('GitHub Copilot authentication failed. Please re-authenticate in Settings.');
+    }
+  } else if (!config.apiKey) {
+    throw new Error('No API key configured. Click the OmniPilot icon to set up.');
+  }
+
+  const effectiveApiShape = provider.usesCopilotAuth
+    ? API_SHAPES.OPENAI_COMPATIBLE
+    : (config.apiShape || inferApiShape(config.endpoint));
+  const tools = getA2aToolsForApiShape(toolSchemas, effectiveApiShape);
+
+  let raw;
+  try {
+    raw = await executeApiRequestRaw({
+      config,
+      messages,
+      systemPrompt,
+      copilotToken,
+      tools,
+      allowModelFallback: provider.usesCopilotAuth
+    });
+  } catch (error) {
+    if (error instanceof ToolsUnsupportedError) {
+      console.warn('OmniPilot A2A auto-routing disabled for this request: provider rejected tools.');
+      return executeApiRequestWithConfig({
+        config,
+        messages,
+        systemPrompt,
+        copilotToken,
+        allowModelFallback: provider.usesCopilotAuth
+      });
+    }
+    throw error;
+  }
+
+  const toolCall = extractA2aToolCallFromResponse(raw.rawData, raw.apiShape);
+  if (!toolCall) {
+    if (!raw.content) {
+      console.error('OmniPilot unexpected API response', raw.rawData);
+      throw new Error('The API returned an empty or unexpected response. Check that the endpoint and model match the selected API format.');
+    }
+    return raw.content;
+  }
+
+  const matchedServer = servers.find(server => server.id === toolCall.serverId);
+  if (!matchedServer) {
+    throw new Error(`A2A server not found: ${toolCall.serverId}`);
+  }
+  if (!toolCall.task) {
+    throw new Error('A2A task is required.');
+  }
+
+  return delegateA2aTask({
+    serverId: matchedServer.id,
+    task: toolCall.task,
+    contextText: getA2aConversationContext(messages)
   });
 }
 
@@ -1071,21 +1351,41 @@ async function executeApiRequest({ config: preloadedConfig, messages, systemProm
 }
 
 async function executeApiRequestWithConfig({ config, messages, systemPrompt, copilotToken, allowModelFallback }) {
+  const raw = await executeApiRequestRaw({
+    config,
+    messages,
+    systemPrompt,
+    copilotToken,
+    allowModelFallback,
+    tools: []
+  });
+
+  if (!raw.content) {
+    console.error('OmniPilot unexpected API response', raw.rawData);
+    throw new Error('The API returned an empty or unexpected response. Check that the endpoint and model match the selected API format.');
+  }
+
+  return raw.content;
+}
+
+async function executeApiRequestRaw({ config, messages, systemPrompt, copilotToken, allowModelFallback, tools }) {
   const {
     apiShape,
     requestUrl,
     requestHeaders,
     requestBody,
     parseContent
-  } = buildApiRequest({ config, messages, systemPrompt, copilotToken });
+  } = buildApiRequest({ config, messages, systemPrompt, copilotToken, tools });
 
   const serializedBody = JSON.stringify(requestBody);
+  const sentTools = Array.isArray(tools) && tools.length > 0;
 
   console.info('OmniPilot API request', JSON.stringify({
     requestUrl,
     apiFormat: apiShape,
     model: config.model,
     hasApiKey: Boolean(config.apiKey),
+    toolCount: sentTools ? tools.length : 0,
     requestHeaders: redactHeaders(requestHeaders)
   }, null, 2));
 
@@ -1098,16 +1398,21 @@ async function executeApiRequestWithConfig({ config, messages, systemPrompt, cop
   if (!response.ok) {
     const errorText = await response.text();
 
+    if (sentTools && isToolsUnsupportedError(response.status, errorText)) {
+      throw new ToolsUnsupportedError(`Provider rejected tools: ${errorText.slice(0, 200)}`);
+    }
+
     if (allowModelFallback && isModelNotSupportedError(response.status, errorText)) {
       const fallbackModel = chooseCopilotFallbackModel(await fetchCopilotModels(), config.model);
       if (fallbackModel) {
         await replaceStoredModel(fallbackModel);
-        return executeApiRequestWithConfig({
+        return executeApiRequestRaw({
           config: { ...config, model: fallbackModel },
           messages,
           systemPrompt,
           copilotToken,
-          allowModelFallback: false
+          allowModelFallback: false,
+          tools
         });
       }
     }
@@ -1142,10 +1447,5 @@ async function executeApiRequestWithConfig({ config, messages, systemPrompt, cop
   const data = await response.json();
   const content = parseContent(data);
 
-  if (!content) {
-    console.error('OmniPilot unexpected API response', data);
-    throw new Error('The API returned an empty or unexpected response. Check that the endpoint and model match the selected API format.');
-  }
-
-  return content;
+  return { rawData: data, content, apiShape };
 }
