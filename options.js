@@ -281,10 +281,44 @@ function getA2aTokens() {
   });
 }
 
+function getA2aServersStorageArea() {
+  return chrome.storage.local || chrome.storage.sync;
+}
+
+function loadA2aServersFromStorage() {
+  return new Promise(resolve => {
+    getA2aServersStorageArea().get(['a2aServers'], local => {
+      if (Array.isArray(local?.a2aServers)) {
+        resolve({ servers: local.a2aServers, migratedFromSync: false });
+        return;
+      }
+      // Migrate legacy servers from chrome.storage.sync (8KB per-item limit).
+      chrome.storage.sync.get(['a2aServers'], synced => {
+        resolve({
+          servers: Array.isArray(synced?.a2aServers) ? synced.a2aServers : [],
+          migratedFromSync: Array.isArray(synced?.a2aServers)
+        });
+      });
+    });
+  });
+}
+
 function saveA2aServers() {
   return new Promise(resolve => {
-    chrome.storage.sync.set({ a2aServers }, resolve);
+    getA2aServersStorageArea().set({ a2aServers }, resolve);
   });
+}
+
+async function initA2aServers() {
+  const { servers: storedA2aServers, migratedFromSync } = await loadA2aServersFromStorage();
+  a2aServers = normalizeA2aServers(storedA2aServers);
+  if (migratedFromSync) {
+    await saveA2aServers();
+    await new Promise(resolve => chrome.storage.sync.remove(['a2aServers'], resolve));
+  } else if (JSON.stringify(a2aServers) !== JSON.stringify(storedA2aServers)) {
+    await saveA2aServers();
+  }
+  renderA2aServers();
 }
 
 function saveA2aTokens() {
@@ -626,7 +660,7 @@ function scheduleFetch() {
 // ── Init ─────────────────────────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', () => {
-  chrome.storage.sync.get(STORAGE_KEYS, async storedConfig => {
+  chrome.storage.sync.get(STORAGE_KEYS, storedConfig => {
     const config = { ...DEFAULT_CONFIG, ...storedConfig };
     const providerType = normalizeProviderType(storedConfig.providerType, storedConfig.authMethod);
     activeProviderType = providerType;
@@ -637,16 +671,7 @@ document.addEventListener('DOMContentLoaded', () => {
         ...Object.fromEntries(PROVIDER_CONFIG_FIELDS.map(field => [field, config[field]]))
       }
     };
-    const storedA2aServers = Array.isArray(storedConfig.a2aServers) ? storedConfig.a2aServers : [];
-    a2aServers = normalizeA2aServers(storedA2aServers);
-    if (JSON.stringify(a2aServers) !== JSON.stringify(storedA2aServers)) {
-      await saveA2aServers();
-    }
-    renderA2aServers();
-    const a2aAutoRouteCheckbox = document.getElementById('a2aAutoRoute');
-    if (a2aAutoRouteCheckbox) {
-      a2aAutoRouteCheckbox.checked = storedConfig.a2aAutoRoute !== false;
-    }
+    initA2aServers();
     getA2aTokens().then(tokens => {
       a2aServerTokens = tokens;
       renderA2aServers();

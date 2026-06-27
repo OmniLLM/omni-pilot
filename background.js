@@ -245,11 +245,24 @@ function getA2aRpcEndpoint(server) {
   return normalizeA2aEndpoint(server?.agentCard?.endpoint || server?.agentCard?.url || server?.endpoint || '');
 }
 
+function getA2aServersStorageArea() {
+  return chrome.storage.local || chrome.storage.sync;
+}
+
 async function loadA2aServers() {
-  const stored = await storageGet(['a2aServers'], getConfigStorageArea());
-  return Array.isArray(stored.a2aServers)
-    ? stored.a2aServers.map(normalizeA2aServer).filter(Boolean)
-    : [];
+  const local = await storageGet(['a2aServers'], getA2aServersStorageArea());
+  if (Array.isArray(local.a2aServers)) {
+    return local.a2aServers.map(normalizeA2aServer).filter(Boolean);
+  }
+
+  // Migrate legacy servers stored in chrome.storage.sync (8KB per-item limit).
+  const legacy = await storageGet(['a2aServers'], chrome.storage.sync);
+  if (!Array.isArray(legacy.a2aServers)) return [];
+
+  const servers = legacy.a2aServers.map(normalizeA2aServer).filter(Boolean);
+  await storageSet({ a2aServers: servers }, getA2aServersStorageArea());
+  await storageRemove(['a2aServers'], chrome.storage.sync);
+  return servers;
 }
 
 async function loadA2aServerTokens() {
@@ -277,192 +290,8 @@ async function getA2aServerWithToken(serverId) {
 }
 
 async function loadEnabledA2aServersWithAgentCards() {
-  const servers = await loadA2aServers();
-  return servers.filter(server => server && server.enabled !== false && server.agentCard && typeof server.agentCard === 'object');
-}
-
-function sanitizeA2aToolNameSegment(serverId) {
-  const lowered = String(serverId || '').toLowerCase();
-  const replaced = lowered.replace(/[^a-z0-9_-]+/g, '_');
-  const collapsed = replaced.replace(/_+/g, '_').replace(/^[-_]+|[-_]+$/g, '');
-  const maxSegmentLen = A2A_TOOL_NAME_MAX_LEN - A2A_TOOL_NAME_PREFIX.length;
-  return collapsed.slice(0, maxSegmentLen) || 'agent';
-}
-
-function buildA2aToolName(serverId) {
-  return `${A2A_TOOL_NAME_PREFIX}${sanitizeA2aToolNameSegment(serverId)}`;
-}
-
-function parseA2aToolName(toolName) {
-  if (typeof toolName !== 'string' || !toolName.startsWith(A2A_TOOL_NAME_PREFIX)) return null;
-  return toolName.slice(A2A_TOOL_NAME_PREFIX.length) || null;
-}
-
-function buildA2aToolDescription(server) {
-  const card = server?.agentCard && typeof server.agentCard === 'object' ? server.agentCard : {};
-  const displayName = String(card.name || server?.name || server?.id || 'Agent').trim();
-  const summary = String(card.description || '').trim();
-  const skillsList = Array.isArray(card.skills) ? card.skills : [];
-  const skillText = skillsList
-    .filter(skill => skill && (skill.name || skill.id))
-    .map(skill => {
-      const name = String(skill.name || skill.id).trim();
-      const desc = String(skill.description || '').trim();
-      return desc ? `${name} (${desc})` : name;
-    })
-    .filter(Boolean)
-    .join('; ');
-
-  const parts = [`Delegate this task to the remote agent "${displayName}".`];
-  if (summary) parts.push(`Agent description: ${summary}`);
-  if (skillText) parts.push(`Skills: ${skillText}`);
-  parts.push('Call this tool when the user request clearly matches the agent\'s capabilities. The "task" argument should restate what the user wants the agent to do.');
-
-  const joined = parts.join(' ');
-  return joined.length <= A2A_TOOL_DESCRIPTION_MAX_LEN
-    ? joined
-    : `${joined.slice(0, A2A_TOOL_DESCRIPTION_MAX_LEN - 1)}…`;
-}
-
-function buildA2aToolParameters() {
-  return {
-    type: 'object',
-    properties: {
-      task: {
-        type: 'string',
-        description: 'The self-contained task to delegate to this remote agent. Restate what the user wants the agent to do; do not include unrelated conversation history.'
-      }
-    },
-    required: ['task'],
-    additionalProperties: false
-  };
-}
-
-function buildA2aToolSchemas(servers) {
-  const entries = (Array.isArray(servers) ? servers : [])
-    .filter(server => server && server.id)
-    .map(server => ({
-      server,
-      name: buildA2aToolName(server.id),
-      description: buildA2aToolDescription(server),
-      parameters: buildA2aToolParameters()
-    }));
-
-  return {
-    openai: entries.map(entry => ({
-      type: 'function',
-      function: {
-        name: entry.name,
-        description: entry.description,
-        parameters: entry.parameters
-      }
-    })),
-    anthropic: entries.map(entry => ({
-      name: entry.name,
-      description: entry.description,
-      input_schema: entry.parameters
-    })),
-    responses: entries.map(entry => ({
-      type: 'function',
-      name: entry.name,
-      description: entry.description,
-      parameters: entry.parameters
-    }))
-  };
-}
-
-function getA2aToolsForApiShape(toolSchemas, apiShape) {
-  if (!toolSchemas) return [];
-  if (apiShape === API_SHAPES.ANTHROPIC_MESSAGES) return toolSchemas.anthropic || [];
-  if (apiShape === API_SHAPES.OPENAI_RESPONSES) return toolSchemas.responses || [];
-  return toolSchemas.openai || [];
-}
-
-function parseA2aToolCallArguments(rawArgs) {
-  if (rawArgs == null) return {};
-  if (typeof rawArgs === 'object') return rawArgs;
-  if (typeof rawArgs !== 'string') return {};
-  try {
-    const parsed = JSON.parse(rawArgs);
-    return parsed && typeof parsed === 'object' ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
-function extractA2aToolCallFromOpenAIChat(data) {
-  const choice = data?.choices?.[0];
-  const toolCalls = choice?.message?.tool_calls;
-  if (!Array.isArray(toolCalls)) return null;
-  for (const call of toolCalls) {
-    const serverId = parseA2aToolName(call?.function?.name);
-    if (!serverId) continue;
-    const args = parseA2aToolCallArguments(call.function?.arguments);
-    return { serverId, task: String(args.task || '').trim(), callId: call.id || call.function?.name || '' };
-  }
-  return null;
-}
-
-function extractA2aToolCallFromAnthropic(data) {
-  const blocks = Array.isArray(data?.content) ? data.content : [];
-  for (const block of blocks) {
-    if (block?.type !== 'tool_use') continue;
-    const serverId = parseA2aToolName(block.name);
-    if (!serverId) continue;
-    const args = block.input && typeof block.input === 'object' ? block.input : {};
-    return { serverId, task: String(args.task || '').trim(), callId: block.id || block.name || '' };
-  }
-  return null;
-}
-
-function extractA2aToolCallFromResponses(data) {
-  const output = Array.isArray(data?.output) ? data.output : [];
-  for (const item of output) {
-    if (item?.type === 'function_call' || item?.type === 'tool_call') {
-      const serverId = parseA2aToolName(item.name);
-      if (!serverId) continue;
-      const args = parseA2aToolCallArguments(item.arguments);
-      return { serverId, task: String(args.task || '').trim(), callId: item.call_id || item.id || item.name || '' };
-    }
-    const innerBlocks = Array.isArray(item?.content) ? item.content : [];
-    for (const block of innerBlocks) {
-      if (block?.type !== 'tool_use' && block?.type !== 'function_call') continue;
-      const serverId = parseA2aToolName(block.name);
-      if (!serverId) continue;
-      const args = block.input && typeof block.input === 'object'
-        ? block.input
-        : parseA2aToolCallArguments(block.arguments);
-      return { serverId, task: String(args.task || '').trim(), callId: block.id || block.call_id || block.name || '' };
-    }
-  }
-  return null;
-}
-
-function extractA2aToolCallFromResponse(data, apiShape) {
-  if (!data || typeof data !== 'object') return null;
-  if (apiShape === API_SHAPES.ANTHROPIC_MESSAGES) return extractA2aToolCallFromAnthropic(data);
-  if (apiShape === API_SHAPES.OPENAI_RESPONSES) return extractA2aToolCallFromResponses(data);
-  return extractA2aToolCallFromOpenAIChat(data);
-}
-
-function isToolsUnsupportedError(status, errorText) {
-  if (status !== 400) return false;
-  try {
-    const err = JSON.parse(errorText);
-    const message = err.error?.message || err.message || '';
-    const code = err.error?.code || err.code || '';
-    if (/tools?/i.test(code) && /support|allowed|enabled/i.test(code)) return true;
-    return /tool/i.test(message) && /(not\s+support|unsupported|not\s+allowed|cannot|disabled)/i.test(message);
-  } catch {
-    return /tool/i.test(errorText) && /(not\s+support|unsupported|not\s+allowed)/i.test(errorText);
-  }
-}
-
-class ToolsUnsupportedError extends Error {
-  constructor(message) {
-    super(message || 'The active provider rejected tool calls.');
-    this.name = 'ToolsUnsupportedError';
-  }
+  return (await loadA2aServersWithTokens())
+    .filter(server => server.enabled !== false && server.agentCard && typeof server.agentCard === 'object');
 }
 
 async function loadConfig() {
@@ -500,10 +329,162 @@ function getLatestUserMessage(messages = []) {
 function getA2aConversationContext(messages = []) {
   return messages
     .slice(0, -1)
-    .filter(message => message?.role === 'user' && typeof message.content === 'string')
-    .map(message => message.content.trim())
+    .filter(message => ['user', 'assistant'].includes(message?.role) && typeof message.content === 'string')
+    .map(message => `${message.role === 'assistant' ? 'Popup assistant' : 'Popup user'}: ${message.content.trim()}`)
     .filter(Boolean)
     .join('\n\n');
+}
+
+function sanitizeA2aToolNamePart(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '') || 'agent';
+}
+
+function buildA2aToolName(serverId) {
+  return `a2a__${sanitizeA2aToolNamePart(serverId)}`;
+}
+
+function parseA2aToolName(toolName) {
+  return typeof toolName === 'string' && toolName.startsWith('a2a__')
+    ? toolName.slice('a2a__'.length)
+    : '';
+}
+
+function buildA2aToolDescription(server) {
+  const card = server.agentCard || {};
+  const lines = [
+    `Delegate to the A2A agent "${card.name || server.name || server.id}".`,
+    card.description || '',
+    card.capabilities ? `Capabilities: ${JSON.stringify(card.capabilities)}` : ''
+  ];
+
+  const skills = Array.isArray(card.skills) ? card.skills : [];
+  for (const skill of skills) {
+    if (!skill || typeof skill !== 'object') continue;
+    const skillParts = [skill.name || skill.id || '', skill.description || ''].filter(Boolean).join(': ');
+    if (skillParts) lines.push(`Skill: ${skillParts}`);
+  }
+
+  lines.push('Call this tool only when the current user request clearly matches this agent\'s capabilities or skills.');
+  return lines.filter(Boolean).join('\n');
+}
+
+function buildA2aToolParameters() {
+  return {
+    type: 'object',
+    properties: {
+      task: {
+        type: 'string',
+        description: 'The standalone task for the A2A agent to perform.'
+      }
+    },
+    required: ['task'],
+    additionalProperties: false
+  };
+}
+
+function buildA2aToolSchemas(servers) {
+  const usedNames = new Set();
+
+  return servers.map(server => {
+    const baseName = buildA2aToolName(server.id);
+    let name = baseName;
+    let suffix = 2;
+    while (usedNames.has(name)) {
+      name = `${baseName}_${suffix}`;
+      suffix += 1;
+    }
+    usedNames.add(name);
+
+    const description = buildA2aToolDescription(server);
+    const parameters = buildA2aToolParameters();
+
+    return {
+      serverId: server.id,
+      name,
+      openAIChat: {
+        type: 'function',
+        function: { name, description, parameters }
+      },
+      anthropic: {
+        name,
+        description,
+        input_schema: parameters
+      },
+      openAIResponses: {
+        type: 'function',
+        name,
+        description,
+        parameters
+      }
+    };
+  });
+}
+
+function getA2aToolsForApiShape(toolSchemas, apiShape) {
+  if (apiShape === API_SHAPES.ANTHROPIC_MESSAGES) return toolSchemas.map(tool => tool.anthropic);
+  if (apiShape === API_SHAPES.OPENAI_RESPONSES) return toolSchemas.map(tool => tool.openAIResponses);
+  return toolSchemas.map(tool => tool.openAIChat);
+}
+
+function parseA2aToolCallArguments(rawArgs) {
+  if (!rawArgs) return {};
+  if (typeof rawArgs === 'object') return rawArgs;
+  try {
+    return JSON.parse(rawArgs);
+  } catch {
+    return {};
+  }
+}
+
+function extractA2aToolCallFromOpenAIChat(data) {
+  const toolCall = data?.choices?.[0]?.message?.tool_calls?.find(call => parseA2aToolName(call?.function?.name));
+  if (!toolCall) return null;
+  return {
+    toolName: toolCall.function.name,
+    serverId: parseA2aToolName(toolCall.function.name),
+    task: String(parseA2aToolCallArguments(toolCall.function.arguments).task || '').trim()
+  };
+}
+
+function extractA2aToolCallFromAnthropic(data) {
+  const toolUse = data?.content?.find?.(block => block?.type === 'tool_use' && parseA2aToolName(block.name));
+  if (!toolUse) return null;
+  return {
+    toolName: toolUse.name,
+    serverId: parseA2aToolName(toolUse.name),
+    task: String(parseA2aToolCallArguments(toolUse.input).task || '').trim()
+  };
+}
+
+function extractA2aToolCallFromResponses(data) {
+  const toolCall = data?.output?.find?.(item => ['function_call', 'tool_call'].includes(item?.type) && parseA2aToolName(item.name));
+  if (!toolCall) return null;
+  return {
+    toolName: toolCall.name,
+    serverId: parseA2aToolName(toolCall.name),
+    task: String(parseA2aToolCallArguments(toolCall.arguments).task || '').trim()
+  };
+}
+
+function extractA2aToolCallFromResponse(data, apiShape) {
+  if (apiShape === API_SHAPES.ANTHROPIC_MESSAGES) return extractA2aToolCallFromAnthropic(data);
+  if (apiShape === API_SHAPES.OPENAI_RESPONSES) return extractA2aToolCallFromResponses(data);
+  return extractA2aToolCallFromOpenAIChat(data);
+}
+
+function applyA2aToolsToRequestBody(requestBody, apiShape, tools) {
+  if (!tools.length) return requestBody;
+  if (apiShape === API_SHAPES.ANTHROPIC_MESSAGES) {
+    return { ...requestBody, tools };
+  }
+  if (apiShape === API_SHAPES.OPENAI_RESPONSES) {
+    return { ...requestBody, tools, tool_choice: 'auto' };
+  }
+  return { ...requestBody, tools, tool_choice: 'auto' };
 }
 
 function getProvider(config) {
@@ -611,28 +592,24 @@ async function discoverA2aServer(serverId) {
 async function removeA2aServer(serverId) {
   if (!serverId) return;
 
-  const [stored, tokens] = await Promise.all([
-    storageGet(['a2aServers', 'providerType', 'providerConfigs'], getConfigStorageArea()),
+  const [servers, stored, tokens] = await Promise.all([
+    loadA2aServers(),
+    storageGet(['providerType', 'providerConfigs'], getConfigStorageArea()),
     loadA2aServerTokens()
   ]);
   const providerType = createA2aProviderType(serverId);
-  const nextServers = Array.isArray(stored.a2aServers)
-    ? stored.a2aServers.filter(server => server && server.id !== serverId)
-    : [];
+  const nextServers = servers.filter(server => server && server.id !== serverId);
   const nextProviderConfigs = { ...(stored.providerConfigs || {}) };
   delete nextProviderConfigs[providerType];
 
-  const nextStoredValues = {
-    a2aServers: nextServers,
-    providerConfigs: nextProviderConfigs
-  };
+  await storageSet({ a2aServers: nextServers }, getA2aServersStorageArea());
 
+  const nextConfigValues = { providerConfigs: nextProviderConfigs };
   if (stored.providerType === providerType) {
-    nextStoredValues.providerType = PROVIDER_TYPES.CUSTOM;
-    nextStoredValues.authMethod = AUTH_METHODS.API_KEY;
+    nextConfigValues.providerType = PROVIDER_TYPES.CUSTOM;
+    nextConfigValues.authMethod = AUTH_METHODS.API_KEY;
   }
-
-  await storageSet(nextStoredValues, getConfigStorageArea());
+  await storageSet(nextConfigValues, getConfigStorageArea());
 
   const nextTokens = { ...tokens };
   delete nextTokens[serverId];
@@ -748,6 +725,40 @@ function isModelNotSupportedError(status, errorText) {
   } catch {
     return /model.*not supported/i.test(errorText);
   }
+}
+
+function isToolsUnsupportedError(status, errorText) {
+  if (![400, 422].includes(status)) return false;
+  return /\btools?\b|tool_choice|function_call/i.test(String(errorText || ''));
+}
+
+function throwApiResponseError(response, errorText, requestUrl, apiShape, model) {
+  let message = `API error: ${response.status}`;
+
+  try {
+    const err = JSON.parse(errorText);
+    message = err.error?.message || err.message || message;
+  } catch {
+    if (errorText.trim()) message = `${message}: ${errorText.trim().slice(0, 300)}`;
+  }
+
+  if (response.status === 401 || response.status === 403) {
+    message += '. Check your API key, endpoint, and selected model access.';
+  } else if (response.status === 429) {
+    message += '. Check your rate limit or quota.';
+  }
+
+  console.error('OmniPilot API error', JSON.stringify({
+    status: response.status,
+    statusText: response.statusText,
+    requestUrl,
+    apiFormat: apiShape,
+    model,
+    responseHeaders: Object.fromEntries(response.headers?.entries?.() || []),
+    body: errorText
+  }, null, 2));
+
+  throw new Error(message);
 }
 
 function chooseCopilotFallbackModel(models, currentModel) {
@@ -1234,26 +1245,35 @@ async function handleAIChat(messages) {
   const config = await loadConfig();
   const systemPrompt = 'You are a helpful assistant. Continue the conversation naturally.';
 
-  if (!shouldAutoRouteA2a(config)) {
-    return executeApiRequest({ config, messages, systemPrompt });
+  // Ordinary panel chat can still become A2A delegation here: discovered
+  // enabled A2A agent cards are exposed as tools and the model chooses one
+  // only when the current request clearly matches that agent's skills.
+  if (shouldAutoRouteA2a(config)) {
+    const a2aServers = await loadEnabledA2aServersWithAgentCards();
+    if (a2aServers.length) {
+      const toolSchemas = buildA2aToolSchemas(a2aServers);
+      return executeApiRequestWithA2aRouting({
+        config,
+        messages,
+        systemPrompt: 'You are a helpful assistant. Continue the conversation naturally.',
+        a2aServers,
+        toolSchemas
+      });
+    }
   }
 
-  const servers = await loadEnabledA2aServersWithAgentCards();
-  if (servers.length === 0) {
-    return executeApiRequest({ config, messages, systemPrompt });
-  }
-
-  const toolSchemas = buildA2aToolSchemas(servers);
-  return executeApiRequestWithA2aRouting({ config, messages, systemPrompt, toolSchemas, servers });
+  return executeApiRequest({
+    config,
+    messages,
+    systemPrompt: 'You are a helpful assistant. Continue the conversation naturally.'
+  });
 }
 
 function shouldAutoRouteA2a(config) {
-  if (config.a2aAutoRoute === false) return false;
-  if (isA2aProviderType(config.providerType)) return false;
-  return true;
+  return config.a2aAutoRoute !== false && !isA2aProviderType(config.providerType);
 }
 
-async function executeApiRequestWithA2aRouting({ config, messages, systemPrompt, toolSchemas, servers }) {
+async function executeApiRequestWithA2aRouting({ config, messages, systemPrompt, a2aServers, toolSchemas }) {
   const provider = getProvider(config);
   let copilotToken = '';
 
@@ -1268,57 +1288,55 @@ async function executeApiRequestWithA2aRouting({ config, messages, systemPrompt,
     throw new Error('No API key configured. Click the OmniPilot icon to set up.');
   }
 
-  const effectiveApiShape = provider.usesCopilotAuth
-    ? API_SHAPES.OPENAI_COMPATIBLE
-    : (config.apiShape || inferApiShape(config.endpoint));
-  const tools = getA2aToolsForApiShape(toolSchemas, effectiveApiShape);
+  const builtRequest = buildApiRequest({ config, messages, systemPrompt, copilotToken });
+  const apiShape = builtRequest.apiShape;
+  const tools = getA2aToolsForApiShape(toolSchemas, apiShape);
+  const requestBody = applyA2aToolsToRequestBody(builtRequest.requestBody, apiShape, tools);
 
-  let raw;
-  try {
-    raw = await executeApiRequestRaw({
-      config,
-      messages,
-      systemPrompt,
-      copilotToken,
-      tools,
-      allowModelFallback: provider.usesCopilotAuth
-    });
-  } catch (error) {
-    if (error instanceof ToolsUnsupportedError) {
-      console.warn('OmniPilot A2A auto-routing disabled for this request: provider rejected tools.');
-      return executeApiRequestWithConfig({
-        config,
-        messages,
-        systemPrompt,
-        copilotToken,
-        allowModelFallback: provider.usesCopilotAuth
-      });
-    }
-    throw error;
-  }
+  console.info('OmniPilot API request', JSON.stringify({
+    requestUrl: builtRequest.requestUrl,
+    apiFormat: apiShape,
+    model: config.model,
+    hasApiKey: Boolean(config.apiKey),
+    toolCount: tools.length,
+    requestHeaders: redactHeaders(builtRequest.requestHeaders)
+  }, null, 2));
 
-  const toolCall = extractA2aToolCallFromResponse(raw.rawData, raw.apiShape);
-  if (!toolCall) {
-    if (!raw.content) {
-      console.error('OmniPilot unexpected API response', raw.rawData);
-      throw new Error('The API returned an empty or unexpected response. Check that the endpoint and model match the selected API format.');
-    }
-    return raw.content;
-  }
-
-  const matchedServer = servers.find(server => server.id === toolCall.serverId);
-  if (!matchedServer) {
-    throw new Error(`A2A server not found: ${toolCall.serverId}`);
-  }
-  if (!toolCall.task) {
-    throw new Error('A2A task is required.');
-  }
-
-  return delegateA2aTask({
-    serverId: matchedServer.id,
-    task: toolCall.task,
-    contextText: getA2aConversationContext(messages)
+  const response = await fetch(builtRequest.requestUrl, {
+    method: 'POST',
+    headers: builtRequest.requestHeaders,
+    body: JSON.stringify(requestBody)
   });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    if (isToolsUnsupportedError(response.status, errorText)) {
+      return executeApiRequest({ config, messages, systemPrompt });
+    }
+    throwApiResponseError(response, errorText, builtRequest.requestUrl, apiShape, config.model);
+  }
+
+  const data = await response.json();
+  const toolCall = extractA2aToolCallFromResponse(data, apiShape);
+  if (toolCall) {
+    const selectedTool = toolSchemas.find(tool => tool.name === toolCall.toolName);
+    const server = selectedTool && a2aServers.find(candidate => candidate.id === selectedTool.serverId);
+    if (!server) throw new Error('A2A tool selected an unknown server.');
+    if (!toolCall.task) throw new Error('A2A tool selected an empty task.');
+    return delegateA2aTask({
+      serverId: server.id,
+      task: toolCall.task,
+      contextText: getA2aConversationContext(messages)
+    });
+  }
+
+  const content = builtRequest.parseContent(data);
+  if (!content) {
+    console.error('OmniPilot unexpected API response', data);
+    throw new Error('The API returned an empty or unexpected response. Check that the endpoint and model match the selected API format.');
+  }
+
+  return content;
 }
 
 async function handleAIAction(action, text) {
