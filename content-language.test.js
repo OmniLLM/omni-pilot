@@ -334,6 +334,14 @@ async function testA2aMentionMatchingIgnoresCaseSpacesAndPunctuation() {
   assert.strictEqual(context.globalThis.__omnipilotTestApi.parseA2aMentionTask('@A2Alocalhost run').server.id, 'server-1');
 }
 
+async function testGenericA2aMentionUsesOnlyEnabledServer() {
+  const { context } = await createContentContext({
+    a2aServers: [{ id: 'server-1', name: 'A2A localhost', endpoint: 'http://127.0.0.1:1423', enabled: true }]
+  });
+
+  assert.strictEqual(context.globalThis.__omnipilotTestApi.parseA2aMentionTask('@a2a hi').server.id, 'server-1');
+}
+
 async function testUnknownA2aMentionShowsErrorWithoutChat() {
   const { documentRef, sendMessageCalls, setSelectionText } = await createContentContext({
     apiKey: 'test-key',
@@ -419,6 +427,7 @@ async function main() {
   await testA2aMentionFollowUpDelegatesInsteadOfChat();
   await testA2aMentionFollowUpSendsPopupTranscriptContext();
   await testA2aMentionMatchingIgnoresCaseSpacesAndPunctuation();
+  await testGenericA2aMentionUsesOnlyEnabledServer();
   await testUnknownA2aMentionShowsErrorWithoutChat();
 
   const dropdown = await openDropdown({ apiKey: 'test-key' });
