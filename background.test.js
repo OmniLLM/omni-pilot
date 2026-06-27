@@ -262,6 +262,38 @@ async function assertA2aServerMetadataAndTokensUseSeparateStorageAreas() {
   assert.strictEqual(stores.localStore.a2aServerTokens['a2a-1'], 'secret-token');
 }
 
+async function assertLoadA2aServersReadsFromLocalStorage() {
+  const { context, stores } = await createBackgroundContext({ storage: {} });
+  stores.localStore.a2aServers = [
+    { id: 'writer', name: 'Writer', endpoint: 'https://writer.example/a2a', enabled: true }
+  ];
+  stores.syncStore.a2aServers = [
+    { id: 'stale', name: 'Stale', endpoint: 'https://stale.example/a2a', enabled: true }
+  ];
+
+  const servers = await context.loadA2aServers();
+
+  assert.deepStrictEqual(servers.map(server => server.id), ['writer']);
+}
+
+async function assertLoadA2aServersMigratesLegacySyncStorageToLocal() {
+  const { context, stores } = await createBackgroundContext({ storage: {} });
+  stores.syncStore.a2aServers = [
+    { id: 'planner', name: 'Planner', endpoint: 'https://planner.example/a2a', enabled: true }
+  ];
+  delete stores.localStore.a2aServers;
+
+  const servers = await context.loadA2aServers();
+
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(servers)), [
+    { id: 'planner', name: 'Planner', endpoint: 'https://planner.example/a2a', enabled: true }
+  ]);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(stores.localStore.a2aServers)), [
+    { id: 'planner', name: 'Planner', endpoint: 'https://planner.example/a2a', enabled: true }
+  ]);
+  assert.strictEqual(stores.syncStore.a2aServers, undefined);
+}
+
 async function assertA2aProviderIdsRoundTripServerIds() {
   const { context } = await createBackgroundContext();
 
@@ -1192,7 +1224,7 @@ async function assertRemoveA2aServerRemovesLocalTokenOnlyForThatServer() {
 
   await context.removeA2aServer('planner');
 
-  assert.deepStrictEqual(JSON.parse(JSON.stringify(stores.syncStore.a2aServers)), [
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(stores.localStore.a2aServers)), [
     { id: 'writer', name: 'Writer', endpoint: 'https://writer.example/a2a', enabled: true }
   ]);
   assert.strictEqual(stores.localStore.a2aServerTokens.planner, undefined);
@@ -1642,7 +1674,7 @@ async function assertLegacyA2aProviderTypeFallsBackToCustomProvider() {
   assert.strictEqual(config.model, 'custom-model');
 }
 
-async function assertConfiguredA2aServerDoesNotAutomaticallyHandleChat() {
+async function assertConfiguredA2aServerWithoutAgentCardDoesNotAutomaticallyHandleChat() {
   const { context, requests } = await createBackgroundContext({
     storage: {
       providerType: 'custom-provider',
@@ -1665,8 +1697,208 @@ async function assertConfiguredA2aServerDoesNotAutomaticallyHandleChat() {
   assert.strictEqual(requests[0].url, 'https://custom.example/v1/chat/completions');
 }
 
+async function assertA2aAutoRouteInjectsToolsForDiscoveredAgentCards() {
+  const { context, requests } = await createBackgroundContext({
+    storage: {
+      providerType: 'custom-provider',
+      endpoint: 'https://custom.example/v1',
+      apiKey: 'custom-key',
+      model: 'custom-model',
+      apiShape: 'openai-compatible',
+      a2aServers: [
+        {
+          id: 'launcher',
+          name: 'OmniLauncher',
+          endpoint: 'https://launcher.example/a2a',
+          enabled: true,
+          agentCard: {
+            name: 'OmniLauncher',
+            description: 'Runs local machine diagnostics and shell commands.',
+            skills: [{ id: 'disk', name: 'Disk usage', description: 'Show disk usage and filesystem capacity.' }]
+          }
+        }
+      ]
+    },
+    fetchImpl: async (url) => {
+      assert.strictEqual(url, 'https://custom.example/v1/chat/completions');
+      return { ok: true, json: async () => RESPONSE_BY_SHAPE['openai-compatible'] };
+    }
+  });
+
+  const result = await context.handleAIChat([{ role: 'user', content: 'show me disk usage' }]);
+
+  assert.strictEqual(result, 'ok');
+  const body = JSON.parse(requests[0].options.body);
+  assert.strictEqual(body.tool_choice, 'auto');
+  assert.strictEqual(body.tools.length, 1);
+  assert.strictEqual(body.tools[0].function.name, 'a2a__launcher');
+  assert.ok(body.tools[0].function.description.includes('Disk usage'));
+}
+
+async function assertA2aAutoRouteToolCallDelegatesOrdinaryFollowUp() {
+  const { context, requests } = await createBackgroundContext({
+    storage: {
+      providerType: 'custom-provider',
+      endpoint: 'https://custom.example/v1',
+      apiKey: 'custom-key',
+      model: 'custom-model',
+      apiShape: 'openai-compatible',
+      a2aServers: [
+        {
+          id: 'launcher',
+          name: 'OmniLauncher',
+          endpoint: 'https://launcher.example/a2a',
+          enabled: true,
+          agentCard: {
+            name: 'OmniLauncher',
+            description: 'Runs local machine diagnostics and shell commands.',
+            skills: [{ id: 'disk', name: 'Disk usage', description: 'Show disk usage and filesystem capacity.' }]
+          }
+        }
+      ],
+      a2aServerTokens: { launcher: 'server-token' }
+    },
+    fetchImpl: async (url, options) => {
+      if (url === 'https://custom.example/v1/chat/completions') {
+        return {
+          ok: true,
+          json: async () => ({
+            choices: [{
+              message: {
+                tool_calls: [{
+                  type: 'function',
+                  function: {
+                    name: 'a2a__launcher',
+                    arguments: JSON.stringify({ task: 'show me disk usage' })
+                  }
+                }]
+              }
+            }]
+          })
+        };
+      }
+      if (url === 'https://launcher.example/a2a') {
+        return {
+          ok: true,
+          json: async () => ({ result: { message: { parts: [{ type: 'text', text: 'Disk usage result' }] } } })
+        };
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    }
+  });
+
+  const result = await context.handleAIChat([
+    { role: 'user', content: 'Additional selected context:\nThis is a local troubleshooting session.' },
+    { role: 'assistant', content: 'What would you like to check?' },
+    { role: 'user', content: 'show me disk usage' }
+  ]);
+
+  assert.strictEqual(result, 'Disk usage result');
+  assert.strictEqual(requests.length, 2);
+  assert.strictEqual(requests[0].url, 'https://custom.example/v1/chat/completions');
+  assert.strictEqual(requests[1].url, 'https://launcher.example/a2a');
+  const a2aText = JSON.parse(requests[1].options.body).params.message.parts[0].text;
+  assert.ok(a2aText.includes('Task:\nshow me disk usage'));
+  assert.ok(a2aText.includes('Popup user: Additional selected context'));
+  assert.ok(a2aText.includes('Popup assistant: What would you like to check?'));
+}
+
+async function assertA2aAutoRouteToolCallUsesCollisionSafeToolMapping() {
+  const { context, requests } = await createBackgroundContext({
+    storage: {
+      providerType: 'custom-provider',
+      endpoint: 'https://custom.example/v1',
+      apiKey: 'custom-key',
+      model: 'custom-model',
+      apiShape: 'openai-compatible',
+      a2aServers: [
+        {
+          id: 'ops.agent',
+          name: 'Ops Agent A',
+          endpoint: 'https://ops-a.example/a2a',
+          enabled: true,
+          agentCard: { name: 'Ops Agent A', skills: [{ name: 'Disk usage', description: 'Show disk usage.' }] }
+        },
+        {
+          id: 'ops_agent',
+          name: 'Ops Agent B',
+          endpoint: 'https://ops-b.example/a2a',
+          enabled: true,
+          agentCard: { name: 'Ops Agent B', skills: [{ name: 'Memory usage', description: 'Show memory usage.' }] }
+        }
+      ],
+      a2aServerTokens: { 'ops.agent': 'token-a', ops_agent: 'token-b' }
+    },
+    fetchImpl: async (url) => {
+      if (url === 'https://custom.example/v1/chat/completions') {
+        return {
+          ok: true,
+          json: async () => ({
+            choices: [{
+              message: {
+                tool_calls: [{
+                  type: 'function',
+                  function: {
+                    name: 'a2a__ops_agent_2',
+                    arguments: JSON.stringify({ task: 'show memory usage' })
+                  }
+                }]
+              }
+            }]
+          })
+        };
+      }
+      if (url === 'https://ops-b.example/a2a') {
+        return {
+          ok: true,
+          json: async () => ({ result: { message: { parts: [{ type: 'text', text: 'Memory usage result' }] } } })
+        };
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    }
+  });
+
+  const result = await context.handleAIChat([{ role: 'user', content: 'show memory usage' }]);
+
+  assert.strictEqual(result, 'Memory usage result');
+  const toolRequest = JSON.parse(requests[0].options.body);
+  assert.deepStrictEqual(toolRequest.tools.map(tool => tool.function.name), ['a2a__ops_agent', 'a2a__ops_agent_2']);
+  assert.strictEqual(requests[1].url, 'https://ops-b.example/a2a');
+}
+
+async function assertA2aAutoRouteRespectsDisableToggle() {
+  const { context, requests } = await createBackgroundContext({
+    storage: {
+      providerType: 'custom-provider',
+      endpoint: 'https://custom.example/v1',
+      apiKey: 'custom-key',
+      model: 'custom-model',
+      apiShape: 'openai-compatible',
+      a2aAutoRoute: false,
+      a2aServers: [
+        {
+          id: 'launcher',
+          name: 'OmniLauncher',
+          endpoint: 'https://launcher.example/a2a',
+          enabled: true,
+          agentCard: { name: 'OmniLauncher', skills: [{ name: 'Disk usage', description: 'Show disk usage.' }] }
+        }
+      ]
+    },
+    fetchImpl: async () => ({ ok: true, json: async () => RESPONSE_BY_SHAPE['openai-compatible'] })
+  });
+
+  const result = await context.handleAIChat([{ role: 'user', content: 'show me disk usage' }]);
+
+  assert.strictEqual(result, 'ok');
+  const body = JSON.parse(requests[0].options.body);
+  assert.strictEqual(body.tools, undefined);
+}
+
 async function main() {
   await assertA2aServerMetadataAndTokensUseSeparateStorageAreas();
+  await assertLoadA2aServersReadsFromLocalStorage();
+  await assertLoadA2aServersMigratesLegacySyncStorageToLocal();
   await assertA2aProviderIdsRoundTripServerIds();
   await assertOpenAICompatibleDefault();
   await assertFreshInstallDefaultShape();
@@ -1691,7 +1923,11 @@ async function main() {
   await assertA2aDiscoveryFallsBackToEndpointAgentCard();
   await assertRemoveA2aServerRemovesLocalTokenOnlyForThatServer();
   await assertLegacyA2aProviderTypeFallsBackToCustomProvider();
-  await assertConfiguredA2aServerDoesNotAutomaticallyHandleChat();
+  await assertConfiguredA2aServerWithoutAgentCardDoesNotAutomaticallyHandleChat();
+  await assertA2aAutoRouteInjectsToolsForDiscoveredAgentCards();
+  await assertA2aAutoRouteToolCallDelegatesOrdinaryFollowUp();
+  await assertA2aAutoRouteToolCallUsesCollisionSafeToolMapping();
+  await assertA2aAutoRouteRespectsDisableToggle();
   await assertProviderTypeCopilotModelListingUsesCachedToken();
   await assertCopilotModelListingUsesCachedToken();
   await assertCopilotModelListingRefreshesExpiredToken();

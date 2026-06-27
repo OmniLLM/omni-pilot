@@ -66,8 +66,7 @@
   }
 
   // Load config from storage
-  chrome.storage.sync.get({ model: 'claude-sonnet-4-5', endpoint: 'https://api.omnillm.com/v1', apiKey: '', providerType: 'custom-provider', authMethod: 'api-key', a2aServers: [] }, cfg => {
-    a2aServers = cfg.a2aServers || [];
+  chrome.storage.sync.get({ model: 'claude-sonnet-4-5', endpoint: 'https://api.omnillm.com/v1', apiKey: '', providerType: 'custom-provider', authMethod: 'api-key' }, cfg => {
     currentModel = cfg.model || 'claude-sonnet-4-5';
     currentProviderType = normalizeProviderType(cfg.providerType || 'custom-provider');
     currentAuthMethod = cfg.authMethod || 'api-key';
@@ -78,21 +77,30 @@
     updatePanelMeta();
   });
 
+  loadA2aServersFromStorage(servers => {
+    a2aServers = servers;
+    currentProvider = getProviderLabel(currentProviderType || currentAuthMethod, currentEndpoint);
+    hasApiKey = currentProviderType === 'github-copilot' || currentAuthMethod === 'github-copilot' || isA2aProviderType(currentProviderType) || Boolean(currentApiKey);
+    updatePanelMeta();
+  });
+
   loadThemePreference();
   loadLanguagePreference();
 
-  chrome.storage.onChanged.addListener(changes => {
+  chrome.storage.onChanged.addListener((changes, areaName) => {
     if (changes.model) { currentModel = changes.model.newValue; updatePanelMeta(); }
     if (changes.endpoint) currentEndpoint = changes.endpoint.newValue || '';
     if (changes.providerType) currentProviderType = normalizeProviderType(changes.providerType.newValue || 'custom-provider');
     if (changes.authMethod) currentAuthMethod = changes.authMethod.newValue || 'api-key';
     if (changes.apiKey) currentApiKey = changes.apiKey.newValue || '';
-    if (changes.a2aServers) a2aServers = changes.a2aServers.newValue || [];
-    if (changes.endpoint || changes.providerType || changes.authMethod || changes.a2aServers) {
+    const a2aServersStorageName = (chrome.storage.local ? 'local' : 'sync');
+    const a2aServersChanged = Boolean(changes.a2aServers) && (areaName === undefined || areaName === a2aServersStorageName);
+    if (a2aServersChanged) a2aServers = changes.a2aServers.newValue || [];
+    if (changes.endpoint || changes.providerType || changes.authMethod || a2aServersChanged) {
       currentProvider = getProviderLabel(currentProviderType || currentAuthMethod, currentEndpoint);
       updatePanelMeta();
     }
-    if (changes.apiKey || changes.authMethod || changes.providerType || changes.a2aServers) {
+    if (changes.apiKey || changes.authMethod || changes.providerType || a2aServersChanged) {
       hasApiKey = currentProviderType === 'github-copilot' || currentAuthMethod === 'github-copilot' || isA2aProviderType(currentProviderType) || Boolean(currentApiKey);
     }
     if (changes.themePreference) applyTheme(changes.themePreference.newValue || 'dark');
@@ -101,6 +109,23 @@
 
   function isA2aProviderType(providerType) {
     return typeof providerType === 'string' && providerType.startsWith('a2a:');
+  }
+
+  function getA2aServersStorageArea() {
+    return chrome.storage.local || chrome.storage.sync;
+  }
+
+  function loadA2aServersFromStorage(callback) {
+    getA2aServersStorageArea().get(['a2aServers'], local => {
+      if (Array.isArray(local?.a2aServers)) {
+        callback(local.a2aServers);
+        return;
+      }
+      // Fall back to legacy sync storage until options.js migrates it.
+      chrome.storage.sync.get(['a2aServers'], synced => {
+        callback(Array.isArray(synced?.a2aServers) ? synced.a2aServers : []);
+      });
+    });
   }
 
   function normalizeProviderType(providerType) {
@@ -207,11 +232,15 @@
   }
 
   function getA2aDelegationContext() {
-    return conversationHistory
-      .filter(message => typeof message?.content === 'string' && !message.kind?.startsWith?.('a2a-') && !parseA2aMentionTask(message.content))
+    const priorContext = conversationHistory
+      .filter(message => typeof message?.content === 'string' && message.role === 'user' && !message.kind?.startsWith?.('a2a-') && !parseA2aMentionTask(message.content))
       .map(message => `${message.role === 'assistant' ? 'Popup assistant' : 'Popup user'}: ${message.content.trim()}`)
       .filter(Boolean)
-      .join('\n\n') || lastSelection || '';
+      .join('\n\n');
+
+    const selectionContext = lastSelection ? buildSelectionContextMessage(lastSelection) : '';
+    const contextParts = [selectionContext, priorContext].filter(Boolean);
+    return contextParts.join('\n\n') || lastSelection || '';
   }
 
   // ── Bubble ──────────────────────────────────────────────────────────────────

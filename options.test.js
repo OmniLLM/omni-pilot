@@ -37,6 +37,7 @@ function createTestContext({ fetchImpl, sendMessageImpl, storageGetImpl, localSt
   const domListeners = {};
   const timeoutCalls = [];
   const syncWrites = [];
+  const syncRemoves = [];
   const localWrites = [];
   const localRemoves = [];
   const elements = {
@@ -115,7 +116,8 @@ function createTestContext({ fetchImpl, sendMessageImpl, storageGetImpl, localSt
             if (storageGetImpl) return storageGetImpl(keys, callback, context);
             callback({});
           },
-          set(value, callback) { syncWrites.push(value); callback?.(); }
+          set(value, callback) { syncWrites.push(value); callback?.(); },
+          remove(value, callback) { syncRemoves.push(value); callback?.(); }
         },
         local: {
           get(keys, callback) {
@@ -144,7 +146,7 @@ function createTestContext({ fetchImpl, sendMessageImpl, storageGetImpl, localSt
   vm.runInContext(i18nSource, context);
   vm.runInContext(source, context);
 
-  return { context, elements, fetchUrls, sendMessageCalls, domListeners, timeoutCalls, syncWrites, localWrites, localRemoves };
+  return { context, elements, fetchUrls, sendMessageCalls, domListeners, timeoutCalls, syncWrites, syncRemoves, localWrites, localRemoves };
 }
 
 async function testStandardFetchUsesEndpointModels() {
@@ -787,18 +789,20 @@ async function testAddingA2aServerRequiresNameAndEndpoint() {
   assert.strictEqual(elements.a2aStatus.className, 'status error');
 }
 
-async function testAddingA2aServerStoresMetadataInSyncAndTokenInLocalOnly() {
+async function testAddingA2aServerStoresMetadataInLocalAndTokenInLocalOnly() {
   const { context, elements, syncWrites, localWrites } = createTestContext();
 
   await context.addA2aServerFromForm();
 
-  const savedServers = syncWrites.at(-1).a2aServers;
-  const savedTokens = localWrites.at(-1);
+  const savedServers = localWrites.find(write => Array.isArray(write.a2aServers))?.a2aServers;
+  const savedTokens = localWrites.find(write => write.a2aServerTokens)?.a2aServerTokens;
+  assert.ok(savedServers, 'a2aServers should be written to chrome.storage.local');
+  assert.ok(!syncWrites.some(write => Array.isArray(write.a2aServers)), 'a2aServers must not be written to chrome.storage.sync');
   assert.strictEqual(savedServers.length, 1);
   assert.strictEqual(savedServers[0].name, 'Demo Server');
   assert.strictEqual(savedServers[0].endpoint, 'https://a2a.example.com');
   assert.ok(!Object.prototype.hasOwnProperty.call(savedServers[0], 'token'));
-  assert.strictEqual(savedTokens.a2aServerTokens[savedServers[0].id], 'secret-token');
+  assert.strictEqual(savedTokens[savedServers[0].id], 'secret-token');
 }
 
 async function testRenderingStoredA2aServersShowsNameAndEndpointNotToken() {
@@ -842,7 +846,7 @@ async function testA2aServerListButtonsInvokeDiscoverAndRemove() {
 
   assert.strictEqual(sendMessageCalls.at(-1).type, 'A2A_DISCOVER_SERVER');
   assert.strictEqual(sendMessageCalls.at(-1).serverId, 'server-1');
-  assert.strictEqual(syncWrites.at(-1).a2aServers[0].agentCard.name, 'Discovered Agent');
+  assert.strictEqual(localWrites.findLast(write => Array.isArray(write.a2aServers))?.a2aServers[0].agentCard.name, 'Discovered Agent');
 
   const removeButton = {
     getAttribute(name) {
@@ -855,7 +859,7 @@ async function testA2aServerListButtonsInvokeDiscoverAndRemove() {
   await Promise.resolve();
   await Promise.resolve();
 
-  assert.deepStrictEqual(syncWrites.at(-1).a2aServers, []);
+  assert.deepStrictEqual(localWrites.findLast(write => Array.isArray(write.a2aServers))?.a2aServers, []);
   assert.deepStrictEqual(JSON.parse(JSON.stringify(localWrites.at(-1).a2aServerTokens)), {});
 }
 
@@ -887,8 +891,8 @@ async function testStartCopilotAuthRejectsUnsafeVerificationUri() {
   assert.deepStrictEqual(tabsCreated, []);
 }
 
-async function testDiscoverUpdatesAgentCardMetadataAndSavesToSync() {
-  const { context, syncWrites, sendMessageCalls } = createTestContext({
+async function testDiscoverUpdatesAgentCardMetadataAndSavesToLocal() {
+  const { context, localWrites, sendMessageCalls } = createTestContext({
     sendMessageImpl(message, callback) {
       if (message.type === 'A2A_DISCOVER_SERVER') {
         callback({ success: true, agentCard: { name: 'Discovered Agent', version: '1.0.0' } });
@@ -913,18 +917,22 @@ async function testDiscoverUpdatesAgentCardMetadataAndSavesToSync() {
   assert.strictEqual(sendMessageCalls.at(-1).type, 'A2A_DISCOVER_SERVER');
   assert.strictEqual(sendMessageCalls.at(-1).serverId, 'server-1');
   assert.deepStrictEqual(JSON.parse(JSON.stringify(server.agentCard)), { name: 'Discovered Agent', version: '1.0.0' });
-  assert.deepStrictEqual(JSON.parse(JSON.stringify(syncWrites.at(-1).a2aServers[0].agentCard)), { name: 'Discovered Agent', version: '1.0.0' });
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(localWrites.findLast(write => Array.isArray(write.a2aServers))?.a2aServers[0].agentCard)), { name: 'Discovered Agent', version: '1.0.0' });
 }
 
 async function testLegacyA2aServerWithoutIdIsPersistedBeforeDiscovery() {
-  const { context, domListeners, syncWrites, sendMessageCalls } = createTestContext({
+  const { context, domListeners, localWrites, sendMessageCalls } = createTestContext({
     storageGetImpl(keys, callback) {
       callback({
         providerType: 'custom-provider',
         endpoint: 'http://localhost:5000',
         apiKey: 'test-key',
         model: 'deepseek-v4-flash',
-        languagePreference: 'en',
+        languagePreference: 'en'
+      });
+    },
+    localStorageGetImpl(keys, callback) {
+      callback({
         a2aServers: [
           { name: 'OmniLauncher', endpoint: 'http://127.0.0.1:1423', enabled: true }
         ]
@@ -942,7 +950,7 @@ async function testLegacyA2aServerWithoutIdIsPersistedBeforeDiscovery() {
   await domListeners.DOMContentLoaded();
   await Promise.resolve();
 
-  const migratedServers = syncWrites.find(write => Array.isArray(write.a2aServers))?.a2aServers;
+  const migratedServers = localWrites.find(write => Array.isArray(write.a2aServers))?.a2aServers;
   assert.strictEqual(migratedServers?.length, 1);
   assert.ok(migratedServers[0].id);
   assert.notStrictEqual(migratedServers[0].id, 'undefined');
@@ -953,6 +961,36 @@ async function testLegacyA2aServerWithoutIdIsPersistedBeforeDiscovery() {
 
   assert.strictEqual(sendMessageCalls.at(-1).type, 'A2A_DISCOVER_SERVER');
   assert.strictEqual(sendMessageCalls.at(-1).serverId, migratedServers[0].id);
+}
+
+async function testInitMigratesLegacyA2aServersFromSyncToLocal() {
+  const { context, domListeners, syncWrites, syncRemoves, localWrites } = createTestContext({
+    storageGetImpl(keys, callback) {
+      callback({
+        providerType: 'custom-provider',
+        endpoint: 'http://localhost:5000',
+        apiKey: 'test-key',
+        model: 'deepseek-v4-flash',
+        languagePreference: 'en',
+        a2aServers: [
+          { id: 'legacy-1', name: 'Legacy Server', endpoint: 'http://127.0.0.1:1423', enabled: true }
+        ]
+      });
+    },
+    localStorageGetImpl(keys, callback) {
+      callback({});
+    }
+  });
+
+  await domListeners.DOMContentLoaded();
+  await Promise.resolve();
+
+  const migratedServers = localWrites.find(write => Array.isArray(write.a2aServers))?.a2aServers;
+  assert.ok(migratedServers, 'legacy servers should be written to chrome.storage.local');
+  assert.strictEqual(migratedServers.length, 1);
+  assert.strictEqual(migratedServers[0].id, 'legacy-1');
+  assert.ok(!syncWrites.some(write => Array.isArray(write.a2aServers)), 'init must not write a2aServers back to sync');
+  assert.ok(syncRemoves.some(keys => [].concat(keys).includes('a2aServers')), 'legacy sync a2aServers key should be cleared');
 }
 
 async function main() {
@@ -984,12 +1022,13 @@ async function main() {
   await testGithubCopilotSlowDownBacksOffPollingInterval();
   await testGithubCopilotFailureShowsRetryButton();
   await testAddingA2aServerRequiresNameAndEndpoint();
-  await testAddingA2aServerStoresMetadataInSyncAndTokenInLocalOnly();
+  await testAddingA2aServerStoresMetadataInLocalAndTokenInLocalOnly();
   await testRenderingStoredA2aServersShowsNameAndEndpointNotToken();
   await testA2aServerListButtonsInvokeDiscoverAndRemove();
   await testStartCopilotAuthRejectsUnsafeVerificationUri();
-  await testDiscoverUpdatesAgentCardMetadataAndSavesToSync();
+  await testDiscoverUpdatesAgentCardMetadataAndSavesToLocal();
   await testLegacyA2aServerWithoutIdIsPersistedBeforeDiscovery();
+  await testInitMigratesLegacyA2aServersFromSyncToLocal();
 }
 
 main().catch(err => {

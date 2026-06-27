@@ -110,6 +110,9 @@ async function createContentContext(storedConfig = {}) {
   const storageListeners = [];
   const sendMessageCalls = [];
   const syncWrites = [];
+  const localWrites = [];
+  const { a2aServers: seededA2aServers, ...syncSeed } = storedConfig;
+  const localStore = seededA2aServers === undefined ? {} : { a2aServers: seededA2aServers };
   let selectionText = 'selected text';
   const context = {
     globalThis: {},
@@ -140,9 +143,39 @@ async function createContentContext(storedConfig = {}) {
       },
       storage: {
         sync: {
-          get(defaults, cb) { cb({ ...defaults, languagePreference: 'zh', ...storedConfig }); },
+          get(defaults, cb) {
+            const result = { ...defaults, languagePreference: 'zh', ...syncSeed };
+            if (defaults && typeof defaults === 'object' && !Array.isArray(defaults)
+              && Object.prototype.hasOwnProperty.call(defaults, 'a2aServers')
+              && !Object.prototype.hasOwnProperty.call(syncSeed, 'a2aServers')) {
+              delete result.a2aServers;
+            }
+            cb(result);
+          },
           set(values, cb = () => {}) {
             syncWrites.push(values);
+            cb();
+          }
+        },
+        local: {
+          get(keys, cb) {
+            if (Array.isArray(keys)) {
+              cb(Object.fromEntries(keys.filter(key => key in localStore).map(key => [key, localStore[key]])));
+              return;
+            }
+            if (keys && typeof keys === 'object') {
+              const result = { ...keys };
+              for (const key of Object.keys(keys)) {
+                if (key in localStore) result[key] = localStore[key];
+              }
+              cb(result);
+              return;
+            }
+            cb({ ...localStore });
+          },
+          set(values, cb = () => {}) {
+            localWrites.push(values);
+            Object.assign(localStore, values);
             cb();
           }
         },
@@ -170,6 +203,8 @@ async function createContentContext(storedConfig = {}) {
     context,
     sendMessageCalls,
     syncWrites,
+    localWrites,
+    localStore,
     setSelectionText(text) { selectionText = text; }
   };
 }
@@ -197,6 +232,49 @@ async function openDropdown(storedConfig) {
   const dropdown = documentRef.getElementById('omnipilot-dropdown');
   assert.ok(dropdown, 'dropdown should be created after bubble click');
   return dropdown;
+}
+
+async function testOrdinaryFollowUpUsesAIChatNotDirectA2a() {
+  const { documentRef, sendMessageCalls, setSelectionText } = await createContentContext({
+    apiKey: 'test-key',
+    languagePreference: 'en',
+    a2aServers: [{ id: 'server-1', name: 'A2A localhost', endpoint: 'http://127.0.0.1:1423', enabled: true, agentCard: { name: 'A2A localhost' } }]
+  });
+
+  await selectText(documentRef, setSelectionText, 'selected context for A2A');
+  documentRef.getElementById('omnipilot-bubble').listeners.click({ preventDefault() {}, stopPropagation() {} });
+  documentRef.getElementById('omnipilot-dropdown').children[0].listeners.click({ preventDefault() {}, stopPropagation() {} });
+
+  const input = documentRef.getElementById('omnipilot-panel').querySelector('.omnipilot-panel-input');
+  input.value = 'show me disk usage';
+  input.listeners.keydown({ key: 'Enter', shiftKey: false, preventDefault() {}, stopPropagation() {} });
+
+  assert.ok(sendMessageCalls.some(message => message.type === 'AI_CHAT'));
+  assert.ok(!sendMessageCalls.some(message => message.type === 'A2A_DELEGATE_TASK'));
+}
+
+async function testA2aMentionFollowUpUsesConversationContextWhenPresent() {
+  const { documentRef, sendMessageCalls, setSelectionText } = await createContentContext({
+    apiKey: 'test-key',
+    languagePreference: 'en',
+    a2aServers: [{ id: 'server-1', name: 'A2A localhost', endpoint: 'http://127.0.0.1:1423', enabled: true }]
+  });
+
+  await selectText(documentRef, setSelectionText, 'selected context for A2A');
+  documentRef.getElementById('omnipilot-bubble').listeners.click({ preventDefault() {}, stopPropagation() {} });
+  documentRef.getElementById('omnipilot-dropdown').children[0].listeners.click({ preventDefault() {}, stopPropagation() {} });
+
+  const input = documentRef.getElementById('omnipilot-panel').querySelector('.omnipilot-panel-input');
+  input.value = 'What does this mean?';
+  input.listeners.keydown({ key: 'Enter', shiftKey: false, preventDefault() {}, stopPropagation() {} });
+
+  input.value = '@A2Alocalhost summarize using this popup';
+  input.listeners.keydown({ key: 'Enter', shiftKey: false, preventDefault() {}, stopPropagation() {} });
+
+  const delegateMessage = sendMessageCalls.findLast(message => message.type === 'A2A_DELEGATE_TASK');
+  assert.ok(delegateMessage, 'A2A mention should delegate');
+  assert.ok(delegateMessage.contextText.includes('selected context for A2A'));
+  assert.ok(delegateMessage.contextText.includes('What does this mean?'));
 }
 
 async function testA2aMentionFollowUpDelegatesInsteadOfChat() {
@@ -244,7 +322,6 @@ async function testA2aMentionFollowUpSendsPopupTranscriptContext() {
   assert.ok(delegateMessage, 'A2A mention should delegate');
   assert.ok(delegateMessage.contextText.includes('popup selected context'));
   assert.ok(delegateMessage.contextText.includes('What does this mean?'));
-  assert.ok(delegateMessage.contextText.includes('ok'));
   assert.ok(!delegateMessage.contextText.includes('@A2Alocalhost summarize using this popup'));
 }
 
@@ -291,8 +368,54 @@ async function testA2aServersDoNotAppearAsProviderEntries() {
   assert.ok(!context.getProviderEntries().some(entry => entry.label === 'Planner'));
 }
 
+async function testSyncRemovalOfLegacyA2aServersDoesNotClearLocalServers() {
+  const { documentRef, storageListeners, sendMessageCalls, setSelectionText } = await createContentContext({
+    apiKey: 'test-key',
+    languagePreference: 'en',
+    a2aServers: [{ id: 'server-1', name: 'A2A localhost', endpoint: 'http://127.0.0.1:1423', enabled: true }]
+  });
+
+  // Simulate options.js migration clearing the legacy sync key.
+  storageListeners[0]({ a2aServers: { oldValue: [{ id: 'server-1' }], newValue: undefined } }, 'sync');
+
+  await selectText(documentRef, setSelectionText, 'selected context');
+  documentRef.getElementById('omnipilot-bubble').listeners.click({ preventDefault() {}, stopPropagation() {} });
+  documentRef.getElementById('omnipilot-dropdown').children[0].listeners.click({ preventDefault() {}, stopPropagation() {} });
+
+  const input = documentRef.getElementById('omnipilot-panel').querySelector('.omnipilot-panel-input');
+  input.value = '@A2Alocalhost ping';
+  input.listeners.keydown({ key: 'Enter', shiftKey: false, preventDefault() {}, stopPropagation() {} });
+
+  assert.ok(sendMessageCalls.some(message => message.type === 'A2A_DELEGATE_TASK'), 'sync removal must not wipe locally-stored servers');
+}
+
+async function testLocalA2aServerChangesUpdateContentState() {
+  const { documentRef, storageListeners, sendMessageCalls, setSelectionText } = await createContentContext({
+    apiKey: 'test-key',
+    languagePreference: 'en'
+  });
+
+  storageListeners[0]({
+    a2aServers: { newValue: [{ id: 'server-1', name: 'A2A localhost', endpoint: 'http://127.0.0.1:1423', enabled: true }] }
+  }, 'local');
+
+  await selectText(documentRef, setSelectionText, 'selected context');
+  documentRef.getElementById('omnipilot-bubble').listeners.click({ preventDefault() {}, stopPropagation() {} });
+  documentRef.getElementById('omnipilot-dropdown').children[0].listeners.click({ preventDefault() {}, stopPropagation() {} });
+
+  const input = documentRef.getElementById('omnipilot-panel').querySelector('.omnipilot-panel-input');
+  input.value = '@A2Alocalhost ping';
+  input.listeners.keydown({ key: 'Enter', shiftKey: false, preventDefault() {}, stopPropagation() {} });
+
+  assert.ok(sendMessageCalls.some(message => message.type === 'A2A_DELEGATE_TASK'), 'local a2aServers changes should update content state');
+}
+
 async function main() {
   await testA2aServersDoNotAppearAsProviderEntries();
+  await testSyncRemovalOfLegacyA2aServersDoesNotClearLocalServers();
+  await testLocalA2aServerChangesUpdateContentState();
+  await testOrdinaryFollowUpUsesAIChatNotDirectA2a();
+  await testA2aMentionFollowUpUsesConversationContextWhenPresent();
   await testA2aMentionFollowUpDelegatesInsteadOfChat();
   await testA2aMentionFollowUpSendsPopupTranscriptContext();
   await testA2aMentionMatchingIgnoresCaseSpacesAndPunctuation();
