@@ -72,6 +72,9 @@ const A2A_TOKEN_STORAGE_KEY = 'a2aServerTokens';
 const PROVIDER_CONFIG_FIELDS = ['endpoint', 'apiKey', 'model', 'models', 'apiShape'];
 const A2A_POLL_INTERVAL_MS = 500;
 const A2A_MAX_POLL_ATTEMPTS = 20;
+const A2A_TOOL_NAME_PREFIX = 'a2a__';
+const A2A_TOOL_NAME_MAX_LEN = 64;
+const A2A_TOOL_DESCRIPTION_MAX_LEN = 1024;
 
 const API_SHAPES = {
   OPENAI_COMPATIBLE: 'openai-compatible',
@@ -623,7 +626,9 @@ function getOpenAIChatTokenLimitParams(config) {
     : { max_tokens: 1024 };
 }
 
-function buildApiRequest({ config, messages, systemPrompt, copilotToken }) {
+function buildApiRequest({ config, messages, systemPrompt, copilotToken, tools }) {
+  const hasTools = Array.isArray(tools) && tools.length > 0;
+
   if (getProvider(config).usesCopilotAuth) {
     return {
       apiShape: API_SHAPES.OPENAI_COMPATIBLE,
@@ -632,7 +637,8 @@ function buildApiRequest({ config, messages, systemPrompt, copilotToken }) {
       requestBody: {
         model: config.model,
         ...getOpenAIChatTokenLimitParams(config),
-        messages: [{ role: 'system', content: systemPrompt }, ...messages]
+        messages: [{ role: 'system', content: systemPrompt }, ...messages],
+        ...(hasTools ? { tools, tool_choice: 'auto' } : {})
       },
       parseContent: parseOpenAIChatText
     };
@@ -651,7 +657,8 @@ function buildApiRequest({ config, messages, systemPrompt, copilotToken }) {
         model: config.model,
         max_tokens: 1024,
         system: systemPrompt,
-        messages
+        messages,
+        ...(hasTools ? { tools } : {})
       },
       parseContent: parseAnthropicText
     };
@@ -665,7 +672,8 @@ function buildApiRequest({ config, messages, systemPrompt, copilotToken }) {
       requestBody: {
         model: config.model,
         instructions: systemPrompt,
-        input: messages
+        input: messages,
+        ...(hasTools ? { tools, tool_choice: 'auto' } : {})
       },
       parseContent: parseOpenAIResponsesText
     };
@@ -678,7 +686,8 @@ function buildApiRequest({ config, messages, systemPrompt, copilotToken }) {
     requestBody: {
       model: config.model,
       ...getOpenAIChatTokenLimitParams(config),
-      messages: [{ role: 'system', content: systemPrompt }, ...messages]
+      messages: [{ role: 'system', content: systemPrompt }, ...messages],
+      ...(hasTools ? { tools, tool_choice: 'auto' } : {})
     },
     parseContent: parseOpenAIChatText
   };
@@ -1234,6 +1243,7 @@ async function handleA2aProviderChat(config, messages) {
 
 async function handleAIChat(messages) {
   const config = await loadConfig();
+  const systemPrompt = 'You are a helpful assistant. Continue the conversation naturally.';
 
   // Ordinary panel chat can still become A2A delegation here: discovered
   // enabled A2A agent cards are exposed as tools and the model chooses one
@@ -1359,21 +1369,41 @@ async function executeApiRequest({ config: preloadedConfig, messages, systemProm
 }
 
 async function executeApiRequestWithConfig({ config, messages, systemPrompt, copilotToken, allowModelFallback }) {
+  const raw = await executeApiRequestRaw({
+    config,
+    messages,
+    systemPrompt,
+    copilotToken,
+    allowModelFallback,
+    tools: []
+  });
+
+  if (!raw.content) {
+    console.error('OmniPilot unexpected API response', raw.rawData);
+    throw new Error('The API returned an empty or unexpected response. Check that the endpoint and model match the selected API format.');
+  }
+
+  return raw.content;
+}
+
+async function executeApiRequestRaw({ config, messages, systemPrompt, copilotToken, allowModelFallback, tools }) {
   const {
     apiShape,
     requestUrl,
     requestHeaders,
     requestBody,
     parseContent
-  } = buildApiRequest({ config, messages, systemPrompt, copilotToken });
+  } = buildApiRequest({ config, messages, systemPrompt, copilotToken, tools });
 
   const serializedBody = JSON.stringify(requestBody);
+  const sentTools = Array.isArray(tools) && tools.length > 0;
 
   console.info('OmniPilot API request', JSON.stringify({
     requestUrl,
     apiFormat: apiShape,
     model: config.model,
     hasApiKey: Boolean(config.apiKey),
+    toolCount: sentTools ? tools.length : 0,
     requestHeaders: redactHeaders(requestHeaders)
   }, null, 2));
 
@@ -1386,16 +1416,21 @@ async function executeApiRequestWithConfig({ config, messages, systemPrompt, cop
   if (!response.ok) {
     const errorText = await response.text();
 
+    if (sentTools && isToolsUnsupportedError(response.status, errorText)) {
+      throw new ToolsUnsupportedError(`Provider rejected tools: ${errorText.slice(0, 200)}`);
+    }
+
     if (allowModelFallback && isModelNotSupportedError(response.status, errorText)) {
       const fallbackModel = chooseCopilotFallbackModel(await fetchCopilotModels(), config.model);
       if (fallbackModel) {
         await replaceStoredModel(fallbackModel);
-        return executeApiRequestWithConfig({
+        return executeApiRequestRaw({
           config: { ...config, model: fallbackModel },
           messages,
           systemPrompt,
           copilotToken,
-          allowModelFallback: false
+          allowModelFallback: false,
+          tools
         });
       }
     }
@@ -1430,10 +1465,5 @@ async function executeApiRequestWithConfig({ config, messages, systemPrompt, cop
   const data = await response.json();
   const content = parseContent(data);
 
-  if (!content) {
-    console.error('OmniPilot unexpected API response', data);
-    throw new Error('The API returned an empty or unexpected response. Check that the endpoint and model match the selected API format.');
-  }
-
-  return content;
+  return { rawData: data, content, apiShape };
 }

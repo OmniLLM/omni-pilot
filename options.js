@@ -37,10 +37,11 @@ const DEFAULT_CONFIG = {
   themePreference: 'dark',
   languagePreference: 'en',
   apiShape: 'openai-compatible',
-  providerType: PROVIDER_TYPES.CUSTOM
+  providerType: PROVIDER_TYPES.CUSTOM,
+  a2aAutoRoute: true
 };
 
-const STORAGE_KEYS = ['endpoint', 'apiKey', 'model', 'models', 'themePreference', 'apiShape', 'languagePreference', 'providerType', 'authMethod', 'providerConfigs', 'a2aServers'];
+const STORAGE_KEYS = ['endpoint', 'apiKey', 'model', 'models', 'themePreference', 'apiShape', 'languagePreference', 'providerType', 'authMethod', 'providerConfigs', 'a2aServers', 'a2aAutoRoute'];
 const A2A_TOKEN_STORAGE_KEY = 'a2aServerTokens';
 const PROVIDER_CONFIG_FIELDS = ['endpoint', 'apiKey', 'model', 'models', 'apiShape'];
 
@@ -701,6 +702,10 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('editModelsBtn')?.addEventListener('click', showManualModelsEditor);
   document.getElementById('addA2aServerBtn')?.addEventListener('click', () => {
     addA2aServerFromForm();
+  });
+  document.getElementById('a2aAutoRoute')?.addEventListener('change', event => {
+    const enabled = Boolean(event.target?.checked);
+    chrome.storage.sync.set({ a2aAutoRoute: enabled });
   });
   document.getElementById('a2aServerList')?.addEventListener('click', event => {
     const button = event.target?.closest?.('[data-action][data-server-id]');
