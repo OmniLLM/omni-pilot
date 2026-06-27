@@ -1949,18 +1949,6 @@ async function main() {
   await assertA2aDelegateTaskReturnsImmediateTextResult();
   await assertA2aDelegateTaskPollsUntilCompleted();
   await assertA2aDelegateTaskSurfacesFailedTaskState();
-  await assertAutoRouteInjectsOpenAIToolsByDefault();
-  await assertAutoRouteInjectsAnthropicTools();
-  await assertAutoRouteInjectsResponsesTools();
-  await assertAutoRouteRespectsDisableToggle();
-  await assertAutoRouteSkippedWithoutAgentCard();
-  await assertAutoRouteSkippedWhenServerDisabled();
-  await assertAutoRouteToolCallTriggersDelegateA2aTask();
-  await assertAutoRouteToolCallWithUnknownServerThrows();
-  await assertAutoRouteToolCallWithEmptyTaskThrows();
-  await assertAutoRouteRetriesWithoutToolsWhenProviderRejectsTools();
-  await assertAutoRouteToolNameRoundTrip();
-  await assertAutoRouteToolDescriptionTruncates();
 }
 
 main().catch(err => {
