@@ -209,9 +209,11 @@
 
   function findA2aServerByMention(tag) {
     const normalizedTag = normalizeA2aTag(tag);
-    return a2aServers
-      .filter(server => server && server.enabled !== false)
-      .find(server => normalizeA2aTag(server.name || server.id || '') === normalizedTag) || null;
+    const enabledServers = a2aServers.filter(server => server && server.enabled !== false);
+    const exactMatch = enabledServers.find(server => normalizeA2aTag(server.name || server.id || '') === normalizedTag);
+    if (exactMatch) return exactMatch;
+    if (normalizedTag === 'a2a' && enabledServers.length === 1) return enabledServers[0];
+    return null;
   }
 
   function parseA2aMentionTask(text) {
