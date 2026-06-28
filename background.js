@@ -89,6 +89,8 @@ const ACTION_PROMPTS = {
   improve: 'Improve the writing of the following text. Keep the same language and meaning but make it clearer and more polished. Return only the improved text.'
 };
 
+const CHAT_SYSTEM_PROMPT = 'You are a helpful assistant. Continue the conversation naturally.';
+
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.type === 'AI_ACTION') {
     handleAIAction(request.action, request.text)
@@ -516,6 +518,14 @@ function buildA2aToolSchemas(servers) {
     }
   }
   return schemas;
+}
+
+function buildA2aRoutingSystemPrompt(systemPrompt) {
+  return `${systemPrompt}
+
+You have access to registered A2A agent tools. Each registered tool is backed by an A2A agent card and may represent either the agent itself or one of its discovered skills. Tool descriptions include the registered agent name, skill name, description, capabilities, and tags.
+
+Before answering from your own knowledge, compare the latest user prompt against the registered A2A agents, skills, tool descriptions, capabilities, and tags. If the user prompt clearly matches a registered A2A skill or tool, call the single best matching A2A tool and pass the user's full request as "task". Prefer calling the most specific registered skill tool over a generic agent tool when both match. Do not answer locally when a matching registered A2A skill or tool is available. If no registered A2A skill or tool is a clear match, answer normally without calling a tool.`;
 }
 
 function getA2aToolsForApiShape(toolSchemas, apiShape) {
@@ -1337,7 +1347,7 @@ async function handleA2aProviderChat(config, messages) {
 
 async function handleAIChat(messages) {
   const config = await loadConfig();
-  const systemPrompt = 'You are a helpful assistant. Continue the conversation naturally.';
+  const systemPrompt = CHAT_SYSTEM_PROMPT;
 
   // Ordinary panel chat can still become A2A delegation here: enabled A2A
   // agent cards are exposed as tools (auto-discovering any missing card first)
@@ -1349,7 +1359,7 @@ async function handleAIChat(messages) {
       return executeApiRequestWithA2aRouting({
         config,
         messages,
-        systemPrompt: 'You are a helpful assistant. Continue the conversation naturally.',
+        systemPrompt,
         a2aServers,
         toolSchemas
       });
@@ -1359,7 +1369,7 @@ async function handleAIChat(messages) {
   return executeApiRequest({
     config,
     messages,
-    systemPrompt: 'You are a helpful assistant. Continue the conversation naturally.'
+    systemPrompt
   });
 }
 
@@ -1382,11 +1392,7 @@ async function executeApiRequestWithA2aRouting({ config, messages, systemPrompt,
     throw new Error('No API key configured. Click the OmniPilot icon to set up.');
   }
 
-  const routingPrompt = `${systemPrompt}
-
-You have access to A2A agent tools that delegate tasks to specialized remote agents. Each tool's description is registered metadata from an A2A agent card, including its discovered skills and tags.
-
-Before answering from your own knowledge, compare the current user request against the registered A2A tools. If the request clearly matches any A2A tool's agent, skill, description, or tags, call the best matching A2A tool and pass the user's full request as "task". Do not answer locally when a matching A2A tool is available. When no registered A2A tool is a clear match, respond normally without calling a tool.`;
+  const routingPrompt = buildA2aRoutingSystemPrompt(systemPrompt);
 
   const builtRequest = buildApiRequest({ config, messages, systemPrompt: routingPrompt, copilotToken });
   const apiShape = builtRequest.apiShape;

@@ -1834,7 +1834,11 @@ async function assertAutoRouteSystemPromptInstructsToolUse() {
   const systemMessage = body.messages.find(m => m.role === 'system');
   assert.ok(systemMessage, 'request should include a system message');
   assert.ok(/a2a|agent|tool/i.test(systemMessage.content), 'system prompt should mention A2A agent tools');
+  assert.ok(/registered/i.test(systemMessage.content), 'system prompt should mention registered A2A tools or skills');
+  assert.ok(/skill/i.test(systemMessage.content), 'system prompt should mention A2A skills');
+  assert.ok(/latest user prompt|user prompt|user request/i.test(systemMessage.content), 'system prompt should instruct matching against the user prompt');
   assert.ok(/delegat|call|use/i.test(systemMessage.content), 'system prompt should instruct the model to call/delegate to a matching agent');
+  assert.ok(/do not answer locally/i.test(systemMessage.content), 'system prompt should prefer delegation over local answers when there is a clear match');
 }
 
 async function assertA2aAutoRouteToolCallDelegatesOrdinaryFollowUp() {
