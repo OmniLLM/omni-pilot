@@ -1288,7 +1288,11 @@ async function executeApiRequestWithA2aRouting({ config, messages, systemPrompt,
     throw new Error('No API key configured. Click the OmniPilot icon to set up.');
   }
 
-  const builtRequest = buildApiRequest({ config, messages, systemPrompt, copilotToken });
+  const routingPrompt = `${systemPrompt}
+
+You have access to A2A agent tools that delegate tasks to specialized remote agents. Each tool's description explains what its agent can do. If the user's current request clearly matches one of the available agents' capabilities or skills, call the matching tool to delegate the task instead of answering it yourself. When no agent is a clear match, respond normally without calling a tool.`;
+
+  const builtRequest = buildApiRequest({ config, messages, systemPrompt: routingPrompt, copilotToken });
   const apiShape = builtRequest.apiShape;
   const tools = getA2aToolsForApiShape(toolSchemas, apiShape);
   const requestBody = applyA2aToolsToRequestBody(builtRequest.requestBody, apiShape, tools);
