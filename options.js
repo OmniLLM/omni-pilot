@@ -377,9 +377,18 @@ async function addA2aServerFromForm() {
   await saveA2aTokens();
   renderA2aServers();
 
+  let discoveryError = null;
+  try {
+    await discoverAndSaveA2aServer(server.id);
+  } catch (error) {
+    discoveryError = error;
+  }
+
   if (status) {
-    status.textContent = label('saved');
-    status.className = 'status';
+    status.textContent = discoveryError
+      ? `${label('saved')} ${label('errorPrefix')} ${discoveryError.message}`
+      : label('saved');
+    status.className = discoveryError ? 'status warn' : 'status';
   }
   if (nameInput) nameInput.value = '';
   if (endpointInput) endpointInput.value = '';
@@ -404,6 +413,13 @@ async function discoverAndSaveA2aServer(serverOrId) {
     });
   });
   const agentCard = response.agentCard || response;
+  const hasAgentMetadata = agentCard && typeof agentCard === 'object'
+    && (String(agentCard.name || agentCard.description || '').trim()
+      || Array.isArray(agentCard.skills)
+      || agentCard.capabilities);
+  if (!hasAgentMetadata) {
+    throw new Error('A2A discovery returned an invalid agent card.');
+  }
 
   a2aServers = a2aServers.map(existing => existing.id === server.id ? {
     ...existing,

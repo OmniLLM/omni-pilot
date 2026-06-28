@@ -2014,7 +2014,7 @@ async function assertA2aToolSchemasIncludeOneToolPerSkill() {
     }
   ]);
 
-  assert.strictEqual(schemas.length, 2, 'one tool per skill');
+  assert.strictEqual(schemas.length, 2, 'one tool per discovered skill');
   const names = schemas.map(s => String(s.name)).sort();
   assert.strictEqual(names.join(','), 'a2a__cloudbot__aws,a2a__cloudbot__gcp');
   const aws = schemas.find(s => s.name === 'a2a__cloudbot__aws');
@@ -2036,7 +2036,7 @@ async function assertA2aToolSchemasFallBackToServerToolWhenNoSkills() {
   assert.strictEqual(schemas[0].skillId, null);
 }
 
-async function assertPerSkillToolCallDelegatesToCorrectServer() {
+async function assertSkillToolCallDelegatesToCorrectServer() {
   const { context, requests } = await createBackgroundContext({
     storage: {
       providerType: 'custom-provider',
@@ -2089,11 +2089,13 @@ async function assertPerSkillToolCallDelegatesToCorrectServer() {
 
   assert.strictEqual(result, '12 EC2 instances');
   const llmBody = JSON.parse(requests.find(r => r.url === 'https://custom.example/v1/chat/completions').options.body);
-  assert.strictEqual(llmBody.tools.length, 2, 'both skill tools injected');
+  assert.strictEqual(llmBody.tools.length, 2, 'one tool per skill should be injected');
+  assert.ok(llmBody.tools.some(tool => tool.function.name === 'a2a__cloudbot__aws'));
+  assert.ok(llmBody.tools.some(tool => tool.function.name === 'a2a__cloudbot__gcp'));
   assert.ok(requests.some(r => r.url === 'https://cloudbot.example/a2a'), 'delegated to the A2A server');
 }
 
-async function assertQuestionMatchingA2aSkillDelegatesWithoutExplicitPrompt() {
+async function assertQuestionMatchingA2aSkillUsesRegisteredToolCall() {
   const { context, requests } = await createBackgroundContext({
     storage: {
       providerType: 'custom-provider',
@@ -2124,17 +2126,33 @@ async function assertQuestionMatchingA2aSkillDelegatesWithoutExplicitPrompt() {
         return { ok: true, json: async () => ({ result: { message: { parts: [{ type: 'text', text: '5 Alibaba VMs' }] } } }) };
       }
       if (url === 'https://custom.example/v1/chat/completions') {
-        return { ok: true, json: async () => ({ choices: [{ message: { content: 'I can help you find information about VMs in Alibaba Cloud.' } }] }) };
+        return {
+          ok: true,
+          json: async () => ({
+            choices: [{
+              message: {
+                tool_calls: [{
+                  type: 'function',
+                  function: { name: 'a2a__cloudbot__alibaba', arguments: JSON.stringify({ task: 'How many VM in Alibaba?' }) }
+                }]
+              }
+            }]
+          })
+        };
       }
       throw new Error(`Unexpected fetch ${url}`);
     }
   });
 
-  const result = await context.handleAIChat([{ role: 'user', content: 'how many VMs in Alibaba' }]);
+  const result = await context.handleAIChat([{ role: 'user', content: 'How many VM in Alibaba?' }]);
 
   assert.strictEqual(result, '5 Alibaba VMs');
-  assert.ok(requests.some(r => r.url === 'https://cloudbot.example/a2a'), 'matching Alibaba skill should delegate directly');
-  assert.ok(!requests.some(r => r.url === 'https://custom.example/v1/chat/completions'), 'should not require the LLM to be explicitly told to use A2A');
+  const llmRequest = requests.find(r => r.url === 'https://custom.example/v1/chat/completions');
+  const llmBody = JSON.parse(llmRequest.options.body);
+  assert.strictEqual(llmBody.tools.map(tool => tool.function.name).join(','), 'a2a__cloudbot__alibaba,a2a__cloudbot__aws');
+  assert.ok(llmBody.tools[0].function.description.includes('Alibaba Cloud'));
+  assert.ok(llmBody.tools[0].function.description.includes('vm'));
+  assert.ok(requests.some(r => r.url === 'https://cloudbot.example/a2a'), 'LLM-selected Alibaba VM skill should delegate');
 }
 
 async function assertAutoRouteRefreshesSparseCachedAgentCard() {
@@ -2168,7 +2186,19 @@ async function assertAutoRouteRefreshesSparseCachedAgentCard() {
         return { ok: true, json: async () => ({ result: { message: { parts: [{ type: 'text', text: '11053 Alibaba VMs' }] } } }) };
       }
       if (url === 'https://custom.example/v1/chat/completions') {
-        return { ok: true, json: async () => ({ choices: [{ message: { content: 'I can help you find information about VMs in Alibaba.' } }] }) };
+        return {
+          ok: true,
+          json: async () => ({
+            choices: [{
+              message: {
+                tool_calls: [{
+                  type: 'function',
+                  function: { name: 'a2a__cloudbot__alibaba', arguments: JSON.stringify({ task: 'how many VMs in Alibaba' }) }
+                }]
+              }
+            }]
+          })
+        };
       }
       throw new Error(`Unexpected fetch ${url}`);
     }
@@ -2179,7 +2209,10 @@ async function assertAutoRouteRefreshesSparseCachedAgentCard() {
   assert.strictEqual(result, '11053 Alibaba VMs');
   assert.ok(requests.some(r => /\.well-known\/agent\.json/.test(r.url)), 'should refresh sparse cached agent cards');
   assert.ok(requests.some(r => r.url === 'https://cloudbot.example/a2a'), 'should delegate after refreshing skills');
-  assert.ok(!requests.some(r => r.url === 'https://custom.example/v1/chat/completions'), 'should not fall back to direct LLM answer');
+  const llmRequest = requests.find(r => r.url === 'https://custom.example/v1/chat/completions');
+  const llmBody = JSON.parse(llmRequest.options.body);
+  assert.strictEqual(llmBody.tools[0].function.name, 'a2a__cloudbot__alibaba');
+  assert.ok(llmBody.tools[0].function.description.includes('Alibaba Cloud'), 'refreshed skill should be registered as an A2A tool');
 }
 
 async function assertAutoRouteDiscoversAgentCardOnDemand() {
@@ -2255,8 +2288,8 @@ async function main() {
   await assertA2aAutoRouteInjectsToolsForDiscoveredAgentCards();
   await assertA2aToolSchemasIncludeOneToolPerSkill();
   await assertA2aToolSchemasFallBackToServerToolWhenNoSkills();
-  await assertPerSkillToolCallDelegatesToCorrectServer();
-  await assertQuestionMatchingA2aSkillDelegatesWithoutExplicitPrompt();
+  await assertSkillToolCallDelegatesToCorrectServer();
+  await assertQuestionMatchingA2aSkillUsesRegisteredToolCall();
   await assertAutoRouteRefreshesSparseCachedAgentCard();
   await assertAutoRouteDiscoversAgentCardOnDemand();
   await assertCopilotAutoRouteToolCallDelegates();

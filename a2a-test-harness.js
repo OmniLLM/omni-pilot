@@ -116,16 +116,16 @@ function createA2aContext({ agentCard = null, captureInfoLogs = false } = {}) {
       model: cfg.model,
       apiShape: 'openai-compatible',
       providerType: 'custom-provider',
-      a2aAutoRoute: true,
+      a2aAutoRoute: true
+    },
+    localStore: {
       a2aServers: [{
         id: 'omnilauncher',
         name: 'OmniLauncher',
         endpoint: cfg.a2aEndpoint,
         enabled: true,
         agentCard
-      }]
-    },
-    localStore: {
+      }],
       a2aServerTokens: { omnilauncher: cfg.a2aToken }
     },
     captureInfoLogs

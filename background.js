@@ -405,25 +405,32 @@ function buildA2aServerToolDescription(server) {
   const skills = Array.isArray(card.skills) ? card.skills : [];
   for (const skill of skills) {
     if (!skill || typeof skill !== 'object') continue;
+    const skillTags = Array.isArray(skill.tags) && skill.tags.length
+      ? ` Tags: ${skill.tags.filter(Boolean).join(', ')}.`
+      : '';
     const skillParts = [skill.name || skill.id || '', skill.description || ''].filter(Boolean).join(': ');
-    if (skillParts) lines.push(`Skill: ${skillParts}`);
+    if (skillParts) lines.push(`Skill: ${skillParts}.${skillTags}`.replace(/\.\./g, '.'));
   }
 
   lines.push('Call this tool only when the current user request clearly matches this agent\'s capabilities or skills.');
-  return lines.filter(Boolean).join('\n');
+  return lines.filter(Boolean).join('\n').slice(0, A2A_TOOL_DESCRIPTION_MAX_LEN);
 }
 
 function buildA2aSkillToolDescription(server, skill) {
   const card = server.agentCard || {};
   const agentName = card.name || server.name || server.id;
   const skillName = skill.name || skill.id;
+  const tags = Array.isArray(skill.tags) && skill.tags.length
+    ? `Tags: ${skill.tags.filter(Boolean).join(', ')}.`
+    : '';
   const lines = [
-    `Use the "${skillName}" capability of the A2A agent "${agentName}".`,
+    `Use the "${skillName}" skill of the A2A agent "${agentName}".`,
     skill.description || '',
+    tags,
     card.description ? `Agent context: ${card.description}` : '',
-    'Call this tool when the user request matches this capability. Pass the user\'s full request as the "task".'
+    'When the current user request matches this skill, call this tool instead of answering from local model knowledge. Pass the user\'s full request as the "task".'
   ];
-  return lines.filter(Boolean).join('\n');
+  return lines.filter(Boolean).join('\n').slice(0, A2A_TOOL_DESCRIPTION_MAX_LEN);
 }
 
 // Kept for backwards compatibility with existing tests/usages.
@@ -445,53 +452,11 @@ function buildA2aToolParameters() {
   };
 }
 
-function normalizeA2aMatchText(value) {
-  return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-}
-
-function a2aMatchTokens(value) {
-  return new Set(normalizeA2aMatchText(value).split(/\s+/).filter(Boolean));
-}
-
-function getA2aSkillTerms(toolSchema) {
-  return a2aMatchTokens([
-    toolSchema.skillId,
-    toolSchema.skillName,
-    toolSchema.skillDescription,
-    ...(toolSchema.skillTags || [])
-  ].filter(Boolean).join(' '));
-}
-
-function findA2aSkillToolMatch(messages, toolSchemas) {
-  const latest = getLatestUserMessage(messages);
-  const queryTokens = a2aMatchTokens(latest);
-  if (!queryTokens.size) return null;
-
-  const matches = [];
-  for (const tool of toolSchemas) {
-    if (!tool.skillId) continue;
-    const terms = getA2aSkillTerms(tool);
-    let score = 0;
-    for (const token of queryTokens) {
-      if (terms.has(token)) score += 1;
-    }
-    if (score > 0) matches.push({ tool, score });
-  }
-
-  matches.sort((a, b) => b.score - a.score);
-  if (!matches.length) return null;
-  if (matches.length > 1 && matches[0].score === matches[1].score) return null;
-  return matches[0].tool;
-}
-
-function buildA2aToolSchema({ serverId, skillId, skillName, skillDescription, skillTags, name, description }) {
+function buildA2aToolSchema({ serverId, skillId, name, description }) {
   const parameters = buildA2aToolParameters();
   return {
     serverId,
     skillId: skillId || null,
-    skillName: skillName || '',
-    skillDescription: skillDescription || '',
-    skillTags: skillTags || [],
     name,
     openAIChat: {
       type: 'function',
@@ -537,9 +502,6 @@ function buildA2aToolSchemas(servers) {
         schemas.push(buildA2aToolSchema({
           serverId: server.id,
           skillId,
-          skillName: skill.name || skill.id || '',
-          skillDescription: skill.description || '',
-          skillTags: Array.isArray(skill.tags) ? skill.tags : [],
           name: uniqueName(buildA2aToolName(server.id, skillId)),
           description: buildA2aSkillToolDescription(server, skill)
         }));
@@ -1384,14 +1346,6 @@ async function handleAIChat(messages) {
     const a2aServers = await ensureEnabledA2aServersDiscovered();
     if (a2aServers.length) {
       const toolSchemas = buildA2aToolSchemas(a2aServers);
-      const directMatch = findA2aSkillToolMatch(messages, toolSchemas);
-      if (directMatch) {
-        return delegateA2aTask({
-          serverId: directMatch.serverId,
-          task: getLatestUserMessage(messages),
-          contextText: getA2aConversationContext(messages)
-        });
-      }
       return executeApiRequestWithA2aRouting({
         config,
         messages,
@@ -1430,7 +1384,9 @@ async function executeApiRequestWithA2aRouting({ config, messages, systemPrompt,
 
   const routingPrompt = `${systemPrompt}
 
-You have access to A2A agent tools that delegate tasks to specialized remote agents. Each tool's description explains what its agent can do. If the user's current request clearly matches one of the available agents' capabilities or skills, call the matching tool to delegate the task instead of answering it yourself. When no agent is a clear match, respond normally without calling a tool.`;
+You have access to A2A agent tools that delegate tasks to specialized remote agents. Each tool's description is registered metadata from an A2A agent card, including its discovered skills and tags.
+
+Before answering from your own knowledge, compare the current user request against the registered A2A tools. If the request clearly matches any A2A tool's agent, skill, description, or tags, call the best matching A2A tool and pass the user's full request as "task". Do not answer locally when a matching A2A tool is available. When no registered A2A tool is a clear match, respond normally without calling a tool.`;
 
   const builtRequest = buildApiRequest({ config, messages, systemPrompt: routingPrompt, copilotToken });
   const apiShape = builtRequest.apiShape;
