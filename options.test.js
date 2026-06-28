@@ -807,6 +807,34 @@ async function testAddingA2aServerStoresMetadataInLocalAndTokenInLocalOnly() {
   assert.strictEqual(savedTokens[savedServers[0].id], 'secret-token');
 }
 
+async function testAddingA2aServerDiscoversAndStoresAgentSkills() {
+  const { context, localWrites, sendMessageCalls } = createTestContext({
+    sendMessageImpl(message, callback) {
+      if (message.type === 'A2A_DISCOVER_SERVER') {
+        callback({
+          success: true,
+          agentCard: {
+            name: 'CloudBot',
+            skills: [
+              { id: 'alibaba', name: 'Alibaba Cloud', description: 'Query Alibaba Cloud ECS instances and VMs.', tags: ['alibaba', 'vm'] }
+            ]
+          }
+        });
+        return;
+      }
+      callback({ models: [] });
+    }
+  });
+
+  await context.addA2aServerFromForm();
+
+  assert.strictEqual(sendMessageCalls.at(-1).type, 'A2A_DISCOVER_SERVER');
+  const savedServer = localWrites.findLast(write => Array.isArray(write.a2aServers))?.a2aServers[0];
+  assert.strictEqual(savedServer.name, 'CloudBot');
+  assert.strictEqual(savedServer.agentCard.skills[0].id, 'alibaba');
+  assert.strictEqual(savedServer.agentCard.skills[0].tags[1], 'vm');
+}
+
 async function testRenderingStoredA2aServersShowsNameAndEndpointNotToken() {
   const { context, elements } = createTestContext();
 
@@ -1025,6 +1053,7 @@ async function main() {
   await testGithubCopilotFailureShowsRetryButton();
   await testAddingA2aServerRequiresNameAndEndpoint();
   await testAddingA2aServerStoresMetadataInLocalAndTokenInLocalOnly();
+  await testAddingA2aServerDiscoversAndStoresAgentSkills();
   await testRenderingStoredA2aServersShowsNameAndEndpointNotToken();
   await testA2aServerListButtonsInvokeDiscoverAndRemove();
   await testStartCopilotAuthRejectsUnsafeVerificationUri();
