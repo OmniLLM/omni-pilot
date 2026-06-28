@@ -765,9 +765,11 @@ async function testOptionsHtmlDoesNotUseInlineScripts() {
 }
 
 async function testOptionsHtmlContainsA2aControls() {
-  for (const expectedId of ['a2aCard', 'a2aServerName', 'a2aServerEndpoint', 'a2aServerToken', 'addA2aServerBtn', 'a2aStatus', 'a2aServerList']) {
+  for (const expectedId of ['a2aCard', 'a2aServerName', 'a2aServerEndpoint', 'a2aServerToken', 'addA2aServerBtn', 'a2aStatus', 'a2aServerList', 'a2aAutoRoute']) {
     assert.match(htmlSource, new RegExp(`id=\"${expectedId}\"`), `options.html should contain #${expectedId}`);
   }
+  assert.match(htmlSource, /class=\"[^\"]*a2a-auto-route-control[^\"]*\"/, 'auto-route checkbox should use explicit toggle styling');
+  assert.match(htmlSource, /class=\"[^\"]*a2a-auto-route-checkbox[^\"]*\"/, 'auto-route checkbox input should not inherit generic text input styling');
 }
 
 async function testAddingA2aServerRequiresNameAndEndpoint() {

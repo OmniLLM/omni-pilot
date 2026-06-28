@@ -169,6 +169,98 @@
     .inline-label { display: flex; align-items: center; gap: 8px; font-weight: normal; cursor: pointer; }
     .inline-label input[type="checkbox"] { margin: 0; }
 
+    .a2a-auto-route-field {
+      padding: 10px 12px;
+      background: rgba(108,108,255,0.06);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+    }
+    .a2a-auto-route-control {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 0;
+      cursor: pointer;
+      color: var(--ink);
+    }
+    .a2a-auto-route-checkbox {
+      position: absolute;
+      opacity: 0;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: 0;
+      pointer-events: none;
+    }
+    .a2a-auto-route-box {
+      width: 18px;
+      height: 18px;
+      flex: 0 0 18px;
+      display: grid;
+      place-items: center;
+      border: 1.5px solid var(--ink3);
+      border-radius: 5px;
+      background: var(--bg2);
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.02);
+      transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
+    }
+    .a2a-auto-route-box::after {
+      content: '';
+      width: 8px;
+      height: 4px;
+      border-left: 2px solid #fff;
+      border-bottom: 2px solid #fff;
+      transform: rotate(-45deg) scale(0);
+      transform-origin: center;
+      transition: transform 0.14s ease-out;
+    }
+    .a2a-auto-route-checkbox:checked + .a2a-auto-route-box {
+      background: var(--accent);
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(108,108,255,0.14);
+    }
+    .a2a-auto-route-checkbox:checked + .a2a-auto-route-box::after {
+      transform: rotate(-45deg) scale(1);
+    }
+    .a2a-auto-route-checkbox:focus-visible + .a2a-auto-route-box {
+      box-shadow: 0 0 0 3px rgba(108,108,255,0.24);
+    }
+    .a2a-auto-route-copy {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .a2a-auto-route-title {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--ink);
+    }
+    .a2a-auto-route-state {
+      padding: 2px 7px;
+      border-radius: 999px;
+      background: rgba(34,197,94,0.12);
+      color: var(--success);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .a2a-auto-route-checkbox:not(:checked) ~ .a2a-auto-route-copy .a2a-auto-route-state {
+      background: rgba(148,163,184,0.12);
+      color: var(--ink3);
+    }
+    .a2a-auto-route-checkbox:not(:checked) ~ .a2a-auto-route-copy .a2a-auto-route-state::before {
+      content: 'Off';
+    }
+    .a2a-auto-route-checkbox:not(:checked) ~ .a2a-auto-route-copy .a2a-auto-route-state {
+      font-size: 0;
+    }
+    .a2a-auto-route-checkbox:not(:checked) ~ .a2a-auto-route-copy .a2a-auto-route-state::before {
+      font-size: 10px;
+    }
+
     .compact-card {
       padding: 16px;
     }
@@ -453,10 +545,14 @@
         </div>
         <div class="a2a-status" id="a2aStatus"></div>
         <div class="a2a-server-list" id="a2aServerList"></div>
-        <div class="field">
-          <label class="inline-label" for="a2aAutoRoute">
-            <input type="checkbox" id="a2aAutoRoute" checked>
-            <span data-i18n="a2aAutoRouteLabel">Auto-route to A2A agents</span>
+        <div class="field a2a-auto-route-field">
+          <label class="a2a-auto-route-control" for="a2aAutoRoute">
+            <input type="checkbox" class="a2a-auto-route-checkbox" id="a2aAutoRoute" checked>
+            <span class="a2a-auto-route-box" aria-hidden="true"></span>
+            <span class="a2a-auto-route-copy">
+              <span class="a2a-auto-route-title" data-i18n="a2aAutoRouteLabel">Auto-route to A2A agents</span>
+              <span class="a2a-auto-route-state">On</span>
+            </span>
           </label>
           <div class="hint" data-i18n="a2aAutoRouteHint">When on, OmniPilot lets the model pick the right enabled A2A agent for your prompt based on its discovered capabilities. Use <code>@AgentName task</code> to override manually.</div>
         </div>

@@ -426,6 +426,11 @@ async function removeA2aServer(serverId) {
   renderA2aServers();
 }
 
+function updateA2aAutoRouteState(enabled) {
+  const state = document.querySelector?.('.a2a-auto-route-state');
+  if (state) state.textContent = enabled ? 'On' : 'Off';
+}
+
 function showManualModelsEditor() {
   const modelSelect = document.getElementById('modelSelect');
   const modelInput = document.getElementById('model');
@@ -687,6 +692,11 @@ document.addEventListener('DOMContentLoaded', () => {
     if (providerTypeElement) providerTypeElement.value = providerType;
     const authMethodElement = document.getElementById('authMethod');
     if (authMethodElement) authMethodElement.value = providerType;
+    const a2aAutoRouteElement = document.getElementById('a2aAutoRoute');
+    if (a2aAutoRouteElement) {
+      a2aAutoRouteElement.checked = config.a2aAutoRoute !== false;
+      updateA2aAutoRouteState(a2aAutoRouteElement.checked);
+    }
     updateProviderTypeUI(providerType);
     if (activeProviderConfig.endpoint || getProviderDefinition(providerType).fetchModelsViaBackground) fetchModels(activeProviderConfig.endpoint, activeProviderConfig.apiKey, apiShape, providerType);
   });
@@ -705,6 +715,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   document.getElementById('a2aAutoRoute')?.addEventListener('change', event => {
     const enabled = Boolean(event.target?.checked);
+    updateA2aAutoRouteState(enabled);
     chrome.storage.sync.set({ a2aAutoRoute: enabled });
   });
   document.getElementById('a2aServerList')?.addEventListener('click', event => {

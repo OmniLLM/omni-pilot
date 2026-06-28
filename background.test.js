@@ -1686,16 +1686,25 @@ async function assertConfiguredA2aServerWithoutAgentCardDoesNotAutomaticallyHand
       a2aServers: [{ id: 'planner', name: 'Planner', endpoint: 'https://planner.example/a2a', enabled: true }]
     },
     fetchImpl: async (url) => {
-      assert.strictEqual(url, 'https://custom.example/v1/chat/completions');
-      return { ok: true, json: async () => RESPONSE_BY_SHAPE['openai-compatible'] };
+      // Auto-discovery is attempted first; simulate a server that cannot be
+      // discovered (returns 404). Routing must fall back to a plain chat request.
+      if (/\.well-known\/agent\.json/.test(url)) {
+        return { ok: false, status: 404, text: async () => 'not found', json: async () => ({}) };
+      }
+      if (url === 'https://custom.example/v1/chat/completions') {
+        return { ok: true, json: async () => RESPONSE_BY_SHAPE['openai-compatible'] };
+      }
+      throw new Error(`Unexpected fetch ${url}`);
     }
   });
 
   const result = await context.handleAIChat([{ role: 'user', content: 'Plan my day' }]);
 
   assert.strictEqual(result, 'ok');
-  assert.strictEqual(requests.length, 1);
-  assert.strictEqual(requests[0].url, 'https://custom.example/v1/chat/completions');
+  const llmRequests = requests.filter(r => r.url === 'https://custom.example/v1/chat/completions');
+  assert.strictEqual(llmRequests.length, 1, 'falls back to a single plain chat request');
+  const body = JSON.parse(llmRequests[0].options.body);
+  assert.strictEqual(body.tools, undefined, 'no tools injected when discovery fails');
 }
 
 async function assertA2aAutoRouteInjectsToolsForDiscoveredAgentCards() {
@@ -1726,13 +1735,13 @@ async function assertA2aAutoRouteInjectsToolsForDiscoveredAgentCards() {
     }
   });
 
-  const result = await context.handleAIChat([{ role: 'user', content: 'show me disk usage' }]);
+  const result = await context.handleAIChat([{ role: 'user', content: 'Plan my day' }]);
 
   assert.strictEqual(result, 'ok');
   const body = JSON.parse(requests[0].options.body);
   assert.strictEqual(body.tool_choice, 'auto');
   assert.strictEqual(body.tools.length, 1);
-  assert.strictEqual(body.tools[0].function.name, 'a2a__launcher');
+  assert.strictEqual(body.tools[0].function.name, 'a2a__launcher__disk');
   assert.ok(body.tools[0].function.description.includes('Disk usage'));
 }
 
@@ -1770,7 +1779,7 @@ async function assertCopilotAutoRouteToolCallDelegates() {
                 tool_calls: [{
                   type: 'function',
                   function: {
-                    name: 'a2a__launcher',
+                    name: 'a2a__launcher__disk',
                     arguments: JSON.stringify({ task: 'show me disk usage' })
                   }
                 }]
@@ -1789,7 +1798,7 @@ async function assertCopilotAutoRouteToolCallDelegates() {
     }
   });
 
-  const result = await context.handleAIChat([{ role: 'user', content: 'show me disk usage' }]);
+  const result = await context.handleAIChat([{ role: 'user', content: 'please handle delegated task' }]);
 
   assert.strictEqual(result, 'Disk usage result');
   assert.ok(requests.some(r => r.url === 'https://api.githubcopilot.com/chat/completions'));
@@ -1819,7 +1828,7 @@ async function assertAutoRouteSystemPromptInstructsToolUse() {
     fetchImpl: async () => ({ ok: true, json: async () => RESPONSE_BY_SHAPE['openai-compatible'] })
   });
 
-  await context.handleAIChat([{ role: 'user', content: 'show me disk usage' }]);
+  await context.handleAIChat([{ role: 'user', content: 'Plan my day' }]);
 
   const body = JSON.parse(requests[0].options.body);
   const systemMessage = body.messages.find(m => m.role === 'system');
@@ -1861,7 +1870,7 @@ async function assertA2aAutoRouteToolCallDelegatesOrdinaryFollowUp() {
                 tool_calls: [{
                   type: 'function',
                   function: {
-                    name: 'a2a__launcher',
+                    name: 'a2a__launcher__disk',
                     arguments: JSON.stringify({ task: 'show me disk usage' })
                   }
                 }]
@@ -1883,7 +1892,7 @@ async function assertA2aAutoRouteToolCallDelegatesOrdinaryFollowUp() {
   const result = await context.handleAIChat([
     { role: 'user', content: 'Additional selected context:\nThis is a local troubleshooting session.' },
     { role: 'assistant', content: 'What would you like to check?' },
-    { role: 'user', content: 'show me disk usage' }
+    { role: 'user', content: 'please handle delegated task' }
   ]);
 
   assert.strictEqual(result, 'Disk usage result');
@@ -1932,7 +1941,7 @@ async function assertA2aAutoRouteToolCallUsesCollisionSafeToolMapping() {
                 tool_calls: [{
                   type: 'function',
                   function: {
-                    name: 'a2a__ops_agent_2',
+                    name: 'a2a__ops_agent__memory_usage',
                     arguments: JSON.stringify({ task: 'show memory usage' })
                   }
                 }]
@@ -1951,11 +1960,11 @@ async function assertA2aAutoRouteToolCallUsesCollisionSafeToolMapping() {
     }
   });
 
-  const result = await context.handleAIChat([{ role: 'user', content: 'show memory usage' }]);
+  const result = await context.handleAIChat([{ role: 'user', content: 'please handle delegated task' }]);
 
   assert.strictEqual(result, 'Memory usage result');
   const toolRequest = JSON.parse(requests[0].options.body);
-  assert.deepStrictEqual(toolRequest.tools.map(tool => tool.function.name), ['a2a__ops_agent', 'a2a__ops_agent_2']);
+  assert.strictEqual(toolRequest.tools.map(tool => tool.function.name).join(','), 'a2a__ops_agent__disk_usage,a2a__ops_agent__memory_usage');
   assert.strictEqual(requests[1].url, 'https://ops-b.example/a2a');
 }
 
@@ -1988,6 +1997,232 @@ async function assertA2aAutoRouteRespectsDisableToggle() {
   assert.strictEqual(body.tools, undefined);
 }
 
+async function assertA2aToolSchemasIncludeOneToolPerSkill() {
+  const { context } = await createBackgroundContext();
+  const schemas = context.buildA2aToolSchemas([
+    {
+      id: 'cloudbot',
+      name: 'CloudBot',
+      agentCard: {
+        name: 'CloudBot',
+        description: 'Cloud operations agent.',
+        skills: [
+          { id: 'aws', name: 'AWS', description: 'Query AWS resources like EC2 and S3.' },
+          { id: 'gcp', name: 'GCP', description: 'Query Google Cloud resources.' }
+        ]
+      }
+    }
+  ]);
+
+  assert.strictEqual(schemas.length, 2, 'one tool per skill');
+  const names = schemas.map(s => String(s.name)).sort();
+  assert.strictEqual(names.join(','), 'a2a__cloudbot__aws,a2a__cloudbot__gcp');
+  const aws = schemas.find(s => s.name === 'a2a__cloudbot__aws');
+  assert.strictEqual(aws.serverId, 'cloudbot');
+  assert.strictEqual(aws.skillId, 'aws');
+  assert.ok(aws.openAIChat.function.description.includes('AWS'));
+  assert.ok(aws.openAIChat.function.description.includes('EC2'));
+}
+
+async function assertA2aToolSchemasFallBackToServerToolWhenNoSkills() {
+  const { context } = await createBackgroundContext();
+  const schemas = context.buildA2aToolSchemas([
+    { id: 'launcher', name: 'OmniLauncher', agentCard: { name: 'OmniLauncher', description: 'Desktop agent.' } }
+  ]);
+
+  assert.strictEqual(schemas.length, 1, 'one tool per server when no skills');
+  assert.strictEqual(schemas[0].name, 'a2a__launcher');
+  assert.strictEqual(schemas[0].serverId, 'launcher');
+  assert.strictEqual(schemas[0].skillId, null);
+}
+
+async function assertPerSkillToolCallDelegatesToCorrectServer() {
+  const { context, requests } = await createBackgroundContext({
+    storage: {
+      providerType: 'custom-provider',
+      endpoint: 'https://custom.example/v1',
+      apiKey: 'custom-key',
+      model: 'custom-model',
+      apiShape: 'openai-compatible',
+      a2aServers: [
+        {
+          id: 'cloudbot',
+          name: 'CloudBot',
+          endpoint: 'https://cloudbot.example/a2a',
+          enabled: true,
+          agentCard: {
+            name: 'CloudBot',
+            description: 'Cloud operations agent.',
+            skills: [
+              { id: 'aws', name: 'AWS', description: 'Query AWS resources.' },
+              { id: 'gcp', name: 'GCP', description: 'Query Google Cloud resources.' }
+            ]
+          }
+        }
+      ],
+      a2aServerTokens: { cloudbot: 'server-token' }
+    },
+    fetchImpl: async (url) => {
+      if (url === 'https://custom.example/v1/chat/completions') {
+        return {
+          ok: true,
+          json: async () => ({
+            choices: [{
+              message: {
+                tool_calls: [{
+                  type: 'function',
+                  function: { name: 'a2a__cloudbot__aws', arguments: JSON.stringify({ task: 'how many EC2 in AWS' }) }
+                }]
+              }
+            }]
+          })
+        };
+      }
+      if (url === 'https://cloudbot.example/a2a') {
+        return { ok: true, json: async () => ({ result: { message: { parts: [{ type: 'text', text: '12 EC2 instances' }] } } }) };
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    }
+  });
+
+  const result = await context.handleAIChat([{ role: 'user', content: 'please handle this delegated task' }]);
+
+  assert.strictEqual(result, '12 EC2 instances');
+  const llmBody = JSON.parse(requests.find(r => r.url === 'https://custom.example/v1/chat/completions').options.body);
+  assert.strictEqual(llmBody.tools.length, 2, 'both skill tools injected');
+  assert.ok(requests.some(r => r.url === 'https://cloudbot.example/a2a'), 'delegated to the A2A server');
+}
+
+async function assertQuestionMatchingA2aSkillDelegatesWithoutExplicitPrompt() {
+  const { context, requests } = await createBackgroundContext({
+    storage: {
+      providerType: 'custom-provider',
+      endpoint: 'https://custom.example/v1',
+      apiKey: 'custom-key',
+      model: 'custom-model',
+      apiShape: 'openai-compatible',
+      a2aServers: [
+        {
+          id: 'cloudbot',
+          name: 'CloudBot',
+          endpoint: 'https://cloudbot.example/a2a',
+          enabled: true,
+          agentCard: {
+            name: 'CloudBot',
+            description: 'Cloud operations agent.',
+            skills: [
+              { id: 'alibaba', name: 'Alibaba Cloud', description: 'Query Alibaba Cloud ECS instances, VMs, OSS, and other resources.', tags: ['alibaba', 'ecs', 'vm'] },
+              { id: 'aws', name: 'AWS', description: 'Query AWS EC2 and S3 resources.', tags: ['aws', 'ec2'] }
+            ]
+          }
+        }
+      ],
+      a2aServerTokens: { cloudbot: 'server-token' }
+    },
+    fetchImpl: async (url) => {
+      if (url === 'https://cloudbot.example/a2a') {
+        return { ok: true, json: async () => ({ result: { message: { parts: [{ type: 'text', text: '5 Alibaba VMs' }] } } }) };
+      }
+      if (url === 'https://custom.example/v1/chat/completions') {
+        return { ok: true, json: async () => ({ choices: [{ message: { content: 'I can help you find information about VMs in Alibaba Cloud.' } }] }) };
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    }
+  });
+
+  const result = await context.handleAIChat([{ role: 'user', content: 'how many VMs in Alibaba' }]);
+
+  assert.strictEqual(result, '5 Alibaba VMs');
+  assert.ok(requests.some(r => r.url === 'https://cloudbot.example/a2a'), 'matching Alibaba skill should delegate directly');
+  assert.ok(!requests.some(r => r.url === 'https://custom.example/v1/chat/completions'), 'should not require the LLM to be explicitly told to use A2A');
+}
+
+async function assertAutoRouteRefreshesSparseCachedAgentCard() {
+  const { context, requests } = await createBackgroundContext({
+    storage: {
+      providerType: 'custom-provider',
+      endpoint: 'https://custom.example/v1',
+      apiKey: 'custom-key',
+      model: 'custom-model',
+      apiShape: 'openai-compatible',
+      a2aServers: [
+        { id: 'cloudbot', name: 'CloudBot', endpoint: 'https://cloudbot.example/a2a', enabled: true, agentCard: { name: 'CloudBot' } }
+      ],
+      a2aServerTokens: { cloudbot: 'server-token' }
+    },
+    fetchImpl: async (url) => {
+      if (url === 'https://cloudbot.example/a2a/.well-known/agent.json'
+        || url === 'https://cloudbot.example/.well-known/agent.json') {
+        return {
+          ok: true,
+          json: async () => ({
+            name: 'CloudBot',
+            description: 'Cloud operations agent.',
+            skills: [
+              { id: 'alibaba', name: 'Alibaba Cloud', description: 'Query Alibaba Cloud ECS instances and VMs.', tags: ['alibaba', 'ecs', 'vm'] }
+            ]
+          })
+        };
+      }
+      if (url === 'https://cloudbot.example/a2a') {
+        return { ok: true, json: async () => ({ result: { message: { parts: [{ type: 'text', text: '11053 Alibaba VMs' }] } } }) };
+      }
+      if (url === 'https://custom.example/v1/chat/completions') {
+        return { ok: true, json: async () => ({ choices: [{ message: { content: 'I can help you find information about VMs in Alibaba.' } }] }) };
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    }
+  });
+
+  const result = await context.handleAIChat([{ role: 'user', content: 'how many VMs in Alibaba' }]);
+
+  assert.strictEqual(result, '11053 Alibaba VMs');
+  assert.ok(requests.some(r => /\.well-known\/agent\.json/.test(r.url)), 'should refresh sparse cached agent cards');
+  assert.ok(requests.some(r => r.url === 'https://cloudbot.example/a2a'), 'should delegate after refreshing skills');
+  assert.ok(!requests.some(r => r.url === 'https://custom.example/v1/chat/completions'), 'should not fall back to direct LLM answer');
+}
+
+async function assertAutoRouteDiscoversAgentCardOnDemand() {
+  const { context, requests } = await createBackgroundContext({
+    storage: {
+      providerType: 'custom-provider',
+      endpoint: 'https://custom.example/v1',
+      apiKey: 'custom-key',
+      model: 'custom-model',
+      apiShape: 'openai-compatible',
+      a2aServers: [
+        { id: 'cloudbot', name: 'CloudBot', endpoint: 'https://cloudbot.example/a2a', enabled: true }
+      ],
+      a2aServerTokens: { cloudbot: 'server-token' }
+    },
+    fetchImpl: async (url) => {
+      if (url === 'https://cloudbot.example/a2a/.well-known/agent.json'
+        || url === 'https://cloudbot.example/.well-known/agent.json') {
+        return {
+          ok: true,
+          json: async () => ({
+            name: 'CloudBot',
+            description: 'Cloud operations agent.',
+            skills: [{ id: 'aws', name: 'AWS', description: 'Query AWS resources.' }]
+          })
+        };
+      }
+      if (url === 'https://custom.example/v1/chat/completions') {
+        return { ok: true, json: async () => RESPONSE_BY_SHAPE['openai-compatible'] };
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    }
+  });
+
+  await context.handleAIChat([{ role: 'user', content: 'Plan my day' }]);
+
+  const llmRequest = requests.find(r => r.url === 'https://custom.example/v1/chat/completions');
+  assert.ok(llmRequest, 'should still reach the LLM');
+  const body = JSON.parse(llmRequest.options.body);
+  assert.ok(Array.isArray(body.tools) && body.tools.length >= 1, 'auto-discovery should inject tools even without a cached agent card');
+  assert.ok(requests.some(r => /\.well-known\/agent\.json/.test(r.url)), 'should have fetched the agent card on demand');
+}
+
 async function main() {
   await assertA2aServerMetadataAndTokensUseSeparateStorageAreas();
   await assertLoadA2aServersReadsFromLocalStorage();
@@ -2018,6 +2253,12 @@ async function main() {
   await assertLegacyA2aProviderTypeFallsBackToCustomProvider();
   await assertConfiguredA2aServerWithoutAgentCardDoesNotAutomaticallyHandleChat();
   await assertA2aAutoRouteInjectsToolsForDiscoveredAgentCards();
+  await assertA2aToolSchemasIncludeOneToolPerSkill();
+  await assertA2aToolSchemasFallBackToServerToolWhenNoSkills();
+  await assertPerSkillToolCallDelegatesToCorrectServer();
+  await assertQuestionMatchingA2aSkillDelegatesWithoutExplicitPrompt();
+  await assertAutoRouteRefreshesSparseCachedAgentCard();
+  await assertAutoRouteDiscoversAgentCardOnDemand();
   await assertCopilotAutoRouteToolCallDelegates();
   await assertAutoRouteSystemPromptInstructsToolUse();
   await assertA2aAutoRouteToolCallDelegatesOrdinaryFollowUp();

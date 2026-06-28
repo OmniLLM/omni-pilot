@@ -289,9 +289,49 @@ async function getA2aServerWithToken(serverId) {
   return servers.find(server => server.id === serverId) || null;
 }
 
+function hasUsableA2aAgentCard(server) {
+  return server?.agentCard
+    && typeof server.agentCard === 'object'
+    && (String(server.agentCard.description || '').trim()
+      || (Array.isArray(server.agentCard.skills) && server.agentCard.skills.length > 0));
+}
+
 async function loadEnabledA2aServersWithAgentCards() {
   return (await loadA2aServersWithTokens())
-    .filter(server => server.enabled !== false && server.agentCard && typeof server.agentCard === 'object');
+    .filter(server => server.enabled !== false && hasUsableA2aAgentCard(server));
+}
+
+// Auto-discovery: for each enabled server without a usable cached agent card, fetch and
+// persist its card so auto-routing can expose its skills as tools. Best-effort —
+// a server whose discovery fails is simply skipped this turn.
+async function ensureEnabledA2aServersDiscovered() {
+  const enabled = (await loadA2aServersWithTokens()).filter(server => server.enabled !== false);
+  const missing = enabled.filter(server => !hasUsableA2aAgentCard(server));
+  if (!missing.length) {
+    return enabled.filter(hasUsableA2aAgentCard);
+  }
+
+  const discovered = new Map();
+  await Promise.all(missing.map(async server => {
+    try {
+      const agentCard = await discoverA2aServer(server.id);
+      if (agentCard && typeof agentCard === 'object') discovered.set(server.id, agentCard);
+    } catch (e) {
+      console.warn(`OmniPilot A2A auto-discovery failed for ${server.id}: ${e.message}`);
+    }
+  }));
+
+  if (discovered.size) {
+    const stored = await loadA2aServers();
+    const nextServers = stored.map(server =>
+      discovered.has(server.id) ? { ...server, agentCard: discovered.get(server.id) } : server
+    );
+    await storageSet({ a2aServers: nextServers }, getA2aServersStorageArea());
+  }
+
+  return enabled
+    .map(server => discovered.has(server.id) ? { ...server, agentCard: discovered.get(server.id) } : server)
+    .filter(hasUsableA2aAgentCard);
 }
 
 async function loadConfig() {
@@ -343,8 +383,9 @@ function sanitizeA2aToolNamePart(value) {
     .replace(/^_+|_+$/g, '') || 'agent';
 }
 
-function buildA2aToolName(serverId) {
-  return `a2a__${sanitizeA2aToolNamePart(serverId)}`;
+function buildA2aToolName(serverId, skillId) {
+  const base = `a2a__${sanitizeA2aToolNamePart(serverId)}`;
+  return skillId ? `${base}__${sanitizeA2aToolNamePart(skillId)}` : base;
 }
 
 function parseA2aToolName(toolName) {
@@ -353,7 +394,7 @@ function parseA2aToolName(toolName) {
     : '';
 }
 
-function buildA2aToolDescription(server) {
+function buildA2aServerToolDescription(server) {
   const card = server.agentCard || {};
   const lines = [
     `Delegate to the A2A agent "${card.name || server.name || server.id}".`,
@@ -372,6 +413,24 @@ function buildA2aToolDescription(server) {
   return lines.filter(Boolean).join('\n');
 }
 
+function buildA2aSkillToolDescription(server, skill) {
+  const card = server.agentCard || {};
+  const agentName = card.name || server.name || server.id;
+  const skillName = skill.name || skill.id;
+  const lines = [
+    `Use the "${skillName}" capability of the A2A agent "${agentName}".`,
+    skill.description || '',
+    card.description ? `Agent context: ${card.description}` : '',
+    'Call this tool when the user request matches this capability. Pass the user\'s full request as the "task".'
+  ];
+  return lines.filter(Boolean).join('\n');
+}
+
+// Kept for backwards compatibility with existing tests/usages.
+function buildA2aToolDescription(server) {
+  return buildA2aServerToolDescription(server);
+}
+
 function buildA2aToolParameters() {
   return {
     type: 'object',
@@ -386,11 +445,76 @@ function buildA2aToolParameters() {
   };
 }
 
+function normalizeA2aMatchText(value) {
+  return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function a2aMatchTokens(value) {
+  return new Set(normalizeA2aMatchText(value).split(/\s+/).filter(Boolean));
+}
+
+function getA2aSkillTerms(toolSchema) {
+  return a2aMatchTokens([
+    toolSchema.skillId,
+    toolSchema.skillName,
+    toolSchema.skillDescription,
+    ...(toolSchema.skillTags || [])
+  ].filter(Boolean).join(' '));
+}
+
+function findA2aSkillToolMatch(messages, toolSchemas) {
+  const latest = getLatestUserMessage(messages);
+  const queryTokens = a2aMatchTokens(latest);
+  if (!queryTokens.size) return null;
+
+  const matches = [];
+  for (const tool of toolSchemas) {
+    if (!tool.skillId) continue;
+    const terms = getA2aSkillTerms(tool);
+    let score = 0;
+    for (const token of queryTokens) {
+      if (terms.has(token)) score += 1;
+    }
+    if (score > 0) matches.push({ tool, score });
+  }
+
+  matches.sort((a, b) => b.score - a.score);
+  if (!matches.length) return null;
+  if (matches.length > 1 && matches[0].score === matches[1].score) return null;
+  return matches[0].tool;
+}
+
+function buildA2aToolSchema({ serverId, skillId, skillName, skillDescription, skillTags, name, description }) {
+  const parameters = buildA2aToolParameters();
+  return {
+    serverId,
+    skillId: skillId || null,
+    skillName: skillName || '',
+    skillDescription: skillDescription || '',
+    skillTags: skillTags || [],
+    name,
+    openAIChat: {
+      type: 'function',
+      function: { name, description, parameters }
+    },
+    anthropic: {
+      name,
+      description,
+      input_schema: parameters
+    },
+    openAIResponses: {
+      type: 'function',
+      name,
+      description,
+      parameters
+    }
+  };
+}
+
 function buildA2aToolSchemas(servers) {
   const usedNames = new Set();
 
-  return servers.map(server => {
-    const baseName = buildA2aToolName(server.id);
+  const uniqueName = baseName => {
     let name = baseName;
     let suffix = 2;
     while (usedNames.has(name)) {
@@ -398,30 +522,38 @@ function buildA2aToolSchemas(servers) {
       suffix += 1;
     }
     usedNames.add(name);
+    return name;
+  };
 
-    const description = buildA2aToolDescription(server);
-    const parameters = buildA2aToolParameters();
+  const schemas = [];
+  for (const server of servers) {
+    const skills = Array.isArray(server.agentCard?.skills)
+      ? server.agentCard.skills.filter(skill => skill && typeof skill === 'object' && (skill.id || skill.name))
+      : [];
 
-    return {
-      serverId: server.id,
-      name,
-      openAIChat: {
-        type: 'function',
-        function: { name, description, parameters }
-      },
-      anthropic: {
-        name,
-        description,
-        input_schema: parameters
-      },
-      openAIResponses: {
-        type: 'function',
-        name,
-        description,
-        parameters
+    if (skills.length) {
+      for (const skill of skills) {
+        const skillId = String(skill.id || skill.name);
+        schemas.push(buildA2aToolSchema({
+          serverId: server.id,
+          skillId,
+          skillName: skill.name || skill.id || '',
+          skillDescription: skill.description || '',
+          skillTags: Array.isArray(skill.tags) ? skill.tags : [],
+          name: uniqueName(buildA2aToolName(server.id, skillId)),
+          description: buildA2aSkillToolDescription(server, skill)
+        }));
       }
-    };
-  });
+    } else {
+      schemas.push(buildA2aToolSchema({
+        serverId: server.id,
+        skillId: null,
+        name: uniqueName(buildA2aToolName(server.id)),
+        description: buildA2aServerToolDescription(server)
+      }));
+    }
+  }
+  return schemas;
 }
 
 function getA2aToolsForApiShape(toolSchemas, apiShape) {
@@ -1245,13 +1377,21 @@ async function handleAIChat(messages) {
   const config = await loadConfig();
   const systemPrompt = 'You are a helpful assistant. Continue the conversation naturally.';
 
-  // Ordinary panel chat can still become A2A delegation here: discovered
-  // enabled A2A agent cards are exposed as tools and the model chooses one
-  // only when the current request clearly matches that agent's skills.
+  // Ordinary panel chat can still become A2A delegation here: enabled A2A
+  // agent cards are exposed as tools (auto-discovering any missing card first)
+  // and the model chooses one only when the request matches that agent's skills.
   if (shouldAutoRouteA2a(config)) {
-    const a2aServers = await loadEnabledA2aServersWithAgentCards();
+    const a2aServers = await ensureEnabledA2aServersDiscovered();
     if (a2aServers.length) {
       const toolSchemas = buildA2aToolSchemas(a2aServers);
+      const directMatch = findA2aSkillToolMatch(messages, toolSchemas);
+      if (directMatch) {
+        return delegateA2aTask({
+          serverId: directMatch.serverId,
+          task: getLatestUserMessage(messages),
+          contextText: getA2aConversationContext(messages)
+        });
+      }
       return executeApiRequestWithA2aRouting({
         config,
         messages,
