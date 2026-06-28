@@ -1736,6 +1736,98 @@ async function assertA2aAutoRouteInjectsToolsForDiscoveredAgentCards() {
   assert.ok(body.tools[0].function.description.includes('Disk usage'));
 }
 
+async function assertCopilotAutoRouteToolCallDelegates() {
+  const { context, requests } = await createBackgroundContext({
+    storage: {
+      providerType: 'github-copilot',
+      endpoint: '',
+      apiKey: '',
+      model: 'claude-haiku-4.5',
+      copilotAccessToken: 'cached-copilot-token',
+      copilotTokenExpiry: Date.now() + 60_000,
+      a2aServers: [
+        {
+          id: 'launcher',
+          name: 'OmniLauncher',
+          endpoint: 'https://launcher.example/a2a',
+          enabled: true,
+          agentCard: {
+            name: 'OmniLauncher',
+            description: 'Runs local machine diagnostics and shell commands.',
+            skills: [{ id: 'disk', name: 'Disk usage', description: 'Show disk usage.' }]
+          }
+        }
+      ],
+      a2aServerTokens: { launcher: 'server-token' }
+    },
+    fetchImpl: async (url, options) => {
+      if (url === 'https://api.githubcopilot.com/chat/completions') {
+        return {
+          ok: true,
+          json: async () => ({
+            choices: [{
+              message: {
+                tool_calls: [{
+                  type: 'function',
+                  function: {
+                    name: 'a2a__launcher',
+                    arguments: JSON.stringify({ task: 'show me disk usage' })
+                  }
+                }]
+              }
+            }]
+          })
+        };
+      }
+      if (url === 'https://launcher.example/a2a') {
+        return {
+          ok: true,
+          json: async () => ({ result: { message: { parts: [{ type: 'text', text: 'Disk usage result' }] } } })
+        };
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    }
+  });
+
+  const result = await context.handleAIChat([{ role: 'user', content: 'show me disk usage' }]);
+
+  assert.strictEqual(result, 'Disk usage result');
+  assert.ok(requests.some(r => r.url === 'https://api.githubcopilot.com/chat/completions'));
+  assert.ok(requests.some(r => r.url === 'https://launcher.example/a2a'));
+  const llmBody = JSON.parse(requests.find(r => r.url === 'https://api.githubcopilot.com/chat/completions').options.body);
+  assert.ok(Array.isArray(llmBody.tools) && llmBody.tools.length === 1, 'Copilot request should inject A2A tools');
+}
+
+async function assertAutoRouteSystemPromptInstructsToolUse() {
+  const { context, requests } = await createBackgroundContext({
+    storage: {
+      providerType: 'custom-provider',
+      endpoint: 'https://custom.example/v1',
+      apiKey: 'custom-key',
+      model: 'custom-model',
+      apiShape: 'openai-compatible',
+      a2aServers: [
+        {
+          id: 'launcher',
+          name: 'OmniLauncher',
+          endpoint: 'https://launcher.example/a2a',
+          enabled: true,
+          agentCard: { name: 'OmniLauncher', description: 'Runs shell commands.', skills: [{ name: 'disk' }] }
+        }
+      ]
+    },
+    fetchImpl: async () => ({ ok: true, json: async () => RESPONSE_BY_SHAPE['openai-compatible'] })
+  });
+
+  await context.handleAIChat([{ role: 'user', content: 'show me disk usage' }]);
+
+  const body = JSON.parse(requests[0].options.body);
+  const systemMessage = body.messages.find(m => m.role === 'system');
+  assert.ok(systemMessage, 'request should include a system message');
+  assert.ok(/a2a|agent|tool/i.test(systemMessage.content), 'system prompt should mention A2A agent tools');
+  assert.ok(/delegat|call|use/i.test(systemMessage.content), 'system prompt should instruct the model to call/delegate to a matching agent');
+}
+
 async function assertA2aAutoRouteToolCallDelegatesOrdinaryFollowUp() {
   const { context, requests } = await createBackgroundContext({
     storage: {
@@ -1926,6 +2018,8 @@ async function main() {
   await assertLegacyA2aProviderTypeFallsBackToCustomProvider();
   await assertConfiguredA2aServerWithoutAgentCardDoesNotAutomaticallyHandleChat();
   await assertA2aAutoRouteInjectsToolsForDiscoveredAgentCards();
+  await assertCopilotAutoRouteToolCallDelegates();
+  await assertAutoRouteSystemPromptInstructsToolUse();
   await assertA2aAutoRouteToolCallDelegatesOrdinaryFollowUp();
   await assertA2aAutoRouteToolCallUsesCollisionSafeToolMapping();
   await assertA2aAutoRouteRespectsDisableToggle();
