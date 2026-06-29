@@ -454,11 +454,52 @@ function buildA2aToolParameters() {
   };
 }
 
-function buildA2aToolSchema({ serverId, skillId, name, description }) {
+function normalizeA2aMatchText(value) {
+  return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function a2aMatchTokens(value) {
+  return new Set(normalizeA2aMatchText(value).split(/\s+/).filter(Boolean));
+}
+
+function getA2aSkillTerms(toolSchema) {
+  return a2aMatchTokens([
+    toolSchema.skillId,
+    toolSchema.skillName,
+    toolSchema.skillDescription,
+    ...(toolSchema.skillTags || [])
+  ].filter(Boolean).join(' '));
+}
+
+function findA2aSkillToolMatch(messages, toolSchemas) {
+  const queryTokens = a2aMatchTokens(getLatestUserMessage(messages));
+  if (!queryTokens.size) return null;
+
+  const matches = [];
+  for (const tool of toolSchemas) {
+    if (!tool.skillId) continue;
+    const terms = getA2aSkillTerms(tool);
+    let score = 0;
+    for (const token of queryTokens) {
+      if (terms.has(token)) score += 1;
+    }
+    if (score > 0) matches.push({ tool, score });
+  }
+
+  matches.sort((a, b) => b.score - a.score);
+  if (!matches.length) return null;
+  if (matches.length > 1 && matches[0].score === matches[1].score) return null;
+  return matches[0].tool;
+}
+
+function buildA2aToolSchema({ serverId, skillId, skillName, skillDescription, skillTags, name, description }) {
   const parameters = buildA2aToolParameters();
   return {
     serverId,
     skillId: skillId || null,
+    skillName: skillName || '',
+    skillDescription: skillDescription || '',
+    skillTags: skillTags || [],
     name,
     openAIChat: {
       type: 'function',
@@ -504,6 +545,9 @@ function buildA2aToolSchemas(servers) {
         schemas.push(buildA2aToolSchema({
           serverId: server.id,
           skillId,
+          skillName: skill.name || skill.id || '',
+          skillDescription: skill.description || '',
+          skillTags: Array.isArray(skill.tags) ? skill.tags : [],
           name: uniqueName(buildA2aToolName(server.id, skillId)),
           description: buildA2aSkillToolDescription(server, skill)
         }));
@@ -1356,6 +1400,14 @@ async function handleAIChat(messages) {
     const a2aServers = await ensureEnabledA2aServersDiscovered();
     if (a2aServers.length) {
       const toolSchemas = buildA2aToolSchemas(a2aServers);
+      const directMatch = findA2aSkillToolMatch(messages, toolSchemas);
+      if (directMatch) {
+        return delegateA2aTask({
+          serverId: directMatch.serverId,
+          task: getLatestUserMessage(messages),
+          contextText: getA2aConversationContext(messages)
+        });
+      }
       return executeApiRequestWithA2aRouting({
         config,
         messages,
