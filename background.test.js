@@ -720,6 +720,53 @@ async function assertCopilotUnsupportedStoredModelRetriesWithAvailableModel() {
   assert.strictEqual(stores.syncStore.model, 'gpt-4o');
 }
 
+async function assertCopilotResponsesOnlyModelUsesResponsesEndpoint() {
+  const { context, requests } = await createBackgroundContext({
+    storage: {
+      providerType: 'github-copilot',
+      endpoint: '',
+      apiKey: '',
+      model: 'mai-code-1-flash-picker',
+      copilotAccessToken: 'cached-copilot-token',
+      copilotTokenExpiry: Date.now() + 60_000
+    },
+    fetchImpl: async url => {
+      if (url === 'https://api.githubcopilot.com/responses') {
+        return {
+          ok: true,
+          json: async () => RESPONSE_BY_SHAPE['openai-responses']
+        };
+      }
+
+      if (url === 'https://api.githubcopilot.com/chat/completions') {
+        return {
+          ok: false,
+          status: 400,
+          statusText: '',
+          headers: { entries: () => [] },
+          text: async () => JSON.stringify({
+            error: {
+              message: 'model "mai-code-1-flash-picker" is not accessible via the /chat/completions endpoint',
+              code: 'unsupported_api_for_model'
+            }
+          })
+        };
+      }
+
+      throw new Error(`Unexpected fetch ${url}`);
+    }
+  });
+
+  const result = await context.handleAIAction('summarize', 'hello');
+
+  assert.strictEqual(result, 'ok');
+  assert.deepStrictEqual(requests.map(request => request.url), ['https://api.githubcopilot.com/responses']);
+  const body = JSON.parse(requests[0].options.body);
+  assert.strictEqual(body.model, 'mai-code-1-flash-picker');
+  assert.ok(body.instructions.includes('Summarize'));
+  assert.deepStrictEqual(body.input, [{ role: 'user', content: 'hello' }]);
+}
+
 async function assertCopilotApiRequestRefreshesExpiredTokenFirst() {
   const { context, requests, stores } = await createBackgroundContext({
     storage: {
@@ -2320,6 +2367,7 @@ async function main() {
   await assertCopilotApiRequestUsesDirectChatCompletionsWithCachedToken();
   await assertCopilotGpt54UsesMaxCompletionTokens();
   await assertCopilotUnsupportedStoredModelRetriesWithAvailableModel();
+  await assertCopilotResponsesOnlyModelUsesResponsesEndpoint();
   await assertCopilotApiRequestRefreshesExpiredTokenFirst();
   await assertA2aDelegateTaskBuildsStandaloneTaskText();
   await assertA2aDelegateTaskUsesAgentCardRpcUrl();
