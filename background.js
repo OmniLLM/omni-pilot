@@ -774,10 +774,29 @@ function getOpenAIChatTokenLimitParams(config) {
     : { max_tokens: 1024 };
 }
 
+function isCopilotResponsesOnlyModel(model) {
+  return /^mai-code-/i.test(String(model || ''));
+}
+
 function buildApiRequest({ config, messages, systemPrompt, copilotToken, tools }) {
   const hasTools = Array.isArray(tools) && tools.length > 0;
 
   if (getProvider(config).usesCopilotAuth) {
+    if (isCopilotResponsesOnlyModel(config.model)) {
+      return {
+        apiShape: API_SHAPES.OPENAI_RESPONSES,
+        requestUrl: `${COPILOT_CONFIG.COPILOT_API_BASE_URL}/responses`,
+        requestHeaders: createCopilotHeaders(copilotToken),
+        requestBody: {
+          model: config.model,
+          instructions: systemPrompt,
+          input: messages,
+          ...(hasTools ? { tools, tool_choice: 'auto' } : {})
+        },
+        parseContent: parseOpenAIResponsesText
+      };
+    }
+
     return {
       apiShape: API_SHAPES.OPENAI_COMPATIBLE,
       requestUrl: `${COPILOT_CONFIG.COPILOT_API_BASE_URL}/chat/completions`,
