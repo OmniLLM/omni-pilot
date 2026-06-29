@@ -1964,6 +1964,34 @@ async function assertA2aAutoRouteToolCallUsesCollisionSafeToolMapping() {
     }
   });
 
+  const schemas = context.buildA2aToolSchemas([
+    {
+      id: 'ops.agent',
+      name: 'Ops Agent A',
+      endpoint: 'https://ops-a.example/a2a',
+      enabled: true,
+      agentCard: { name: 'Ops Agent A', skills: [{ name: 'Disk usage', description: 'Show disk usage.' }] }
+    },
+    {
+      id: 'ops_agent',
+      name: 'Ops Agent B',
+      endpoint: 'https://ops-b.example/a2a',
+      enabled: true,
+      agentCard: { name: 'Ops Agent B', skills: [{ name: 'Memory usage', description: 'Show memory usage.' }] }
+    }
+  ]);
+  assert.deepStrictEqual(
+    JSON.parse(JSON.stringify(schemas.map(tool => ({ name: tool.name, serverId: tool.serverId, skillName: tool.skillName })))),
+    [
+      { name: 'a2a__ops_agent__disk_usage', serverId: 'ops.agent', skillName: 'Disk usage' },
+      { name: 'a2a__ops_agent__memory_usage', serverId: 'ops_agent', skillName: 'Memory usage' }
+    ]
+  );
+  assert.ok(schemas[0].openAIChat.function.description.includes('Ops Agent A'));
+  assert.ok(schemas[0].openAIChat.function.description.includes('Disk usage'));
+  assert.ok(schemas[1].openAIChat.function.description.includes('Ops Agent B'));
+  assert.ok(schemas[1].openAIChat.function.description.includes('Memory usage'));
+
   const result = await context.handleAIChat([{ role: 'user', content: 'please handle delegated task' }]);
 
   assert.strictEqual(result, 'Memory usage result');
@@ -2099,7 +2127,7 @@ async function assertSkillToolCallDelegatesToCorrectServer() {
   assert.ok(requests.some(r => r.url === 'https://cloudbot.example/a2a'), 'delegated to the A2A server');
 }
 
-async function assertQuestionMatchingA2aSkillUsesRegisteredToolCall() {
+async function assertQuestionMatchingA2aSkillDelegatesBeforeCallingLlm() {
   const { context, requests } = await createBackgroundContext({
     storage: {
       providerType: 'custom-provider',
@@ -2130,19 +2158,7 @@ async function assertQuestionMatchingA2aSkillUsesRegisteredToolCall() {
         return { ok: true, json: async () => ({ result: { message: { parts: [{ type: 'text', text: '5 Alibaba VMs' }] } } }) };
       }
       if (url === 'https://custom.example/v1/chat/completions') {
-        return {
-          ok: true,
-          json: async () => ({
-            choices: [{
-              message: {
-                tool_calls: [{
-                  type: 'function',
-                  function: { name: 'a2a__cloudbot__alibaba', arguments: JSON.stringify({ task: 'How many VM in Alibaba?' }) }
-                }]
-              }
-            }]
-          })
-        };
+        return { ok: true, json: async () => ({ choices: [{ message: { content: 'I will query Alibaba Cloud.' } }] }) };
       }
       throw new Error(`Unexpected fetch ${url}`);
     }
@@ -2151,12 +2167,8 @@ async function assertQuestionMatchingA2aSkillUsesRegisteredToolCall() {
   const result = await context.handleAIChat([{ role: 'user', content: 'How many VM in Alibaba?' }]);
 
   assert.strictEqual(result, '5 Alibaba VMs');
-  const llmRequest = requests.find(r => r.url === 'https://custom.example/v1/chat/completions');
-  const llmBody = JSON.parse(llmRequest.options.body);
-  assert.strictEqual(llmBody.tools.map(tool => tool.function.name).join(','), 'a2a__cloudbot__alibaba,a2a__cloudbot__aws');
-  assert.ok(llmBody.tools[0].function.description.includes('Alibaba Cloud'));
-  assert.ok(llmBody.tools[0].function.description.includes('vm'));
-  assert.ok(requests.some(r => r.url === 'https://cloudbot.example/a2a'), 'LLM-selected Alibaba VM skill should delegate');
+  assert.ok(requests.some(r => r.url === 'https://cloudbot.example/a2a'), 'matching Alibaba VM skill should delegate');
+  assert.ok(!requests.some(r => r.url === 'https://custom.example/v1/chat/completions'), 'high-confidence skill match should not depend on the LLM emitting a tool call');
 }
 
 async function assertAutoRouteRefreshesSparseCachedAgentCard() {
@@ -2213,10 +2225,7 @@ async function assertAutoRouteRefreshesSparseCachedAgentCard() {
   assert.strictEqual(result, '11053 Alibaba VMs');
   assert.ok(requests.some(r => /\.well-known\/agent\.json/.test(r.url)), 'should refresh sparse cached agent cards');
   assert.ok(requests.some(r => r.url === 'https://cloudbot.example/a2a'), 'should delegate after refreshing skills');
-  const llmRequest = requests.find(r => r.url === 'https://custom.example/v1/chat/completions');
-  const llmBody = JSON.parse(llmRequest.options.body);
-  assert.strictEqual(llmBody.tools[0].function.name, 'a2a__cloudbot__alibaba');
-  assert.ok(llmBody.tools[0].function.description.includes('Alibaba Cloud'), 'refreshed skill should be registered as an A2A tool');
+  assert.ok(!requests.some(r => r.url === 'https://custom.example/v1/chat/completions'), 'refreshed high-confidence skill match should not depend on the LLM emitting a tool call');
 }
 
 async function assertAutoRouteDiscoversAgentCardOnDemand() {
@@ -2293,7 +2302,7 @@ async function main() {
   await assertA2aToolSchemasIncludeOneToolPerSkill();
   await assertA2aToolSchemasFallBackToServerToolWhenNoSkills();
   await assertSkillToolCallDelegatesToCorrectServer();
-  await assertQuestionMatchingA2aSkillUsesRegisteredToolCall();
+  await assertQuestionMatchingA2aSkillDelegatesBeforeCallingLlm();
   await assertAutoRouteRefreshesSparseCachedAgentCard();
   await assertAutoRouteDiscoversAgentCardOnDemand();
   await assertCopilotAutoRouteToolCallDelegates();
