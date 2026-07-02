@@ -729,6 +729,14 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('addA2aServerBtn')?.addEventListener('click', () => {
     addA2aServerFromForm();
   });
+  // Advanced Settings toggle
+  document.getElementById('advancedToggle')?.addEventListener('click', () => {
+    const toggle = document.getElementById('advancedToggle');
+    const section = document.getElementById('advancedSection');
+    const isOpen = toggle.getAttribute('aria-expanded') === 'true';
+    toggle.setAttribute('aria-expanded', String(!isOpen));
+    section.classList.toggle('open', !isOpen);
+  });
   document.getElementById('a2aAutoRoute')?.addEventListener('change', event => {
     const enabled = Boolean(event.target?.checked);
     updateA2aAutoRouteState(enabled);

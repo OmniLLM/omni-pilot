@@ -446,6 +446,43 @@
       text-align: center;
       margin-top: 8px;
     }
+
+    /* Advanced Settings Toggle */
+    .advanced-toggle {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
+      padding: 12px 16px;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      margin-bottom: 12px;
+      cursor: pointer;
+      font-family: inherit;
+      color: var(--ink2);
+      font-size: 12px;
+      font-weight: 500;
+      transition: background 0.15s, border-color 0.15s, color 0.15s;
+    }
+    .advanced-toggle:hover {
+      background: var(--bg3);
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+    .advanced-toggle-arrow {
+      transition: transform 0.2s;
+      font-size: 10px;
+    }
+    .advanced-toggle[aria-expanded="true"] .advanced-toggle-arrow {
+      transform: rotate(180deg);
+    }
+    .advanced-section {
+      display: none;
+    }
+    .advanced-section.open {
+      display: block;
+    }
   </style>
 </head>
 <body>
@@ -523,6 +560,13 @@
       </div>
     </div>
 
+    <button type="button" class="advanced-toggle" id="advancedToggle" aria-expanded="false" aria-controls="advancedSection">
+      <span id="advancedLabel" data-i18n="advancedSettings">Advanced Settings</span>
+      <span class="advanced-toggle-arrow">▾</span>
+    </button>
+
+    <div class="advanced-section" id="advancedSection">
+
     <div class="card compact-card" id="a2aCard">
       <div class="card-title" data-i18n="a2aServers">A2A Servers</div>
       <div class="compact-stack">
@@ -558,6 +602,8 @@
         </div>
       </div>
     </div>
+
+    </div><!-- end .advanced-section -->
 
     <div class="card">
       <div class="card-title" data-i18n="language">Language</div>

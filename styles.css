@@ -95,6 +95,33 @@
   to   { opacity: 1; transform: scale(1)    translateY(0); }
 }
 
+/* ── Focus-visible (keyboard accessibility) ─────────── */
+
+#omnipilot-bubble:focus-visible {
+  outline: 2px solid var(--op-accent);
+  outline-offset: 2px;
+  box-shadow: var(--op-shadow-3), 0 0 0 4px var(--op-accent-ring);
+}
+
+.omnipilot-dropdown-item:focus-visible {
+  outline: 2px solid var(--op-accent);
+  outline-offset: -2px;
+  background: var(--op-hover);
+}
+
+.omnipilot-close-btn:focus-visible,
+.omnipilot-cancel-btn:focus-visible,
+.omnipilot-send-btn:focus-visible {
+  outline: 2px solid var(--op-accent);
+  outline-offset: 2px;
+}
+
+.omnipilot-quick-action:focus-visible {
+  outline: 2px solid var(--op-accent);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 3px var(--op-accent-ring);
+}
+
 .omnipilot-icon {
   font-size: 14px;
   color: var(--op-accent);
@@ -401,6 +428,91 @@
 .omnipilot-setup-item {
   color: var(--op-accent);
   font-weight: 500;
+}
+
+/* ── Onboarding Panel ──────────────────────────────── */
+
+.omnipilot-onboarding {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 24px 20px;
+  text-align: center;
+  font-family: var(--op-font);
+}
+
+.omnipilot-onboarding-icon {
+  font-size: 32px;
+  line-height: 1;
+}
+
+.omnipilot-onboarding-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--op-ink);
+}
+
+.omnipilot-onboarding-desc {
+  font-size: 13px;
+  color: var(--op-ink2);
+  line-height: 1.55;
+  max-width: 280px;
+}
+
+.omnipilot-onboarding-steps {
+  text-align: left;
+  font-size: 12px;
+  color: var(--op-ink2);
+  line-height: 1.7;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  width: 100%;
+  max-width: 260px;
+}
+
+.omnipilot-onboarding-steps li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.omnipilot-onboarding-steps li::before {
+  content: counter(step);
+  counter-increment: step;
+  min-width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--op-accent-dim);
+  color: var(--op-accent);
+  font-weight: 600;
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.omnipilot-onboarding-steps {
+  counter-reset: step;
+}
+
+.omnipilot-onboarding-btn {
+  background: var(--op-accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--op-radius-pill);
+  padding: 9px 20px;
+  font-family: var(--op-font);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s var(--op-ease-standard);
+}
+
+.omnipilot-onboarding-btn:hover {
+  background: var(--op-accent-dark);
 }
 
 /* ── Icon buttons (close, cancel) ────────────────────── */
@@ -815,6 +927,28 @@
 
 /* ── Selected Text Context ───────────────────────────── */
 
+.omnipilot-action-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 16px 0 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--op-accent);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-family: var(--op-font);
+  user-select: none;
+}
+
+.omnipilot-action-divider::before,
+.omnipilot-action-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--op-border);
+}
+
 .omnipilot-selected-context {
   color: var(--op-ink2);
   font-size: 13px;
@@ -1041,4 +1175,43 @@
   --op-hover:        rgba(60, 64, 67, 0.06);
   --op-pressed:      rgba(60, 64, 67, 0.10);
   --op-shadow-4:     0 4px 8px rgba(60, 64, 67, 0.20), 0 8px 24px rgba(60, 64, 67, 0.15);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   REDUCED MOTION
+   Respect OS-level prefers-reduced-motion setting
+   ═══════════════════════════════════════════════════════════ */
+
+@media (prefers-reduced-motion: reduce) {
+  #omnipilot-bubble,
+  #omnipilot-dropdown,
+  #omnipilot-panel,
+  #omnipilot-model-selector,
+  #omnipilot-provider-selector,
+  #omnipilot-action-selector,
+  .omnipilot-dropdown-item,
+  .omnipilot-close-btn,
+  .omnipilot-cancel-btn,
+  .omnipilot-send-btn,
+  .omnipilot-panel-input,
+  .omnipilot-quick-action,
+  .omnipilot-meta-model-wrap,
+  .omnipilot-meta-provider-wrap,
+  .omnipilot-meta-action-wrap,
+  .omnipilot-model-filter,
+  .omnipilot-model-item,
+  .omnipilot-code-block-copy-btn,
+  .omnipilot-a2a-select,
+  .omnipilot-a2a-textarea,
+  .omnipilot-a2a-submit,
+  .omnipilot-resize-handle {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0ms !important;
+  }
+
+  .omnipilot-spinner {
+    animation-duration: 1.5s !important; /* keep spinner visible but slower */
+  }
 }
