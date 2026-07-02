@@ -659,27 +659,158 @@
 
 /* ── Chat Messages ───────────────────────────────────── */
 
+.omnipilot-msg-container {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 14px;
+  width: 100%;
+}
+
+.omnipilot-msg-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--op-ink2);
+  user-select: none;
+}
+
+.omnipilot-msg-header-user {
+  align-self: flex-end;
+  flex-direction: row-reverse;
+}
+
+.omnipilot-msg-header-avatar {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--op-accent-dim);
+  color: var(--op-accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+}
+
+.omnipilot-msg-header-user .omnipilot-msg-header-avatar {
+  background: var(--op-hover);
+  color: var(--op-ink2);
+}
+
 .omnipilot-msg {
-  margin-top: 10px;
-  padding: 9px 13px;
-  font-size: 14px;
+  padding: 10px 14px;
+  font-size: 13.5px;
   font-family: var(--op-font);
-  line-height: 1.65;
-  max-width: 90%;
+  line-height: 1.6;
+  max-width: 85%;
+  box-sizing: border-box;
+  box-shadow: var(--op-shadow-1);
 }
 
 .omnipilot-msg-user {
-  background: var(--op-accent-dim);
-  color: var(--op-ink);
+  background: var(--op-accent);
+  color: #ffffff;
   align-self: flex-end;
-  margin-left: 18%;
-  border-radius: 18px 18px 4px 18px;
-  border: 1px solid rgba(26, 115, 232, 0.15);
+  border-radius: 16px 16px 4px 16px;
+  border: none;
 }
 
 .omnipilot-msg-assistant {
+  background: var(--op-bg2);
   color: var(--op-ink);
-  border-radius: 4px 18px 18px 18px;
+  align-self: flex-start;
+  border-radius: 4px 16px 16px 16px;
+  border: 1px solid var(--op-border);
+}
+
+/* Code Highlight & Markdown Elements */
+.omnipilot-msg-assistant code {
+  font-family: 'SF Mono', Consolas, 'Fira Code', Menlo, monospace;
+  font-size: 12px;
+  background: rgba(60, 64, 67, 0.08);
+  padding: 2px 5px;
+  border-radius: 4px;
+}
+
+[data-op-theme="dark"] .omnipilot-msg-assistant code {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.omnipilot-code-block-card {
+  margin: 10px 0;
+  border: 1px solid var(--op-border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--op-bg2);
+  box-shadow: var(--op-shadow-1);
+}
+
+.omnipilot-code-block-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  background: var(--op-hover);
+  border-bottom: 1px solid var(--op-border);
+  font-size: 11px;
+  font-family: var(--op-font);
+  font-weight: 500;
+  color: var(--op-ink2);
+}
+
+.omnipilot-code-block-copy-btn {
+  background: none;
+  border: 1px solid var(--op-border);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 10px;
+  color: var(--op-ink2);
+  cursor: pointer;
+  transition: all 0.1s var(--op-ease-standard);
+}
+
+.omnipilot-code-block-copy-btn:hover {
+  background: var(--op-bg);
+  color: var(--op-accent);
+  border-color: var(--op-accent);
+}
+
+.omnipilot-code-block-copy-btn:active {
+  transform: scale(0.95);
+}
+
+.omnipilot-code-block-body {
+  margin: 0;
+  padding: 12px;
+  overflow-x: auto;
+  font-family: 'SF Mono', Consolas, 'Fira Code', Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre;
+  color: var(--op-ink);
+}
+
+/* Markdown Lists & Formatting */
+.omnipilot-msg-assistant ul,
+.omnipilot-msg-assistant ol {
+  margin: 8px 0;
+  padding-left: 20px;
+}
+
+.omnipilot-msg-assistant li {
+  margin: 4px 0;
+}
+
+.omnipilot-msg-assistant blockquote {
+  margin: 8px 0;
+  padding-left: 12px;
+  border-left: 3px solid var(--op-accent);
+  color: var(--op-ink2);
+  font-style: italic;
 }
 
 /* ── Selected Text Context ───────────────────────────── */
@@ -860,6 +991,15 @@
   --op-shadow-2:  0 1px 4px  rgba(0, 0, 0, 0.40), 0 2px 6px rgba(0, 0, 0, 0.25);
   --op-shadow-3:  0 2px 8px  rgba(0, 0, 0, 0.45), 0 4px 12px rgba(0, 0, 0, 0.30);
   --op-shadow-4:  0 4px 12px rgba(0, 0, 0, 0.55), 0 8px 28px rgba(0, 0, 0, 0.40);
+}
+
+[data-op-theme="dark"] .omnipilot-msg-assistant {
+  background: var(--op-bg2);
+  border-color: var(--op-border);
+}
+
+[data-op-theme="dark"] .omnipilot-msg-user {
+  background: #385ea5;
 }
 
 [data-op-theme="dark"] .omnipilot-error {
