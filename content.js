@@ -252,12 +252,28 @@
   function createBubble() {
     const el = document.createElement('div');
     el.id = 'omnipilot-bubble';
+    el.setAttribute('role', 'button');
+    el.setAttribute('tabindex', '0');
+    el.setAttribute('aria-label', label('omnipilotBubbleLabel') || 'OmniPilot: AI actions for selected text');
+    el.setAttribute('aria-haspopup', 'menu');
+    el.setAttribute('aria-expanded', 'false');
     el.innerHTML = '<span class="omnipilot-icon">✦</span> OmniPilot';
     el.addEventListener('mousedown', e => { e.preventDefault(); e.stopPropagation(); });
     el.addEventListener('click', e => {
       e.preventDefault();
       e.stopPropagation();
       toggleDropdown(el);
+    });
+    el.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        e.stopPropagation();
+        toggleDropdown(el);
+      }
+      if (e.key === 'Escape') {
+        hideBubble();
+        hideDropdown();
+      }
     });
     document.body.appendChild(el);
     applyThemeTo(el);
@@ -284,32 +300,38 @@
   function toggleDropdown(anchorEl) {
     if (dropdown && dropdown.style.display !== 'none') {
       hideDropdown();
+      anchorEl.setAttribute('aria-expanded', 'false');
       return;
     }
     showDropdown(anchorEl);
+    anchorEl.setAttribute('aria-expanded', 'true');
   }
 
   function createDropdown() {
     const el = document.createElement('div');
     el.id = 'omnipilot-dropdown';
+    el.setAttribute('role', 'menu');
+    el.setAttribute('aria-label', 'OmniPilot actions');
 
     if (!hasApiKey) {
       const item = document.createElement('div');
       item.className = 'omnipilot-dropdown-item omnipilot-setup-item';
+      item.setAttribute('role', 'menuitem');
+      item.setAttribute('tabindex', '0');
       item.innerHTML = `<span class="omnipilot-action-icon">⚙</span>${label('setupApiKey')}`;
       item.addEventListener('mousedown', e => { e.preventDefault(); e.stopPropagation(); });
       item.addEventListener('click', e => {
         e.preventDefault();
         e.stopPropagation();
-        chrome.runtime.openOptionsPage();
-        hideDropdown();
-        hideBubble();
+        showOnboardingPanel();
       });
       el.appendChild(item);
     } else {
       getDropdownActions().forEach(action => {
         const item = document.createElement('div');
         item.className = 'omnipilot-dropdown-item';
+        item.setAttribute('role', 'menuitem');
+        item.setAttribute('tabindex', '0');
         item.innerHTML = `<span class="omnipilot-action-icon">${action.icon}</span>${label(action.labelKey)}`;
         item.addEventListener('mousedown', e => { e.preventDefault(); e.stopPropagation(); });
         item.addEventListener('click', e => {
@@ -325,6 +347,34 @@
       });
     }
 
+    // Keyboard navigation for menu items
+    el.addEventListener('keydown', e => {
+      const items = Array.from(el.querySelectorAll('[role="menuitem"]'));
+      const current = document.activeElement;
+      const idx = items.indexOf(current);
+
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        const next = idx < items.length - 1 ? idx + 1 : 0;
+        items[next]?.focus();
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        const prev = idx > 0 ? idx - 1 : items.length - 1;
+        items[prev]?.focus();
+      } else if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        current?.click();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        hideDropdown();
+        bubble?.focus();
+      } else if (e.key === 'Tab') {
+        e.preventDefault();
+        hideDropdown();
+        bubble?.focus();
+      }
+    });
+
     document.body.appendChild(el);
     applyThemeTo(el);
     return el;
@@ -339,13 +389,54 @@
     dropdown.style.left = `${rect.left}px`;
     dropdown.style.top = `${rect.bottom + 6}px`;
     dropdown.style.display = 'block';
+    // Focus first menu item for keyboard accessibility
+    const firstItem = dropdown.querySelector('[role="menuitem"]');
+    if (firstItem) setTimeout(() => firstItem.focus(), 0);
   }
 
   function hideDropdown() {
     if (dropdown) dropdown.style.display = 'none';
+    if (bubble) bubble.setAttribute('aria-expanded', 'false');
   }
 
   // ── Result Panel ─────────────────────────────────────────────────────────────
+
+  function showOnboardingPanel() {
+    hideBubble();
+    hideDropdown();
+    if (!panel) {
+      showPanel('', false, false);
+    } else {
+      panel.style.display = 'flex';
+    }
+    const body = panel.querySelector('.omnipilot-panel-body');
+    const onboarding = document.createElement('div');
+    onboarding.className = 'omnipilot-onboarding';
+    onboarding.innerHTML = `
+      <div class="omnipilot-onboarding-icon">✦</div>
+      <div class="omnipilot-onboarding-title">${escapeHtml(label('welcomeTitle') || 'Welcome to OmniPilot')}</div>
+      <div class="omnipilot-onboarding-desc">${escapeHtml(label('welcomeDesc') || 'Set up your AI provider to get started with text actions.')}</div>
+      <ol class="omnipilot-onboarding-steps">
+        <li>${escapeHtml(label('onboardingStep1') || 'Open Settings and choose a provider')}</li>
+        <li>${escapeHtml(label('onboardingStep2') || 'Enter your API key or sign in')}</li>
+        <li>${escapeHtml(label('onboardingStep3') || 'Select text on any page to use AI actions')}</li>
+      </ol>
+    `;
+    const btn = document.createElement('button');
+    btn.className = 'omnipilot-onboarding-btn';
+    btn.textContent = label('openSettings') || 'Open Settings';
+    btn.addEventListener('click', () => {
+      chrome.runtime.openOptionsPage();
+    });
+    onboarding.appendChild(btn);
+
+    body.innerHTML = '';
+    body.appendChild(onboarding);
+
+    if (!panel.dataset.dragged) {
+      positionPanel();
+    }
+  }
 
   function calcInitialPanelSize() {
     const vw = window.innerWidth;
@@ -405,6 +496,7 @@
       const closeBtn = document.createElement('button');
       closeBtn.className = 'omnipilot-close-btn';
       closeBtn.innerHTML = '✕';
+      closeBtn.setAttribute('aria-label', label('closePanel') || 'Close panel');
       closeBtn.addEventListener('click', () => {
         panel.style.display = 'none';
         conversationHistory = [];
@@ -531,6 +623,7 @@
       const sendBtn = document.createElement('button');
       sendBtn.className = 'omnipilot-send-btn';
       sendBtn.textContent = '→';
+      sendBtn.setAttribute('aria-label', label('sendMessage') || 'Send message');
       sendBtn.addEventListener('click', () => {
         if (input.value.trim()) {
           sendFollowUp(input.value.trim());
@@ -587,22 +680,14 @@
 
     // Append user message to panel body
     const body = panel.querySelector('.omnipilot-panel-body');
-    const userMsgHtml = `<div class="omnipilot-msg-container">
-      <div class="omnipilot-msg-header omnipilot-msg-header-user">
-        <span class="omnipilot-msg-header-avatar">U</span>
-        <span>You</span>
-      </div>
-      <div class="omnipilot-msg omnipilot-msg-user">${escapeHtml(question)}</div>
-    </div>`;
-    body.innerHTML += userMsgHtml;
-    body.innerHTML += `<div class="omnipilot-loading"><div class="omnipilot-spinner"></div><span class="omnipilot-loading-text">${label('thinking')}</span><button class="omnipilot-cancel-btn" title="${label('cancel')}">✕</button></div>`;
-    body.querySelector('.omnipilot-loading .omnipilot-cancel-btn')?.addEventListener('click', cancelRequest);
+    body.appendChild(createUserMessage(question));
+    body.appendChild(createLoadingIndicator());
     body.scrollTop = body.scrollHeight;
 
     const runtime = globalThis.chrome?.runtime;
     if (!runtime?.sendMessage) {
       body.querySelector('.omnipilot-loading')?.remove();
-      body.innerHTML += `<div class="omnipilot-error">${label('extensionContextUnavailable')}</div>`;
+      body.appendChild(createErrorElement(label('extensionContextUnavailable')));
       return;
     }
 
@@ -611,7 +696,7 @@
 
     if (a2aMentionTask?.error) {
       body.querySelector('.omnipilot-loading')?.remove();
-      body.innerHTML += `<div class="omnipilot-error">${escapeHtml(a2aMentionTask.error)}</div>`;
+      body.appendChild(createErrorElement(escapeHtml(a2aMentionTask.error)));
       return;
     }
 
@@ -627,22 +712,15 @@
           if (signal.aborted) return;
           body.querySelector('.omnipilot-loading')?.remove();
           if (runtime.lastError) {
-            body.innerHTML += `<div class="omnipilot-error">${humanizeError(runtime.lastError.message)}</div>`;
+            body.appendChild(createErrorElement(humanizeError(runtime.lastError.message)));
             return;
           }
           if (!response || !response.success) {
-            body.innerHTML += `<div class="omnipilot-error">${humanizeError(response?.error)}</div>`;
+            body.appendChild(createErrorElement(humanizeError(response?.error)));
             return;
           }
           conversationHistory.push({ role: 'assistant', content: response.result, kind: 'a2a-result' });
-          const assistantMsgHtml = `<div class="omnipilot-msg-container">
-            <div class="omnipilot-msg-header">
-              <span class="omnipilot-msg-header-avatar">✦</span>
-              <span>OmniPilot</span>
-            </div>
-            <div class="omnipilot-msg omnipilot-msg-assistant">${formatResult(response.result)}</div>
-          </div>`;
-          body.innerHTML += assistantMsgHtml;
+          body.appendChild(createAssistantMessage(response.result));
           body.scrollTop = body.scrollHeight;
         }
       );
@@ -656,22 +734,15 @@
         // Remove loading indicator
         body.querySelector('.omnipilot-loading')?.remove();
         if (runtime.lastError) {
-          body.innerHTML += `<div class="omnipilot-error">${humanizeError(runtime.lastError.message)}</div>`;
+          body.appendChild(createErrorElement(humanizeError(runtime.lastError.message)));
           return;
         }
         if (!response || !response.success) {
-          body.innerHTML += `<div class="omnipilot-error">${humanizeError(response?.error)}</div>`;
+          body.appendChild(createErrorElement(humanizeError(response?.error)));
           return;
         }
         conversationHistory.push({ role: 'assistant', content: response.result });
-        const assistantMsgHtml = `<div class="omnipilot-msg-container">
-          <div class="omnipilot-msg-header">
-            <span class="omnipilot-msg-header-avatar">✦</span>
-            <span>OmniPilot</span>
-          </div>
-          <div class="omnipilot-msg omnipilot-msg-assistant">${formatResult(response.result)}</div>
-        </div>`;
-        body.innerHTML += assistantMsgHtml;
+        body.appendChild(createAssistantMessage(response.result));
         body.scrollTop = body.scrollHeight;
       }
     );
@@ -742,7 +813,8 @@
 
     const body = panel.querySelector('.omnipilot-panel-body');
     if (body) {
-      body.innerHTML += renderSelectionContext(text, contextId);
+      const prevHtml = body.innerHTML || '';
+      body.innerHTML = prevHtml + renderSelectionContext(text, contextId);
       body.scrollTop = body.scrollHeight;
     }
   }
@@ -1030,11 +1102,10 @@
         updatePanelMeta();
         selector.remove();
 
-        // If an action is selected and there's text in context, re-run. Use the
-        // stored panel context (not just the live page selection) so re-running
-        // works even after the page selection has been cleared by a stray click.
+        // When switching actions from the panel header, keep existing context
+        // and run the new action as a continuation, not a fresh session.
         if (action.id && (lastSelection || getActiveSelectionContextText())) {
-          runAction(action.id);
+          runActionInContext(action.id);
         }
       });
       selector.appendChild(item);
@@ -1169,6 +1240,98 @@
     return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   }
 
+  // ── DOM Helpers (avoid innerHTML +=) ───────────────────────────────────────
+
+  function createElementFromHtml(html) {
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = html.trim();
+    const child = wrapper.children?.[0] || wrapper.firstChild;
+    return child || null;
+  }
+
+  function appendHtmlToBody(body, html) {
+    // Use a temporary container to parse HTML, then move children to body
+    // This preserves existing children/listeners unlike innerHTML +=
+    const temp = document.createElement('div');
+    temp.innerHTML = html.trim();
+    // In the real DOM, temp.children is an HTMLCollection; in mocks it's an array
+    const children = Array.from(temp.children || []);
+    if (children.length > 0) {
+      children.forEach(child => body.appendChild(child));
+      return children[0];
+    }
+    // Fallback: if no parsed children, append the HTML directly
+    const prevHtml = body.innerHTML || '';
+    body.innerHTML = prevHtml + html.trim();
+    return null;
+  }
+
+  function createLoadingIndicator() {
+    const loading = document.createElement('div');
+    loading.className = 'omnipilot-loading';
+    loading.innerHTML = `<div class="omnipilot-spinner"></div><span class="omnipilot-loading-text">${label('thinking')}</span>`;
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'omnipilot-cancel-btn';
+    cancelBtn.setAttribute('title', label('cancel'));
+    cancelBtn.setAttribute('aria-label', label('cancel') || 'Cancel');
+    cancelBtn.textContent = '✕';
+    cancelBtn.addEventListener('click', cancelRequest);
+    loading.appendChild(cancelBtn);
+    return loading;
+  }
+
+  function createUserMessage(text) {
+    const container = document.createElement('div');
+    container.className = 'omnipilot-msg-container';
+    const headerDiv = document.createElement('div');
+    headerDiv.className = 'omnipilot-msg-header omnipilot-msg-header-user';
+    headerDiv.innerHTML = `<span class="omnipilot-msg-header-avatar">U</span><span>You</span>`;
+    const msgDiv = document.createElement('div');
+    msgDiv.className = 'omnipilot-msg omnipilot-msg-user';
+    msgDiv.textContent = text;
+    container.appendChild(headerDiv);
+    container.appendChild(msgDiv);
+    return container;
+  }
+
+  function createAssistantMessage(result) {
+    const container = document.createElement('div');
+    container.className = 'omnipilot-msg-container';
+    const headerDiv = document.createElement('div');
+    headerDiv.className = 'omnipilot-msg-header';
+    headerDiv.innerHTML = `<span class="omnipilot-msg-header-avatar">✦</span><span>OmniPilot</span>`;
+    const msgDiv = document.createElement('div');
+    msgDiv.className = 'omnipilot-msg omnipilot-msg-assistant';
+    msgDiv.innerHTML = formatResult(result);
+    container.appendChild(headerDiv);
+    container.appendChild(msgDiv);
+    // Re-attach copy button handlers for code blocks
+    if (container.querySelectorAll) {
+      container.querySelectorAll('.omnipilot-code-block-copy-btn').forEach(btn => {
+        btn.addEventListener('click', e => {
+          e.preventDefault();
+          e.stopPropagation();
+          const codeBody = btn.closest('.omnipilot-code-block-card')?.querySelector('.omnipilot-code-block-body');
+          if (codeBody) {
+            navigator.clipboard.writeText(codeBody.textContent).then(() => {
+              const oldText = btn.textContent;
+              btn.textContent = '✓';
+              setTimeout(() => { btn.textContent = oldText; }, 1500);
+            });
+          }
+        });
+      });
+    }
+    return container;
+  }
+
+  function createErrorElement(message) {
+    const el = document.createElement('div');
+    el.className = 'omnipilot-error';
+    el.innerHTML = message;
+    return el;
+  }
+
   function humanizeError(msg) {
     if (!msg) return label('somethingWrong');
     const s = escapeHtml(msg);
@@ -1191,13 +1354,86 @@
       const loading = body?.querySelector('.omnipilot-loading');
       if (loading) {
         loading.remove();
-        body.innerHTML += `<div class="omnipilot-cancelled">${label('cancelled')}</div>`;
+        const cancelled = document.createElement('div');
+        cancelled.className = 'omnipilot-cancelled';
+        cancelled.textContent = label('cancelled');
+        body.appendChild(cancelled);
       }
     }
   }
 
   // ── Action Runner ─────────────────────────────────────────────────────────────
 
+  // Run an action while preserving existing conversation context.
+  // Called when switching actions from the panel header selector.
+  function runActionInContext(actionId) {
+    const text = lastSelection || getActiveSelectionContextText();
+    if (!text) return;
+
+    currentAction = actionId;
+    updatePanelMeta();
+
+    // Ensure panel is visible
+    if (!panel) {
+      showPanel('', false, false);
+    } else {
+      panel.style.display = 'flex';
+    }
+
+    const body = panel.querySelector('.omnipilot-panel-body');
+
+    // Add a visual separator showing the action switch
+    const actionObj = ACTIONS.find(a => a.id === actionId);
+    const actionLabel = actionObj ? `${actionObj.icon} ${label(actionObj.labelKey)}` : actionId;
+    const divider = document.createElement('div');
+    divider.className = 'omnipilot-action-divider';
+    divider.textContent = actionLabel;
+    body.appendChild(divider);
+
+    // Add loading indicator
+    body.appendChild(createLoadingIndicator());
+    body.scrollTop = body.scrollHeight;
+
+    const runtime = globalThis.chrome?.runtime;
+    if (!runtime?.sendMessage) {
+      body.querySelector('.omnipilot-loading')?.remove();
+      body.appendChild(createErrorElement(label('extensionContextUnavailable')));
+      return;
+    }
+
+    abortController = new AbortController();
+    const signal = abortController.signal;
+
+    // Send the action request — the background applies the action's system prompt
+    runtime.sendMessage(
+      { type: 'AI_ACTION', action: actionId, text },
+      response => {
+        if (signal.aborted) return;
+        body.querySelector('.omnipilot-loading')?.remove();
+        if (runtime.lastError) {
+          body.appendChild(createErrorElement(humanizeError(runtime.lastError.message)));
+          return;
+        }
+        if (!response) {
+          body.appendChild(createErrorElement(label('noResponse')));
+          return;
+        }
+        if (response.success) {
+          // Append the result to conversation history so follow-ups have context
+          conversationHistory.push({ role: 'user', content: `[${actionLabel}] ${text}` });
+          conversationHistory.push({ role: 'assistant', content: response.result });
+          body.appendChild(createAssistantMessage(response.result));
+          body.scrollTop = body.scrollHeight;
+        } else {
+          body.appendChild(createErrorElement(humanizeError(response.error || label('unknownError'))));
+        }
+        currentAction = '';
+        updatePanelMeta();
+      }
+    );
+  }
+
+  // Run an action as a fresh session (called from the initial dropdown).
   function runAction(actionId) {
     hideDropdown();
     hideBubble();
@@ -1219,13 +1455,12 @@
     showPanelForConversation(text, contextId);
     updatePanelMeta();
     const body = panel.querySelector('.omnipilot-panel-body');
-    body.innerHTML += `<div class="omnipilot-loading"><div class="omnipilot-spinner"></div><span class="omnipilot-loading-text">${label('thinking')}</span><button class="omnipilot-cancel-btn" title="${label('cancel')}">✕</button></div>`;
-    body.querySelector('.omnipilot-cancel-btn')?.addEventListener('click', cancelRequest);
+    body.appendChild(createLoadingIndicator());
 
     const runtime = globalThis.chrome?.runtime;
     if (!runtime?.sendMessage) {
       body.querySelector('.omnipilot-loading')?.remove();
-      body.innerHTML += `<div class="omnipilot-error">${label('extensionContextUnavailable')}</div>`;
+      body.appendChild(createErrorElement(label('extensionContextUnavailable')));
       return;
     }
 
@@ -1239,26 +1474,19 @@
         if (signal.aborted) return; // cancelled
         body.querySelector('.omnipilot-loading')?.remove();
         if (runtime.lastError) {
-          body.innerHTML += `<div class="omnipilot-error">${humanizeError(runtime.lastError.message)}</div>`;
+          body.appendChild(createErrorElement(humanizeError(runtime.lastError.message)));
           return;
         }
         if (!response) {
-          body.innerHTML += `<div class="omnipilot-error">${label('noResponse')}</div>`;
+          body.appendChild(createErrorElement(label('noResponse')));
           return;
         }
         if (response.success) {
           conversationHistory.push({ role: 'assistant', content: response.result });
-          const assistantMsgHtml = `<div class="omnipilot-msg-container">
-            <div class="omnipilot-msg-header">
-              <span class="omnipilot-msg-header-avatar">✦</span>
-              <span>OmniPilot</span>
-            </div>
-            <div class="omnipilot-msg omnipilot-msg-assistant">${formatResult(response.result)}</div>
-          </div>`;
-          body.innerHTML += assistantMsgHtml;
+          body.appendChild(createAssistantMessage(response.result));
           body.scrollTop = body.scrollHeight;
         } else {
-          body.innerHTML += `<div class="omnipilot-error">${humanizeError(response.error || label('unknownError'))}</div>`;
+          body.appendChild(createErrorElement(humanizeError(response.error || label('unknownError'))));
         }
         currentAction = '';
         updatePanelMeta();

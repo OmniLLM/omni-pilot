@@ -15,7 +15,12 @@ function createElement(documentRef, tagName = 'div') {
     className: '',
     _id: '',
     _innerHTML: '',
-    textContent: '',
+    _textContent: '',
+    get textContent() {
+      if (this.children.length === 0) return this._textContent;
+      return this._textContent + this.children.map(c => c.textContent || '').join('');
+    },
+    set textContent(value) { this._textContent = value; },
     value: '',
     placeholder: '',
     rows: 0,
@@ -66,7 +71,7 @@ function createElement(documentRef, tagName = 'div') {
     get() { return this._innerHTML; },
     set(value) {
       this._innerHTML = value;
-      this.textContent = String(value).replace(/<[^>]*>/g, '');
+      this._textContent = String(value).replace(/<[^>]*>/g, '');
       this.children = [];
 
       for (const match of String(value).matchAll(/class="([^"]+)"[^>]*>([^<]*)/g)) {
