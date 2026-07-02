@@ -695,14 +695,50 @@
   font-family: var(--op-font);
 }
 
+.omnipilot-context-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
 .omnipilot-context-label {
   font-weight: 600;
   color: var(--op-ink);
   font-size: 11px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  display: block;
-  margin-bottom: 4px;
+}
+
+.omnipilot-context-text {
+  overflow-wrap: anywhere;
+}
+
+.omnipilot-context-remove {
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--op-ink2);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 12px;
+  line-height: 1;
+  padding: 0;
+}
+
+.omnipilot-context-remove:hover {
+  color: var(--op-ink);
+  background: var(--op-hover);
+}
+
+.omnipilot-context-remove:active {
+  background: var(--op-pressed);
 }
 
 /* ── Quick Action Chips ──────────────────────────────── */
