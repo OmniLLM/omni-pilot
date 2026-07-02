@@ -484,10 +484,26 @@
 
       body.addEventListener('click', e => {
         const removeBtn = e.target.closest?.('.omnipilot-context-remove');
-        if (!removeBtn) return;
-        e.preventDefault();
-        e.stopPropagation();
-        removeSelectionContext(removeBtn.dataset.contextId || '');
+        if (removeBtn) {
+          e.preventDefault();
+          e.stopPropagation();
+          removeSelectionContext(removeBtn.dataset.contextId || '');
+          return;
+        }
+
+        const copyBtn = e.target.closest?.('.omnipilot-code-block-copy-btn');
+        if (copyBtn) {
+          e.preventDefault();
+          e.stopPropagation();
+          const codeBody = copyBtn.closest('.omnipilot-code-block-card')?.querySelector('.omnipilot-code-block-body');
+          if (codeBody) {
+            navigator.clipboard.writeText(codeBody.textContent).then(() => {
+              const oldText = copyBtn.textContent;
+              copyBtn.textContent = '✓';
+              setTimeout(() => { copyBtn.textContent = oldText; }, 1500);
+            });
+          }
+        }
       });
 
       const inputArea = document.createElement('div');
@@ -571,7 +587,14 @@
 
     // Append user message to panel body
     const body = panel.querySelector('.omnipilot-panel-body');
-    body.innerHTML += `<div class="omnipilot-msg omnipilot-msg-user">${escapeHtml(question)}</div>`;
+    const userMsgHtml = `<div class="omnipilot-msg-container">
+      <div class="omnipilot-msg-header omnipilot-msg-header-user">
+        <span class="omnipilot-msg-header-avatar">U</span>
+        <span>You</span>
+      </div>
+      <div class="omnipilot-msg omnipilot-msg-user">${escapeHtml(question)}</div>
+    </div>`;
+    body.innerHTML += userMsgHtml;
     body.innerHTML += `<div class="omnipilot-loading"><div class="omnipilot-spinner"></div><span class="omnipilot-loading-text">${label('thinking')}</span><button class="omnipilot-cancel-btn" title="${label('cancel')}">✕</button></div>`;
     body.querySelector('.omnipilot-loading .omnipilot-cancel-btn')?.addEventListener('click', cancelRequest);
     body.scrollTop = body.scrollHeight;
@@ -612,7 +635,14 @@
             return;
           }
           conversationHistory.push({ role: 'assistant', content: response.result, kind: 'a2a-result' });
-          body.innerHTML += `<div class="omnipilot-msg omnipilot-msg-assistant">${formatResult(response.result)}</div>`;
+          const assistantMsgHtml = `<div class="omnipilot-msg-container">
+            <div class="omnipilot-msg-header">
+              <span class="omnipilot-msg-header-avatar">✦</span>
+              <span>OmniPilot</span>
+            </div>
+            <div class="omnipilot-msg omnipilot-msg-assistant">${formatResult(response.result)}</div>
+          </div>`;
+          body.innerHTML += assistantMsgHtml;
           body.scrollTop = body.scrollHeight;
         }
       );
@@ -634,7 +664,14 @@
           return;
         }
         conversationHistory.push({ role: 'assistant', content: response.result });
-        body.innerHTML += `<div class="omnipilot-msg omnipilot-msg-assistant">${formatResult(response.result)}</div>`;
+        const assistantMsgHtml = `<div class="omnipilot-msg-container">
+          <div class="omnipilot-msg-header">
+            <span class="omnipilot-msg-header-avatar">✦</span>
+            <span>OmniPilot</span>
+          </div>
+          <div class="omnipilot-msg omnipilot-msg-assistant">${formatResult(response.result)}</div>
+        </div>`;
+        body.innerHTML += assistantMsgHtml;
         body.scrollTop = body.scrollHeight;
       }
     );
@@ -828,7 +865,24 @@
         }
         conversationHistory.push({ role: 'user', content: trimmedTask, kind: 'a2a-delegation' });
         conversationHistory.push({ role: 'assistant', content: response.result, kind: 'a2a-result' });
-        body.innerHTML = `${lastSelection ? renderSelectionContext(lastSelection) : ''}<div class="omnipilot-msg omnipilot-msg-user">${escapeHtml(trimmedTask)}</div><div class="omnipilot-msg omnipilot-msg-assistant">${formatResult(response.result)}</div>`;
+
+        const userMsgHtml = `<div class="omnipilot-msg-container">
+          <div class="omnipilot-msg-header omnipilot-msg-header-user">
+            <span class="omnipilot-msg-header-avatar">U</span>
+            <span>You</span>
+          </div>
+          <div class="omnipilot-msg omnipilot-msg-user">${escapeHtml(trimmedTask)}</div>
+        </div>`;
+
+        const assistantMsgHtml = `<div class="omnipilot-msg-container">
+          <div class="omnipilot-msg-header">
+            <span class="omnipilot-msg-header-avatar">✦</span>
+            <span>OmniPilot</span>
+          </div>
+          <div class="omnipilot-msg omnipilot-msg-assistant">${formatResult(response.result)}</div>
+        </div>`;
+
+        body.innerHTML = `${lastSelection ? renderSelectionContext(lastSelection) : ''}${userMsgHtml}${assistantMsgHtml}`;
       }
     );
   }
@@ -1046,10 +1100,69 @@
   }
 
   function formatResult(text) {
-    return escapeHtml(text)
-      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-      .replace(/\*(.*?)\*/g, '<em>$1</em>')
-      .replace(/\n/g, '<br>');
+    if (typeof text !== 'string') return '';
+
+    // First, let's extract code blocks: ```lang\ncode\n```
+    // We will replace them with custom placeholders to protect them from inline parsing,
+    // and then render them as beautiful code cards.
+    const blocks = [];
+    let formatted = text.replace(/```(\w*)\n([\s\S]*?)\n```/g, (match, lang, code) => {
+      const placeholder = `__OP_CODE_BLOCK_PLACEHOLDER_${blocks.length}__`;
+      blocks.push({ lang: lang || 'code', code });
+      return placeholder;
+    });
+
+    // Protect inline code: `code`
+    const inlineCodes = [];
+    formatted = formatted.replace(/`([^`\n]+)`/g, (match, code) => {
+      const placeholder = `__OP_INLINE_CODE_PLACEHOLDER_${inlineCodes.length}__`;
+      inlineCodes.push(code);
+      return placeholder;
+    });
+
+    // Escape HTML of the remaining text to make it safe
+    formatted = escapeHtml(formatted);
+
+    // Markdown Bold: **text**
+    formatted = formatted.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+
+    // Markdown Italic: *text*
+    formatted = formatted.replace(/\*(.*?)\*/g, '<em>$1</em>');
+
+    // Markdown Blockquotes: > text
+    formatted = formatted.replace(/^>\s+(.*?)$/gm, '<blockquote>$1</blockquote>');
+
+    // Markdown Unordered lists: - text
+    formatted = formatted.replace(/^\s*-\s+(.*?)$/gm, '<ul><li>$1</li></ul>');
+    // Fix adjacent <ul> elements
+    formatted = formatted.replace(/<\/ul>\s*<ul>/g, '');
+
+    // Markdown Ordered lists: 1. text
+    formatted = formatted.replace(/^\s*\d+\.\s+(.*?)$/gm, '<ol><li>$1</li></ol>');
+    // Fix adjacent <ol> elements
+    formatted = formatted.replace(/<\/ol>\s*<ol>/g, '');
+
+    // Markdown Newlines
+    formatted = formatted.replace(/\n/g, '<br>');
+
+    // Restore inline codes safely
+    inlineCodes.forEach((code, index) => {
+      formatted = formatted.replace(`__OP_INLINE_CODE_PLACEHOLDER_${index}__`, `<code>${escapeHtml(code)}</code>`);
+    });
+
+    // Restore and render block codes beautifully
+    blocks.forEach((block, index) => {
+      const cardHtml = `<div class="omnipilot-code-block-card">
+        <div class="omnipilot-code-block-header">
+          <span>${escapeHtml(block.lang)}</span>
+          <button class="omnipilot-code-block-copy-btn">Copy</button>
+        </div>
+        <pre class="omnipilot-code-block-body">${escapeHtml(block.code)}</pre>
+      </div>`;
+      formatted = formatted.replace(`__OP_CODE_BLOCK_PLACEHOLDER_${index}__`, cardHtml);
+    });
+
+    return formatted;
   }
 
   function escapeHtml(str) {
@@ -1135,7 +1248,14 @@
         }
         if (response.success) {
           conversationHistory.push({ role: 'assistant', content: response.result });
-          body.innerHTML += `<div class="omnipilot-msg omnipilot-msg-assistant">${formatResult(response.result)}</div>`;
+          const assistantMsgHtml = `<div class="omnipilot-msg-container">
+            <div class="omnipilot-msg-header">
+              <span class="omnipilot-msg-header-avatar">✦</span>
+              <span>OmniPilot</span>
+            </div>
+            <div class="omnipilot-msg omnipilot-msg-assistant">${formatResult(response.result)}</div>
+          </div>`;
+          body.innerHTML += assistantMsgHtml;
           body.scrollTop = body.scrollHeight;
         } else {
           body.innerHTML += `<div class="omnipilot-error">${humanizeError(response.error || label('unknownError'))}</div>`;
