@@ -24,6 +24,7 @@
   let currentEndpoint = '';
   let a2aServers = [];
   let lastAppendedSelectionContext = '';
+  let selectionContextSeq = 0;
   const PROVIDER_LABELS = {
     'custom-provider': 'Custom',
     'github-copilot': 'GitHub Copilot',
@@ -235,14 +236,15 @@
 
   function getA2aDelegationContext() {
     const priorContext = conversationHistory
-      .filter(message => typeof message?.content === 'string' && message.role === 'user' && !message.kind?.startsWith?.('a2a-') && !parseA2aMentionTask(message.content))
+      .filter(message => typeof message?.content === 'string' && message.role === 'user' && message.kind !== 'selection-context' && !message.kind?.startsWith?.('a2a-') && !parseA2aMentionTask(message.content))
       .map(message => `${message.role === 'assistant' ? 'Popup assistant' : 'Popup user'}: ${message.content.trim()}`)
       .filter(Boolean)
       .join('\n\n');
 
-    const selectionContext = lastSelection ? buildSelectionContextMessage(lastSelection) : '';
+    const selectionContextText = getActiveSelectionContextText();
+    const selectionContext = selectionContextText ? buildSelectionContextMessage(selectionContextText) : '';
     const contextParts = [selectionContext, priorContext].filter(Boolean);
-    return contextParts.join('\n\n') || lastSelection || '';
+    return contextParts.join('\n\n') || selectionContextText || '';
   }
 
   // ── Bubble ──────────────────────────────────────────────────────────────────
@@ -480,6 +482,14 @@
       const body = document.createElement('div');
       body.className = 'omnipilot-panel-body';
 
+      body.addEventListener('click', e => {
+        const removeBtn = e.target.closest?.('.omnipilot-context-remove');
+        if (!removeBtn) return;
+        e.preventDefault();
+        e.stopPropagation();
+        removeSelectionContext(removeBtn.dataset.contextId || '');
+      });
+
       const inputArea = document.createElement('div');
       inputArea.className = 'omnipilot-panel-input-area';
       const input = document.createElement('textarea');
@@ -634,26 +644,73 @@
     return `Additional selected context:\n${selectedText}`;
   }
 
-  function renderSelectionContext(selectedText) {
+  function getActiveSelectionContextText() {
+    return conversationHistory
+      .filter(message => message.kind === 'selection-context' && typeof message.content === 'string')
+      .map(message => message.content.replace(/^Additional selected context:\n/, '').trim())
+      .filter(Boolean)
+      .join('\n\n');
+  }
+
+  function renderSelectionContext(selectedText, contextId = '') {
     const truncated = selectedText.length > 200 ? selectedText.slice(0, 200) + '…' : selectedText;
-    return `<div class="omnipilot-selected-context"><span class="omnipilot-context-label">${label('selectedText')}</span> ${escapeHtml(truncated)}</div>`;
+    const contextAttr = contextId ? ` data-context-id="${escapeHtml(contextId)}"` : '';
+    const removeButton = contextId ? `<button type="button" class="omnipilot-context-remove" data-context-id="${escapeHtml(contextId)}" title="${label('remove')}" aria-label="${label('remove')}">✕</button>` : '';
+    return `<div class="omnipilot-selected-context"${contextAttr}><div class="omnipilot-context-header"><span class="omnipilot-context-label">${label('selectedText')}</span>${removeButton}</div><div class="omnipilot-context-text">${escapeHtml(truncated)}</div></div>`;
+  }
+
+  function removeSelectionContext(contextId) {
+    if (!contextId) return;
+    const index = conversationHistory.findIndex(message => message.kind === 'selection-context' && message.contextId === contextId);
+    if (index === -1) return;
+
+    const removedContent = conversationHistory[index].content;
+    conversationHistory.splice(index, 1);
+
+    const contextEl = panel?.querySelector(`.omnipilot-selected-context[data-context-id="${contextId}"]`);
+    contextEl?.remove();
+
+    const body = panel?.querySelector('.omnipilot-panel-body');
+    if (body?.innerHTML?.includes(`data-context-id="${contextId}"`)) {
+      const start = body.innerHTML.indexOf(`<div class="omnipilot-selected-context" data-context-id="${contextId}">`);
+      const nextMarkers = [
+        '<div class="omnipilot-selected-context"',
+        '<div class="omnipilot-msg',
+        '<div class="omnipilot-loading',
+        '<div class="omnipilot-error',
+        '<div class="omnipilot-cancelled'
+      ];
+      const end = nextMarkers
+        .map(marker => body.innerHTML.indexOf(marker, start + 1))
+        .filter(position => position > start)
+        .sort((a, b) => a - b)[0] || body.innerHTML.length;
+      if (start !== -1) body.innerHTML = body.innerHTML.slice(0, start) + body.innerHTML.slice(end);
+    }
+
+    if (removedContent === buildSelectionContextMessage(lastAppendedSelectionContext)) {
+      const remainingSelection = conversationHistory
+        .filter(message => message.kind === 'selection-context' && typeof message.content === 'string')
+        .at(-1)?.content?.replace(/^Additional selected context:\n/, '').trim() || '';
+      lastAppendedSelectionContext = remainingSelection;
+    }
   }
 
   function appendSelectionToConversation(selectedText) {
     const text = selectedText.trim();
     if (!text || text === lastAppendedSelectionContext || !panel || panel.style.display === 'none') return;
 
+    const contextId = `selection-context-${++selectionContextSeq}`;
     lastAppendedSelectionContext = text;
-    conversationHistory.push({ role: 'user', content: buildSelectionContextMessage(text), kind: 'selection-context' });
+    conversationHistory.push({ role: 'user', content: buildSelectionContextMessage(text), kind: 'selection-context', contextId });
 
     const body = panel.querySelector('.omnipilot-panel-body');
     if (body) {
-      body.innerHTML += renderSelectionContext(text);
+      body.innerHTML += renderSelectionContext(text, contextId);
       body.scrollTop = body.scrollHeight;
     }
   }
 
-  function showPanelForConversation(selectedText) {
+  function showPanelForConversation(selectedText, contextId) {
     // Show panel immediately with selected text displayed and input ready
     if (!panel) {
       showPanel('', false, false); // creates the panel
@@ -662,7 +719,7 @@
     }
     const body = panel.querySelector('.omnipilot-panel-body');
     // Show the selected text as context
-    body.innerHTML = renderSelectionContext(selectedText);
+    body.innerHTML = renderSelectionContext(selectedText, contextId);
 
     // Only position when opening fresh (not dragged)
     if (!panel.dataset.dragged) {
@@ -919,8 +976,10 @@
         updatePanelMeta();
         selector.remove();
 
-        // If an action is selected and there's text in context, re-run
-        if (action.id && lastSelection) {
+        // If an action is selected and there's text in context, re-run. Use the
+        // stored panel context (not just the live page selection) so re-running
+        // works even after the page selection has been cleared by a stray click.
+        if (action.id && (lastSelection || getActiveSelectionContextText())) {
           runAction(action.id);
         }
       });
@@ -1030,18 +1089,21 @@
     hideDropdown();
     hideBubble();
 
-    const text = lastSelection;
+    // Prefer the live page selection, but fall back to the context already captured
+    // in the open panel. A stray page click clears lastSelection, and without this
+    // fallback re-running an action from the header selector would silently no-op.
+    const text = lastSelection || getActiveSelectionContextText();
     if (!text) return;
 
     // Set current action and update panel title
     currentAction = actionId;
 
-    // Initialize conversation with the selected text context
-    conversationHistory = [{ role: 'user', content: buildSelectionContextMessage(text), kind: 'selection-context' }];
+    const contextId = `selection-context-${++selectionContextSeq}`;
+    conversationHistory = [{ role: 'user', content: buildSelectionContextMessage(text), kind: 'selection-context', contextId }];
     lastAppendedSelectionContext = text;
 
     // Show panel immediately with loading state
-    showPanelForConversation(text);
+    showPanelForConversation(text, contextId);
     updatePanelMeta();
     const body = panel.querySelector('.omnipilot-panel-body');
     body.innerHTML += `<div class="omnipilot-loading"><div class="omnipilot-spinner"></div><span class="omnipilot-loading-text">${label('thinking')}</span><button class="omnipilot-cancel-btn" title="${label('cancel')}">✕</button></div>`;
@@ -1089,6 +1151,11 @@
   document.addEventListener('mouseup', e => {
     const mouseX = e.clientX;
     const mouseY = e.clientY;
+    // Capture whether this mouseup landed on our UI *now*, while the event target
+    // is still attached. Handlers on our UI (e.g. removing a context) may detach
+    // the target before the delayed check runs, which would otherwise misclassify
+    // the click as a page click and re-append the just-removed selection.
+    const targetIsOmniPilot = isOmniPilotElement(e.target);
     // Small delay to let selection finalize
     setTimeout(() => {
       const selection = window.getSelection();
@@ -1106,12 +1173,12 @@
         // Only show bubble if panel is not visible
         if (!panel || panel.style.display === 'none') {
           showBubble(rect);
-        } else if (!isOmniPilotElement(e.target)) {
+        } else if (!targetIsOmniPilot) {
           appendSelectionToConversation(text);
         }
       } else {
         // Check if click was on our UI elements
-        if (!isOmniPilotElement(e.target)) {
+        if (!targetIsOmniPilot) {
           hideBubble();
           hideDropdown();
           lastSelection = '';

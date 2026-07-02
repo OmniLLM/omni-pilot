@@ -47,7 +47,8 @@ function createElement(documentRef, tagName = 'div') {
     contains(target) { return target === this || this.children.some(child => child.contains?.(target)); },
     closest(selector) {
       if (selector.startsWith('#') && this.id === selector.slice(1)) return this;
-      return null;
+      if (selector.startsWith('.') && String(this.className).split(/\s+/).includes(selector.slice(1))) return this;
+      return this.parentNode?.closest?.(selector) || null;
     },
     getBoundingClientRect() { return { left: 10, top: 10, right: 110, bottom: 40, width: 100, height: 30 }; },
     get listeners() { return listeners; }
@@ -72,6 +73,8 @@ function createElement(documentRef, tagName = 'div') {
         const child = createElement(documentRef);
         child.className = match[1];
         child.textContent = match[2];
+        const contextId = match[0].match(/data-context-id="([^"]+)"/)?.[1];
+        if (contextId) child.dataset.contextId = contextId;
         this.appendChild(child);
       }
     }
@@ -505,6 +508,7 @@ async function main() {
   assert.deepStrictEqual(JSON.parse(JSON.stringify(sendMessageCalls.at(-1))), { type: 'SET_MODEL', model: 'gpt-4o' });
 
   await testOpenPanelAppendsNewSelectionContext();
+  await testOpenPanelCanRemoveAccidentalSelectionContext();
   await testOpenPanelIgnoresDuplicateAndPanelSelections();
 }
 
@@ -537,6 +541,41 @@ async function testOpenPanelAppendsNewSelectionContext() {
   assert.ok(messages.some(message => message.content.includes('first selected text')));
   assert.ok(messages.some(message => message.content.includes('second selected context')));
   assert.ok(messages.some(message => message.content === 'Use all context'));
+}
+
+async function testOpenPanelCanRemoveAccidentalSelectionContext() {
+  const { documentRef, sendMessageCalls, setSelectionText } = await createContentContext({ apiKey: 'test-key', languagePreference: 'en' });
+
+  await selectText(documentRef, setSelectionText, 'keep this context');
+  documentRef.getElementById('omnipilot-bubble').listeners.click({ preventDefault() {}, stopPropagation() {} });
+  documentRef.getElementById('omnipilot-dropdown').children[0].listeners.click({ preventDefault() {}, stopPropagation() {} });
+
+  const panel = documentRef.getElementById('omnipilot-panel');
+  const body = panel.querySelector('.omnipilot-panel-body');
+
+  await selectText(documentRef, setSelectionText, 'remove this accidental context');
+  assert.strictEqual(countOccurrences(body.innerHTML, 'omnipilot-selected-context'), 2);
+
+  const accidentalRemove = body.children
+    .filter(child => String(child.className).split(/\s+/).includes('omnipilot-context-remove'))
+    .find(child => child.dataset.contextId === 'selection-context-2');
+  assert.ok(accidentalRemove, 'accidental context should render a remove button');
+
+  body.listeners.click({ target: accidentalRemove, preventDefault() {}, stopPropagation() {} });
+
+  assert.strictEqual(countOccurrences(body.innerHTML, 'omnipilot-selected-context'), 1);
+  assert.ok(body.innerHTML.includes('keep this context'));
+  assert.ok(!body.innerHTML.includes('remove this accidental context'));
+
+  const input = panel.querySelector('.omnipilot-panel-input');
+  input.value = 'Use remaining context';
+  input.listeners.keydown({ key: 'Enter', shiftKey: false, preventDefault() {}, stopPropagation() {} });
+
+  const chatMessage = sendMessageCalls.findLast(message => message.type === 'AI_CHAT');
+  assert.ok(chatMessage, 'follow-up should send AI_CHAT');
+  const messages = JSON.parse(JSON.stringify(chatMessage.messages));
+  assert.ok(messages.some(message => message.content.includes('keep this context')));
+  assert.ok(!messages.some(message => message.content.includes('remove this accidental context')));
 }
 
 async function testOpenPanelIgnoresDuplicateAndPanelSelections() {
