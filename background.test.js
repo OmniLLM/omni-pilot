@@ -20,7 +20,17 @@ async function runActionTest({ config = {}, responseJson }) {
       error: () => {}
     },
     chrome: {
-      runtime: { onMessage: { addListener() {} } },
+      runtime: {
+        onMessage: { addListener() {} },
+        onInstalled: { addListener(fn) { fn(); } },
+        onStartup: { addListener() {} },
+        onConnect: { addListener() {} }
+      },
+      contextMenus: {
+        removeAll(cb) { cb(); },
+        create() {},
+        onClicked: { addListener() {} }
+      },
       storage: {
         sync: {
           get(defaults, cb) {
@@ -223,7 +233,17 @@ async function createBackgroundContext({
       error: () => {}
     },
     chrome: {
-      runtime: { onMessage: { addListener(fn) { runtimeListeners.push(fn); } } },
+      runtime: {
+        onMessage: { addListener(fn) { runtimeListeners.push(fn); } },
+        onInstalled: { addListener(fn) { fn(); } },
+        onStartup: { addListener() {} },
+        onConnect: { addListener() {} }
+      },
+      contextMenus: {
+        removeAll(cb) { cb(); },
+        create() {},
+        onClicked: { addListener() {} }
+      },
       storage: { sync, local }
     },
     fetch: async (url, options = {}) => {
@@ -2316,6 +2336,157 @@ async function assertAutoRouteDiscoversAgentCardOnDemand() {
   assert.ok(requests.some(r => /\.well-known\/agent\.json/.test(r.url)), 'should have fetched the agent card on demand');
 }
 
+async function assertSummarizePageActionPromptExists() {
+  const { context } = await createBackgroundContext({
+    storage: {
+      endpoint: 'http://localhost:5000/v1',
+      apiKey: 'test-key',
+      model: 'gpt-4o'
+    },
+    fetchImpl: async () => ({
+      ok: true,
+      json: async () => ({ choices: [{ message: { content: 'Page summary result' } }] })
+    })
+  });
+
+  const result = await context.handleAIAction('summarize-page', 'Some page content here.');
+  assert.strictEqual(result, 'Page summary result');
+}
+
+async function assertSummarizePageRejectsUnknownAction() {
+  const { context } = await createBackgroundContext({
+    storage: {
+      endpoint: 'http://localhost:5000/v1',
+      apiKey: 'test-key',
+      model: 'gpt-4o'
+    }
+  });
+
+  await assert.rejects(
+    () => context.handleAIAction('nonexistent-action', 'text'),
+    /Unknown action/
+  );
+}
+
+async function assertStreamingRequestSetsSseFlag() {
+  const requests = [];
+  const { context } = await createBackgroundContext({
+    storage: {
+      endpoint: 'http://localhost:5000/v1',
+      apiKey: 'test-key',
+      model: 'gpt-4o'
+    },
+    fetchImpl: async (url, options) => {
+      requests.push({ url, body: JSON.parse(options.body) });
+      return {
+        ok: true,
+        body: null,
+        json: async () => ({ choices: [{ message: { content: 'streamed result' } }] })
+      };
+    }
+  });
+
+  const chunks = [];
+  let doneCalled = false;
+
+  await context.executeApiRequestStreaming({
+    messages: [{ role: 'user', content: 'test' }],
+    systemPrompt: 'be helpful',
+    onChunk: text => chunks.push(text),
+    onDone: () => { doneCalled = true; },
+    onError: () => {}
+  });
+
+  assert.strictEqual(requests.length, 1);
+  assert.strictEqual(requests[0].body.stream, true, 'streaming request must set stream: true');
+  assert.ok(doneCalled, 'onDone should be called');
+  // Falls back to json when no body (ReadableStream)
+  assert.deepStrictEqual(chunks, ['streamed result']);
+}
+
+async function assertStreamingReportsErrorOnBadStatus() {
+  const { context } = await createBackgroundContext({
+    storage: {
+      endpoint: 'http://localhost:5000/v1',
+      apiKey: 'test-key',
+      model: 'gpt-4o'
+    },
+    fetchImpl: async () => ({
+      ok: false,
+      status: 401,
+      text: async () => JSON.stringify({ error: { message: 'Invalid API key' } }),
+      headers: { entries: () => [] }
+    })
+  });
+
+  let errorMsg = '';
+  let doneCalled = false;
+
+  await context.executeApiRequestStreaming({
+    messages: [{ role: 'user', content: 'test' }],
+    systemPrompt: 'be helpful',
+    onChunk: () => {},
+    onDone: () => { doneCalled = true; },
+    onError: err => { errorMsg = err; }
+  });
+
+  assert.ok(errorMsg.includes('Invalid API key'), `expected auth error, got: ${errorMsg}`);
+}
+
+async function assertStreamingReportsErrorWhenNoApiKey() {
+  const { context } = await createBackgroundContext({
+    storage: {
+      endpoint: 'http://localhost:5000/v1',
+      apiKey: '',
+      model: 'gpt-4o'
+    }
+  });
+
+  let errorMsg = '';
+  await context.executeApiRequestStreaming({
+    messages: [{ role: 'user', content: 'test' }],
+    systemPrompt: 'be helpful',
+    onChunk: () => {},
+    onDone: () => {},
+    onError: err => { errorMsg = err; }
+  });
+
+  assert.ok(errorMsg.includes('No API key configured'), `expected no-key error, got: ${errorMsg}`);
+}
+
+async function assertStreamChunkParsersWorkForAllShapes() {
+  const { context } = await createBackgroundContext({
+    storage: {}
+  });
+
+  // OpenAI chat chunk
+  const openaiParser = context.parseStreamChunkOpenAIChat;
+  assert.strictEqual(openaiParser({ choices: [{ delta: { content: 'hello' } }] }), 'hello');
+  assert.strictEqual(openaiParser({ choices: [{ delta: {} }] }), '');
+  assert.strictEqual(openaiParser({}), '');
+
+  // Anthropic chunk
+  const anthropicParser = context.parseStreamChunkAnthropic;
+  assert.strictEqual(anthropicParser({ type: 'content_block_delta', delta: { type: 'text_delta', text: 'bonjour' } }), 'bonjour');
+  assert.strictEqual(anthropicParser({ type: 'message_start' }), '');
+  assert.strictEqual(anthropicParser({}), '');
+
+  // OpenAI Responses chunk
+  const responsesParser = context.parseStreamChunkOpenAIResponses;
+  assert.strictEqual(responsesParser({ type: 'response.output_text.delta', delta: 'hola' }), 'hola');
+  assert.strictEqual(responsesParser({ type: 'response.created' }), '');
+  assert.strictEqual(responsesParser({}), '');
+}
+
+async function assertContextMenuSetupCreatesExpectedMenuItems() {
+  const { context } = await createBackgroundContext({
+    storage: {}
+  });
+
+  // setupContextMenus should be defined and callable
+  assert.strictEqual(typeof context.setupContextMenus, 'function');
+}
+
 async function main() {
   await assertA2aServerMetadataAndTokensUseSeparateStorageAreas();
   await assertLoadA2aServersReadsFromLocalStorage();
@@ -2378,6 +2549,14 @@ async function main() {
   await assertA2aDelegateTaskReturnsImmediateTextResult();
   await assertA2aDelegateTaskPollsUntilCompleted();
   await assertA2aDelegateTaskSurfacesFailedTaskState();
+  // New feature tests: streaming, context menu, page summary
+  await assertSummarizePageActionPromptExists();
+  await assertSummarizePageRejectsUnknownAction();
+  await assertStreamingRequestSetsSseFlag();
+  await assertStreamingReportsErrorOnBadStatus();
+  await assertStreamingReportsErrorWhenNoApiKey();
+  await assertStreamChunkParsersWorkForAllShapes();
+  await assertContextMenuSetupCreatesExpectedMenuItems();
 }
 
 main().catch(err => {

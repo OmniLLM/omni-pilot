@@ -3,7 +3,7 @@
   "name": "OmniPilot",
   "version": "0.1.4",
   "description": "Select text → AI actions: translate, summarize, explain, improve",
-  "permissions": ["storage", "clipboardWrite", "tabs"],
+  "permissions": ["storage", "clipboardWrite", "tabs", "contextMenus"],
   "host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "background.js"

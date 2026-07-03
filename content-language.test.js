@@ -117,6 +117,7 @@ async function createContentContext(storedConfig = {}) {
 
   const storageListeners = [];
   const sendMessageCalls = [];
+  const portMessages = [];
   const openedUrls = [];
   const syncWrites = [];
   const localWrites = [];
@@ -145,6 +146,26 @@ async function createContentContext(storedConfig = {}) {
     chrome: {
       runtime: {
         openOptionsPage() {},
+        onMessage: { addListener() {} },
+        connect(opts) {
+          const portListeners = [];
+          return {
+            name: opts?.name || '',
+            onMessage: { addListener(fn) { portListeners.push(fn); } },
+            onDisconnect: { addListener() {} },
+            postMessage(msg) {
+              portMessages.push(msg);
+              // Simulate immediate done for test purposes
+              setTimeout(() => {
+                for (const fn of portListeners) {
+                  fn({ type: 'chunk', text: 'streamed result' });
+                  fn({ type: 'done' });
+                }
+              }, 0);
+            },
+            disconnect() {}
+          };
+        },
         sendMessage(message, callback = () => {}) {
           sendMessageCalls.push(message);
           if (message.type === 'GET_MODELS') callback({ models: ['claude-sonnet-4-5', 'gpt-4o'] });
@@ -214,6 +235,7 @@ async function createContentContext(storedConfig = {}) {
     storageListeners,
     context,
     sendMessageCalls,
+    portMessages,
     openedUrls,
     syncWrites,
     localWrites,
@@ -248,7 +270,7 @@ async function openDropdown(storedConfig) {
 }
 
 async function testOrdinaryFollowUpUsesAIChatNotDirectA2a() {
-  const { documentRef, sendMessageCalls, setSelectionText } = await createContentContext({
+  const { documentRef, sendMessageCalls, portMessages, setSelectionText } = await createContentContext({
     apiKey: 'test-key',
     languagePreference: 'en',
     a2aServers: [{ id: 'server-1', name: 'A2A localhost', endpoint: 'http://127.0.0.1:1423', enabled: true, agentCard: { name: 'A2A localhost' } }]
@@ -262,7 +284,8 @@ async function testOrdinaryFollowUpUsesAIChatNotDirectA2a() {
   input.value = 'show me disk usage';
   input.listeners.keydown({ key: 'Enter', shiftKey: false, preventDefault() {}, stopPropagation() {} });
 
-  assert.ok(sendMessageCalls.some(message => message.type === 'AI_CHAT'));
+  // Streaming follow-up uses port-based AI_CHAT_STREAM instead of sendMessage AI_CHAT
+  assert.ok(portMessages.some(message => message.type === 'AI_CHAT_STREAM'));
   assert.ok(!sendMessageCalls.some(message => message.type === 'A2A_DELEGATE_TASK'));
 }
 
@@ -579,7 +602,7 @@ async function testPanelTitleOpensRepository() {
 }
 
 async function testOpenPanelAppendsNewSelectionContext() {
-  const { documentRef, sendMessageCalls, setSelectionText } = await createContentContext({ apiKey: 'test-key', languagePreference: 'en' });
+  const { documentRef, sendMessageCalls, portMessages, setSelectionText } = await createContentContext({ apiKey: 'test-key', languagePreference: 'en' });
 
   await selectText(documentRef, setSelectionText, 'first selected text');
   documentRef.getElementById('omnipilot-bubble').listeners.click({ preventDefault() {}, stopPropagation() {} });
@@ -601,8 +624,9 @@ async function testOpenPanelAppendsNewSelectionContext() {
   input.value = 'Use all context';
   input.listeners.keydown({ key: 'Enter', shiftKey: false, preventDefault() {}, stopPropagation() {} });
 
-  const chatMessage = sendMessageCalls.findLast(message => message.type === 'AI_CHAT');
-  assert.ok(chatMessage, 'follow-up should send AI_CHAT');
+  // Follow-up chat now uses streaming port (AI_CHAT_STREAM) instead of sendMessage (AI_CHAT)
+  const chatMessage = portMessages.findLast(message => message.type === 'AI_CHAT_STREAM');
+  assert.ok(chatMessage, 'follow-up should send AI_CHAT_STREAM via port');
   const messages = JSON.parse(JSON.stringify(chatMessage.messages));
   assert.ok(messages.some(message => message.content.includes('first selected text')));
   assert.ok(messages.some(message => message.content.includes('second selected context')));
@@ -610,7 +634,7 @@ async function testOpenPanelAppendsNewSelectionContext() {
 }
 
 async function testOpenPanelCanRemoveAccidentalSelectionContext() {
-  const { documentRef, sendMessageCalls, setSelectionText } = await createContentContext({ apiKey: 'test-key', languagePreference: 'en' });
+  const { documentRef, portMessages, setSelectionText } = await createContentContext({ apiKey: 'test-key', languagePreference: 'en' });
 
   await selectText(documentRef, setSelectionText, 'keep this context');
   documentRef.getElementById('omnipilot-bubble').listeners.click({ preventDefault() {}, stopPropagation() {} });
@@ -637,8 +661,8 @@ async function testOpenPanelCanRemoveAccidentalSelectionContext() {
   input.value = 'Use remaining context';
   input.listeners.keydown({ key: 'Enter', shiftKey: false, preventDefault() {}, stopPropagation() {} });
 
-  const chatMessage = sendMessageCalls.findLast(message => message.type === 'AI_CHAT');
-  assert.ok(chatMessage, 'follow-up should send AI_CHAT');
+  const chatMessage = portMessages.findLast(message => message.type === 'AI_CHAT_STREAM');
+  assert.ok(chatMessage, 'follow-up should send AI_CHAT_STREAM via port');
   const messages = JSON.parse(JSON.stringify(chatMessage.messages));
   assert.ok(messages.some(message => message.content.includes('keep this context')));
   assert.ok(!messages.some(message => message.content.includes('remove this accidental context')));

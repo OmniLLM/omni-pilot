@@ -190,7 +190,8 @@
         summarize: label('summarizing'),
         explain: label('explaining'),
         improve: label('improving'),
-        'delegate-a2a': label('delegating')
+        'delegate-a2a': label('delegating'),
+        'summarize-page': label('summarizingPage')
       };
       titleEl.textContent = `✦ ${actionLabels[currentAction] || 'OmniPilot'}`;
     } else if (titleEl) {
@@ -204,6 +205,14 @@
     { id: 'explain', labelKey: 'explain', icon: '💡' },
     { id: 'improve', labelKey: 'improve', icon: '✨' }
   ];
+
+  const PAGE_CONTENT_MAX_CHARS = 12000;
+
+  function extractPageContent() {
+    const text = (document.body?.innerText || '').trim();
+    if (!text) return '';
+    return text.length > PAGE_CONTENT_MAX_CHARS ? text.slice(0, PAGE_CONTENT_MAX_CHARS) + '\n\n[Content truncated]' : text;
+  }
 
   function hasEnabledA2aServers() {
     return a2aServers.some(server => server && server.enabled !== false);
@@ -723,6 +732,7 @@
       return;
     }
 
+    // A2A delegation uses non-streaming sendMessage (A2A protocol is not SSE)
     if (a2aMentionTask?.server) {
       runtime.sendMessage(
         {
@@ -750,25 +760,8 @@
       return;
     }
 
-    runtime.sendMessage(
-      { type: 'AI_CHAT', messages: conversationHistory },
-      response => {
-        if (signal.aborted) return;
-        // Remove loading indicator
-        body.querySelector('.omnipilot-loading')?.remove();
-        if (runtime.lastError) {
-          body.appendChild(createErrorElement(humanizeError(runtime.lastError.message)));
-          return;
-        }
-        if (!response || !response.success) {
-          body.appendChild(createErrorElement(humanizeError(response?.error)));
-          return;
-        }
-        conversationHistory.push({ role: 'assistant', content: response.result });
-        body.appendChild(createAssistantMessage(response.result));
-        body.scrollTop = body.scrollHeight;
-      }
-    );
+    // Use streaming for normal chat follow-ups
+    streamChat(conversationHistory, body);
   }
 
   function buildSelectionContextMessage(selectedText) {
@@ -1385,6 +1378,169 @@
     }
   }
 
+  // ── Streaming Helpers ──────────────────────────────────────────────────────────
+
+  function createStreamingAssistantMessage() {
+    const container = document.createElement('div');
+    container.className = 'omnipilot-msg-container';
+    const headerDiv = document.createElement('div');
+    headerDiv.className = 'omnipilot-msg-header';
+    headerDiv.innerHTML = `<span class="omnipilot-msg-header-avatar">✦</span><span>OmniPilot</span>`;
+    const msgDiv = document.createElement('div');
+    msgDiv.className = 'omnipilot-msg omnipilot-msg-assistant omnipilot-streaming';
+    msgDiv.textContent = '';
+    container.appendChild(headerDiv);
+    container.appendChild(msgDiv);
+    return { container, msgDiv };
+  }
+
+  function finalizeStreamingMessage(msgDiv) {
+    msgDiv.classList.remove('omnipilot-streaming');
+    const rawText = msgDiv.textContent;
+    msgDiv.innerHTML = formatResult(rawText);
+    // Re-attach copy button handlers for code blocks
+    const container = msgDiv.closest('.omnipilot-msg-container');
+    if (container?.querySelectorAll) {
+      container.querySelectorAll('.omnipilot-code-block-copy-btn').forEach(btn => {
+        btn.addEventListener('click', e => {
+          e.preventDefault();
+          e.stopPropagation();
+          const codeBody = btn.closest('.omnipilot-code-block-card')?.querySelector('.omnipilot-code-block-body');
+          if (codeBody) {
+            navigator.clipboard.writeText(codeBody.textContent).then(() => {
+              const oldText = btn.textContent;
+              btn.textContent = '✓';
+              setTimeout(() => { btn.textContent = oldText; }, 1500);
+            });
+          }
+        });
+      });
+    }
+  }
+
+  function streamAction(actionId, text, body) {
+    const runtime = globalThis.chrome?.runtime;
+    if (!runtime?.connect) {
+      body.querySelector('.omnipilot-loading')?.remove();
+      body.appendChild(createErrorElement(label('extensionContextUnavailable')));
+      return;
+    }
+
+    abortController = new AbortController();
+    const signal = abortController.signal;
+
+    const port = runtime.connect({ name: 'omnipilot-stream' });
+    let accumulated = '';
+    let streamingMsg = null;
+    let streamMsgDiv = null;
+
+    port.onMessage.addListener(msg => {
+      if (signal.aborted) { try { port.disconnect(); } catch {} return; }
+
+      if (msg.type === 'chunk') {
+        if (!streamingMsg) {
+          body.querySelector('.omnipilot-loading')?.remove();
+          const created = createStreamingAssistantMessage();
+          streamingMsg = created.container;
+          streamMsgDiv = created.msgDiv;
+          body.appendChild(streamingMsg);
+        }
+        accumulated += msg.text;
+        streamMsgDiv.textContent = accumulated;
+        body.scrollTop = body.scrollHeight;
+      } else if (msg.type === 'error') {
+        body.querySelector('.omnipilot-loading')?.remove();
+        if (!accumulated) {
+          body.appendChild(createErrorElement(humanizeError(msg.error || label('unknownError'))));
+        }
+      } else if (msg.type === 'done') {
+        body.querySelector('.omnipilot-loading')?.remove();
+        if (accumulated && streamMsgDiv) {
+          finalizeStreamingMessage(streamMsgDiv);
+          conversationHistory.push({ role: 'assistant', content: accumulated });
+        } else if (!accumulated && !body.querySelector('.omnipilot-error')) {
+          body.appendChild(createErrorElement(label('noResponse')));
+        }
+        currentAction = '';
+        updatePanelMeta();
+        body.scrollTop = body.scrollHeight;
+        try { port.disconnect(); } catch {}
+      }
+    });
+
+    port.onDisconnect.addListener(() => {
+      if (!accumulated && !signal.aborted) {
+        body.querySelector('.omnipilot-loading')?.remove();
+        if (!body.querySelector('.omnipilot-error') && !body.querySelector('.omnipilot-msg-assistant')) {
+          body.appendChild(createErrorElement(label('noResponse')));
+        }
+        currentAction = '';
+        updatePanelMeta();
+      }
+    });
+
+    port.postMessage({ type: 'AI_ACTION_STREAM', action: actionId, text });
+  }
+
+  function streamChat(messages, body) {
+    const runtime = globalThis.chrome?.runtime;
+    if (!runtime?.connect) {
+      body.querySelector('.omnipilot-loading')?.remove();
+      body.appendChild(createErrorElement(label('extensionContextUnavailable')));
+      return;
+    }
+
+    abortController = new AbortController();
+    const signal = abortController.signal;
+
+    const port = runtime.connect({ name: 'omnipilot-stream' });
+    let accumulated = '';
+    let streamingMsg = null;
+    let streamMsgDiv = null;
+
+    port.onMessage.addListener(msg => {
+      if (signal.aborted) { try { port.disconnect(); } catch {} return; }
+
+      if (msg.type === 'chunk') {
+        if (!streamingMsg) {
+          body.querySelector('.omnipilot-loading')?.remove();
+          const created = createStreamingAssistantMessage();
+          streamingMsg = created.container;
+          streamMsgDiv = created.msgDiv;
+          body.appendChild(streamingMsg);
+        }
+        accumulated += msg.text;
+        streamMsgDiv.textContent = accumulated;
+        body.scrollTop = body.scrollHeight;
+      } else if (msg.type === 'error') {
+        body.querySelector('.omnipilot-loading')?.remove();
+        if (!accumulated) {
+          body.appendChild(createErrorElement(humanizeError(msg.error || label('unknownError'))));
+        }
+      } else if (msg.type === 'done') {
+        body.querySelector('.omnipilot-loading')?.remove();
+        if (accumulated && streamMsgDiv) {
+          finalizeStreamingMessage(streamMsgDiv);
+          conversationHistory.push({ role: 'assistant', content: accumulated });
+        } else if (!accumulated && !body.querySelector('.omnipilot-error')) {
+          body.appendChild(createErrorElement(label('noResponse')));
+        }
+        body.scrollTop = body.scrollHeight;
+        try { port.disconnect(); } catch {}
+      }
+    });
+
+    port.onDisconnect.addListener(() => {
+      if (!accumulated && !signal.aborted) {
+        body.querySelector('.omnipilot-loading')?.remove();
+        currentAction = '';
+        updatePanelMeta();
+      }
+    });
+
+    port.postMessage({ type: 'AI_CHAT_STREAM', messages });
+  }
+
   // ── Action Runner ─────────────────────────────────────────────────────────────
 
   // Run an action while preserving existing conversation context.
@@ -1417,43 +1573,7 @@
     body.appendChild(createLoadingIndicator());
     body.scrollTop = body.scrollHeight;
 
-    const runtime = globalThis.chrome?.runtime;
-    if (!runtime?.sendMessage) {
-      body.querySelector('.omnipilot-loading')?.remove();
-      body.appendChild(createErrorElement(label('extensionContextUnavailable')));
-      return;
-    }
-
-    abortController = new AbortController();
-    const signal = abortController.signal;
-
-    // Send the action request — the background applies the action's system prompt
-    runtime.sendMessage(
-      { type: 'AI_ACTION', action: actionId, text },
-      response => {
-        if (signal.aborted) return;
-        body.querySelector('.omnipilot-loading')?.remove();
-        if (runtime.lastError) {
-          body.appendChild(createErrorElement(humanizeError(runtime.lastError.message)));
-          return;
-        }
-        if (!response) {
-          body.appendChild(createErrorElement(label('noResponse')));
-          return;
-        }
-        if (response.success) {
-          // Append the result to conversation history so follow-ups have context
-          conversationHistory.push({ role: 'user', content: `[${actionLabel}] ${text}` });
-          conversationHistory.push({ role: 'assistant', content: response.result });
-          body.appendChild(createAssistantMessage(response.result));
-          body.scrollTop = body.scrollHeight;
-        } else {
-          body.appendChild(createErrorElement(humanizeError(response.error || label('unknownError'))));
-        }
-        currentAction = '';
-        updatePanelMeta();
-      }
-    );
+    streamAction(actionId, text, body);
   }
 
   // Run an action as a fresh session (called from the initial dropdown).
@@ -1480,42 +1600,55 @@
     const body = panel.querySelector('.omnipilot-panel-body');
     body.appendChild(createLoadingIndicator());
 
-    const runtime = globalThis.chrome?.runtime;
-    if (!runtime?.sendMessage) {
-      body.querySelector('.omnipilot-loading')?.remove();
-      body.appendChild(createErrorElement(label('extensionContextUnavailable')));
-      return;
-    }
-
-    // Create abort controller for this request
-    abortController = new AbortController();
-    const signal = abortController.signal;
-
-    runtime.sendMessage(
-      { type: 'AI_ACTION', action: actionId, text },
-      response => {
-        if (signal.aborted) return; // cancelled
-        body.querySelector('.omnipilot-loading')?.remove();
-        if (runtime.lastError) {
-          body.appendChild(createErrorElement(humanizeError(runtime.lastError.message)));
-          return;
-        }
-        if (!response) {
-          body.appendChild(createErrorElement(label('noResponse')));
-          return;
-        }
-        if (response.success) {
-          conversationHistory.push({ role: 'assistant', content: response.result });
-          body.appendChild(createAssistantMessage(response.result));
-          body.scrollTop = body.scrollHeight;
-        } else {
-          body.appendChild(createErrorElement(humanizeError(response.error || label('unknownError'))));
-        }
-        currentAction = '';
-        updatePanelMeta();
-      }
-    );
+    streamAction(actionId, text, body);
   }
+
+  // ── Page Summary ─────────────────────────────────────────────────────────────
+
+  function runPageSummary() {
+    hideBubble();
+    hideDropdown();
+
+    const pageContent = extractPageContent();
+    if (!pageContent) return;
+
+    currentAction = 'summarize-page';
+
+    const contextId = `page-summary-${++selectionContextSeq}`;
+    conversationHistory = [{ role: 'user', content: pageContent, kind: 'page-context', contextId }];
+    lastAppendedSelectionContext = '';
+
+    // Show panel immediately with loading state
+    showPanel('', false, false);
+    updatePanelMeta();
+    const body = panel.querySelector('.omnipilot-panel-body');
+
+    // Show page summary context indicator
+    const pageIndicator = document.createElement('div');
+    pageIndicator.className = 'omnipilot-selected-context';
+    pageIndicator.textContent = `📄 ${label('summarizingPage')}`;
+    body.appendChild(pageIndicator);
+
+    body.appendChild(createLoadingIndicator());
+
+    streamAction('summarize-page', pageContent, body);
+  }
+
+  // ── Context Menu Handler ──────────────────────────────────────────────────────
+
+  chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    if (request.type === 'CONTEXT_MENU_ACTION') {
+      lastSelection = request.text;
+      runAction(request.action);
+      sendResponse({ success: true });
+      return true;
+    }
+    if (request.type === 'CONTEXT_MENU_PAGE_SUMMARY') {
+      runPageSummary();
+      sendResponse({ success: true });
+      return true;
+    }
+  });
 
   // ── Selection Detection ───────────────────────────────────────────────────────
 
