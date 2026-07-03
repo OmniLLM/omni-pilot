@@ -218,16 +218,14 @@ chrome.runtime.onConnect?.addListener(port => {
           }
         });
       } else if (request.type === 'AI_CHAT_STREAM') {
-        await executeApiRequestStreaming({
-          messages: request.messages,
-          systemPrompt: CHAT_SYSTEM_PROMPT,
-          onChunk: text => port.postMessage({ type: 'chunk', text }),
-          onDone: () => port.postMessage({ type: 'done' }),
-          onError: error => {
-            port.postMessage({ type: 'error', error });
-            port.postMessage({ type: 'done' });
-          }
-        });
+        try {
+          const result = await handleAIChat(request.messages);
+          port.postMessage({ type: 'chunk', text: result });
+          port.postMessage({ type: 'done' });
+        } catch (error) {
+          port.postMessage({ type: 'error', error: error.message || 'Unexpected extension error' });
+          port.postMessage({ type: 'done' });
+        }
       }
     });
   }
@@ -594,44 +592,6 @@ function buildA2aToolParameters() {
     required: ['task'],
     additionalProperties: false
   };
-}
-
-function normalizeA2aMatchText(value) {
-  return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-}
-
-function a2aMatchTokens(value) {
-  return new Set(normalizeA2aMatchText(value).split(/\s+/).filter(Boolean));
-}
-
-function getA2aSkillTerms(toolSchema) {
-  return a2aMatchTokens([
-    toolSchema.skillId,
-    toolSchema.skillName,
-    toolSchema.skillDescription,
-    ...(toolSchema.skillTags || [])
-  ].filter(Boolean).join(' '));
-}
-
-function findA2aSkillToolMatch(messages, toolSchemas) {
-  const queryTokens = a2aMatchTokens(getLatestUserMessage(messages));
-  if (!queryTokens.size) return null;
-
-  const matches = [];
-  for (const tool of toolSchemas) {
-    if (!tool.skillId) continue;
-    const terms = getA2aSkillTerms(tool);
-    let score = 0;
-    for (const token of queryTokens) {
-      if (terms.has(token)) score += 1;
-    }
-    if (score > 0) matches.push({ tool, score });
-  }
-
-  matches.sort((a, b) => b.score - a.score);
-  if (!matches.length) return null;
-  if (matches.length > 1 && matches[0].score === matches[1].score) return null;
-  return matches[0].tool;
 }
 
 function buildA2aToolSchema({ serverId, skillId, skillName, skillDescription, skillTags, name, description }) {
@@ -1570,14 +1530,6 @@ async function handleAIChat(messages) {
     const a2aServers = await ensureEnabledA2aServersDiscovered();
     if (a2aServers.length) {
       const toolSchemas = buildA2aToolSchemas(a2aServers);
-      const directMatch = findA2aSkillToolMatch(messages, toolSchemas);
-      if (directMatch) {
-        return delegateA2aTask({
-          serverId: directMatch.serverId,
-          task: getLatestUserMessage(messages),
-          contextText: getA2aConversationContext(messages)
-        });
-      }
       return executeApiRequestWithA2aRouting({
         config,
         messages,

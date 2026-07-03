@@ -184,6 +184,7 @@ async function createBackgroundContext({
 } = {}) {
   const requests = [];
   const runtimeListeners = [];
+  const connectListeners = [];
   const syncStore = { ...storage };
   const localStore = { ...storage };
   if (Object.prototype.hasOwnProperty.call(storage, 'a2aServerTokens')) {
@@ -237,7 +238,7 @@ async function createBackgroundContext({
         onMessage: { addListener(fn) { runtimeListeners.push(fn); } },
         onInstalled: { addListener(fn) { fn(); } },
         onStartup: { addListener() {} },
-        onConnect: { addListener() {} }
+        onConnect: { addListener(fn) { connectListeners.push(fn); } }
       },
       contextMenus: {
         removeAll(cb) { cb(); },
@@ -260,6 +261,7 @@ async function createBackgroundContext({
     context,
     requests,
     runtimeListeners,
+    connectListeners,
     stores: { syncStore, localStore, activeStore: storageArea === 'local' ? localStore : syncStore }
   };
 }
@@ -2242,7 +2244,7 @@ async function assertSkillToolCallDelegatesToCorrectServer() {
   assert.ok(requests.some(r => r.url === 'https://cloudbot.example/a2a'), 'delegated to the A2A server');
 }
 
-async function assertQuestionMatchingA2aSkillDelegatesBeforeCallingLlm() {
+async function assertQuestionMatchingA2aSkillUsesLlmToolCallRouting() {
   const { context, requests } = await createBackgroundContext({
     storage: {
       providerType: 'custom-provider',
@@ -2268,12 +2270,27 @@ async function assertQuestionMatchingA2aSkillDelegatesBeforeCallingLlm() {
       ],
       a2aServerTokens: { cloudbot: 'server-token' }
     },
-    fetchImpl: async (url) => {
+    fetchImpl: async (url, options) => {
       if (url === 'https://cloudbot.example/a2a') {
         return { ok: true, json: async () => ({ result: { message: { parts: [{ type: 'text', text: '5 Alibaba VMs' }] } } }) };
       }
       if (url === 'https://custom.example/v1/chat/completions') {
-        return { ok: true, json: async () => ({ choices: [{ message: { content: 'I will query Alibaba Cloud.' } }] }) };
+        const body = JSON.parse(options.body);
+        assert.ok(Array.isArray(body.tools), 'A2A tools should be sent to the model');
+        assert.ok(body.tools.some(tool => tool.function.name === 'a2a__cloudbot__alibaba'));
+        return {
+          ok: true,
+          json: async () => ({
+            choices: [{
+              message: {
+                tool_calls: [{
+                  type: 'function',
+                  function: { name: 'a2a__cloudbot__alibaba', arguments: JSON.stringify({ task: 'How many VM in Alibaba?' }) }
+                }]
+              }
+            }]
+          })
+        };
       }
       throw new Error(`Unexpected fetch ${url}`);
     }
@@ -2282,8 +2299,8 @@ async function assertQuestionMatchingA2aSkillDelegatesBeforeCallingLlm() {
   const result = await context.handleAIChat([{ role: 'user', content: 'How many VM in Alibaba?' }]);
 
   assert.strictEqual(result, '5 Alibaba VMs');
-  assert.ok(requests.some(r => r.url === 'https://cloudbot.example/a2a'), 'matching Alibaba VM skill should delegate');
-  assert.ok(!requests.some(r => r.url === 'https://custom.example/v1/chat/completions'), 'high-confidence skill match should not depend on the LLM emitting a tool call');
+  assert.ok(requests.some(r => r.url === 'https://custom.example/v1/chat/completions'), 'should let the model choose an A2A tool');
+  assert.ok(requests.some(r => r.url === 'https://cloudbot.example/a2a'), 'selected Alibaba tool should delegate');
 }
 
 async function assertAutoRouteRefreshesSparseCachedAgentCard() {
@@ -2339,8 +2356,8 @@ async function assertAutoRouteRefreshesSparseCachedAgentCard() {
 
   assert.strictEqual(result, '11053 Alibaba VMs');
   assert.ok(requests.some(r => /\.well-known\/agent\.json/.test(r.url)), 'should refresh sparse cached agent cards');
-  assert.ok(requests.some(r => r.url === 'https://cloudbot.example/a2a'), 'should delegate after refreshing skills');
-  assert.ok(!requests.some(r => r.url === 'https://custom.example/v1/chat/completions'), 'refreshed high-confidence skill match should not depend on the LLM emitting a tool call');
+  assert.ok(requests.some(r => r.url === 'https://custom.example/v1/chat/completions'), 'should let the model choose from refreshed A2A tools');
+  assert.ok(requests.some(r => r.url === 'https://cloudbot.example/a2a'), 'should delegate after the model selects a refreshed skill tool');
 }
 
 async function assertAutoRouteDiscoversAgentCardOnDemand() {
@@ -2450,6 +2467,80 @@ async function assertStreamingRequestSetsSseFlag() {
   assert.ok(doneCalled, 'onDone should be called');
   // Falls back to json when no body (ReadableStream)
   assert.deepStrictEqual(chunks, ['streamed result']);
+}
+
+async function assertStreamingChatAutoRouteHandlesA2aToolCalls() {
+  const portMessages = [];
+  const { connectListeners, requests } = await createBackgroundContext({
+    storage: {
+      providerType: 'custom-provider',
+      endpoint: 'https://custom.example/v1',
+      apiKey: 'custom-key',
+      model: 'custom-model',
+      apiShape: 'openai-compatible',
+      a2aServers: [
+        {
+          id: 'launcher',
+          name: 'OmniLauncher',
+          endpoint: 'https://launcher.example/a2a',
+          enabled: true,
+          agentCard: {
+            name: 'OmniLauncher',
+            description: 'Runs cloud and desktop skills.',
+            skills: [{ id: 'skill:alibaba', name: 'alibaba', description: 'Query Alibaba Cloud resources and accounts.' }]
+          }
+        }
+      ],
+      a2aServerTokens: { launcher: 'server-token' }
+    },
+    fetchImpl: async (url, options) => {
+      if (url === 'https://custom.example/v1/chat/completions') {
+        const body = JSON.parse(options.body);
+        assert.ok(Array.isArray(body.tools), 'streaming chat should include A2A tools');
+        assert.strictEqual(body.tool_choice, 'auto');
+        const alibabaTool = body.tools.find(tool => tool.function.name === 'a2a__launcher__skill_alibaba');
+        assert.ok(alibabaTool, 'expected an Alibaba A2A tool schema');
+        return {
+          ok: true,
+          json: async () => ({
+            choices: [{
+              message: {
+                tool_calls: [{
+                  type: 'function',
+                  function: { name: alibabaTool.function.name, arguments: JSON.stringify({ task: 'How many VMs in Alibaba now' }) }
+                }]
+              }
+            }]
+          })
+        };
+      }
+      if (url === 'https://launcher.example/a2a') {
+        return { ok: true, json: async () => ({ result: { message: { parts: [{ type: 'text', text: '11053 Alibaba VMs' }] } } }) };
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    }
+  });
+
+  assert.strictEqual(connectListeners.length, 1, 'background should register one port listener');
+  const messageListeners = [];
+  connectListeners[0]({
+    name: 'omnipilot-stream',
+    onMessage: { addListener(fn) { messageListeners.push(fn); } },
+    postMessage(message) { portMessages.push(message); }
+  });
+  assert.strictEqual(messageListeners.length, 1, 'stream port should register one message listener');
+
+  await messageListeners[0]({
+    type: 'AI_CHAT_STREAM',
+    messages: [{ role: 'user', content: 'How many VMs in Alibaba now' }]
+  });
+
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(portMessages)), [
+    { type: 'chunk', text: '11053 Alibaba VMs' },
+    { type: 'done' }
+  ]);
+  assert.ok(requests.some(request => request.url === 'https://custom.example/v1/chat/completions'), 'should let the model choose an A2A tool');
+  assert.ok(requests.some(request => request.url === 'https://launcher.example/a2a'), 'should delegate selected A2A tool call');
 }
 
 async function assertStreamingReportsErrorOnBadStatus() {
@@ -2599,7 +2690,7 @@ async function main() {
   await assertA2aToolSchemasIncludeOneToolPerSkill();
   await assertA2aToolSchemasFallBackToServerToolWhenNoSkills();
   await assertSkillToolCallDelegatesToCorrectServer();
-  await assertQuestionMatchingA2aSkillDelegatesBeforeCallingLlm();
+  await assertQuestionMatchingA2aSkillUsesLlmToolCallRouting();
   await assertAutoRouteRefreshesSparseCachedAgentCard();
   await assertAutoRouteDiscoversAgentCardOnDemand();
   await assertCopilotAutoRouteToolCallDelegates();
@@ -2633,6 +2724,7 @@ async function main() {
   await assertSummarizePageActionPromptExists();
   await assertSummarizePageRejectsUnknownAction();
   await assertStreamingRequestSetsSseFlag();
+  await assertStreamingChatAutoRouteHandlesA2aToolCalls();
   await assertStreamingReportsErrorOnBadStatus();
   await assertStreamingReportsErrorWhenNoApiKey();
   await assertStreamChunkParsersWorkForAllShapes();
