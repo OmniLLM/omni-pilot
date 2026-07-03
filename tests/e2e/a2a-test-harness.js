@@ -12,7 +12,7 @@ const vm = require('vm');
 const os = require('os');
 const path = require('path');
 
-const backgroundSource = fs.readFileSync(path.join(__dirname, 'background.js'), 'utf8');
+const backgroundSource = fs.readFileSync(path.join(__dirname, '..', '..', 'dist', 'background.js'), 'utf8');
 
 // ─── Config from disk ───────────────────────────────────────────────
 
