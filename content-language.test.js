@@ -117,6 +117,7 @@ async function createContentContext(storedConfig = {}) {
 
   const storageListeners = [];
   const sendMessageCalls = [];
+  const openedUrls = [];
   const syncWrites = [];
   const localWrites = [];
   const { a2aServers: seededA2aServers, ...syncSeed } = storedConfig;
@@ -128,6 +129,9 @@ async function createContentContext(storedConfig = {}) {
     window: {
       innerWidth: 1024,
       innerHeight: 768,
+      open(url, target, features) {
+        openedUrls.push({ url, target, features });
+      },
       getSelection() {
         return {
           rangeCount: selectionText ? 1 : 0,
@@ -210,6 +214,7 @@ async function createContentContext(storedConfig = {}) {
     storageListeners,
     context,
     sendMessageCalls,
+    openedUrls,
     syncWrites,
     localWrites,
     localStore,
@@ -512,9 +517,29 @@ async function main() {
 
   assert.deepStrictEqual(JSON.parse(JSON.stringify(sendMessageCalls.at(-1))), { type: 'SET_MODEL', model: 'gpt-4o' });
 
+  await testPanelTitleOpensRepository();
   await testOpenPanelAppendsNewSelectionContext();
   await testOpenPanelCanRemoveAccidentalSelectionContext();
   await testOpenPanelIgnoresDuplicateAndPanelSelections();
+}
+
+async function testPanelTitleOpensRepository() {
+  const { documentRef, openedUrls, setSelectionText } = await createContentContext({ apiKey: 'test-key', languagePreference: 'en' });
+
+  await selectText(documentRef, setSelectionText, 'selected text');
+  documentRef.getElementById('omnipilot-bubble').listeners.click({ preventDefault() {}, stopPropagation() {} });
+  documentRef.getElementById('omnipilot-dropdown').children[0].listeners.click({ preventDefault() {}, stopPropagation() {} });
+
+  const title = documentRef.getElementById('omnipilot-panel').querySelector('.omnipilot-panel-title');
+  assert.ok(title, 'panel title should be rendered');
+
+  title.listeners.click({ preventDefault() {}, stopPropagation() {} });
+
+  assert.deepStrictEqual(openedUrls, [{
+    url: 'https://github.com/OmniLLM/omni-pilot',
+    target: '_blank',
+    features: 'noopener,noreferrer'
+  }]);
 }
 
 async function testOpenPanelAppendsNewSelectionContext() {

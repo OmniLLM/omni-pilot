@@ -25,6 +25,7 @@
   let a2aServers = [];
   let lastAppendedSelectionContext = '';
   let selectionContextSeq = 0;
+  const REPOSITORY_URL = 'https://github.com/OmniLLM/omni-pilot';
   const PROVIDER_LABELS = {
     'custom-provider': 'Custom',
     'github-copilot': 'GitHub Copilot',
@@ -454,7 +455,7 @@
 
       const header = document.createElement('div');
       header.className = 'omnipilot-panel-header';
-      header.innerHTML = `<span class="omnipilot-panel-title">✦ OmniPilot</span>
+      header.innerHTML = `<a class="omnipilot-panel-title" href="${REPOSITORY_URL}" target="_blank" rel="noopener noreferrer" title="Open OmniPilot on GitHub">✦ OmniPilot</a>
         <div class="omnipilot-meta">
           <span class="omnipilot-meta-action-wrap">
             <span class="omnipilot-meta-action">${currentAction ? label(ACTIONS.find(a => a.id === currentAction)?.labelKey || 'chat') : label('chat')}</span>
@@ -471,6 +472,13 @@
             <span class="omnipilot-meta-arrow">▾</span>
           </span>
         </div>`;
+
+      const titleLink = header.querySelector('.omnipilot-panel-title');
+      titleLink.addEventListener('click', e => {
+        e.preventDefault();
+        e.stopPropagation();
+        window.open(REPOSITORY_URL, '_blank', 'noopener,noreferrer');
+      });
 
       // Action selector dropdown
       const actionWrap = header.querySelector('.omnipilot-meta-action-wrap');
@@ -511,7 +519,7 @@
       let dragOffsetY = 0;
 
       header.addEventListener('mousedown', e => {
-        if (e.target === closeBtn || e.target.closest('.omnipilot-meta-action-wrap') || e.target.closest('.omnipilot-meta-provider-wrap') || e.target.closest('.omnipilot-meta-model-wrap')) return;
+        if (e.target === closeBtn || e.target.closest('.omnipilot-panel-title') || e.target.closest('.omnipilot-meta-action-wrap') || e.target.closest('.omnipilot-meta-provider-wrap') || e.target.closest('.omnipilot-meta-model-wrap')) return;
         dragging = true;
         const panelLeft = parseFloat(panel.style.left) || 0;
         const panelTop = parseFloat(panel.style.top) || 0;
