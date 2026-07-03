@@ -431,6 +431,40 @@ async function testLocalA2aServerChangesUpdateContentState() {
   assert.ok(sendMessageCalls.some(message => message.type === 'A2A_DELEGATE_TASK'), 'local a2aServers changes should update content state');
 }
 
+async function testStoredPopupInitialSizeSetsFirstPanelSize() {
+  const { documentRef, setSelectionText } = await createContentContext({
+    apiKey: 'test-key',
+    languagePreference: 'en',
+    popupInitialWidth: 760,
+    popupInitialHeight: 420
+  });
+
+  await selectText(documentRef, setSelectionText, 'selected text');
+  documentRef.getElementById('omnipilot-bubble').listeners.click({ preventDefault() {}, stopPropagation() {} });
+  documentRef.getElementById('omnipilot-dropdown').children[0].listeners.click({ preventDefault() {}, stopPropagation() {} });
+
+  const panel = documentRef.getElementById('omnipilot-panel');
+  assert.strictEqual(panel.style.width, '760px');
+  assert.strictEqual(panel.style.height, '420px');
+}
+
+async function testStoredPopupInitialSizeIsClampedToViewport() {
+  const { documentRef, setSelectionText } = await createContentContext({
+    apiKey: 'test-key',
+    languagePreference: 'en',
+    popupInitialWidth: 5000,
+    popupInitialHeight: 5000
+  });
+
+  await selectText(documentRef, setSelectionText, 'selected text');
+  documentRef.getElementById('omnipilot-bubble').listeners.click({ preventDefault() {}, stopPropagation() {} });
+  documentRef.getElementById('omnipilot-dropdown').children[0].listeners.click({ preventDefault() {}, stopPropagation() {} });
+
+  const panel = documentRef.getElementById('omnipilot-panel');
+  assert.strictEqual(panel.style.width, '992px');
+  assert.strictEqual(panel.style.height, '736px');
+}
+
 async function main() {
   await testA2aServersDoNotAppearAsProviderEntries();
   await testSyncRemovalOfLegacyA2aServersDoesNotClearLocalServers();
@@ -518,6 +552,8 @@ async function main() {
   assert.deepStrictEqual(JSON.parse(JSON.stringify(sendMessageCalls.at(-1))), { type: 'SET_MODEL', model: 'gpt-4o' });
 
   await testPanelTitleOpensRepository();
+  await testStoredPopupInitialSizeSetsFirstPanelSize();
+  await testStoredPopupInitialSizeIsClampedToViewport();
   await testOpenPanelAppendsNewSelectionContext();
   await testOpenPanelCanRemoveAccidentalSelectionContext();
   await testOpenPanelIgnoresDuplicateAndPanelSelections();

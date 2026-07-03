@@ -275,6 +275,15 @@
       font-size: 10px;
     }
 
+    .popup-size-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .popup-size-grid .field {
+      margin-bottom: 0;
+    }
+
     .compact-card {
       padding: 16px;
     }
@@ -572,6 +581,21 @@
         </div>
         <div class="model-status" id="modelStatus"></div>
       </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title" data-i18n="popupInitialSize">Initial Popup Size</div>
+      <div class="popup-size-grid">
+        <div class="field">
+          <label for="popupInitialWidth" data-i18n="popupInitialWidth">Width</label>
+          <input type="number" id="popupInitialWidth" min="300" max="1200" step="10" inputmode="numeric">
+        </div>
+        <div class="field">
+          <label for="popupInitialHeight" data-i18n="popupInitialHeight">Height</label>
+          <input type="number" id="popupInitialHeight" min="180" max="900" step="10" inputmode="numeric">
+        </div>
+      </div>
+      <div class="hint" data-i18n="popupInitialSizeHint">Used when the floating popup opens for the first time. Values are clamped to fit the current viewport.</div>
     </div>
 
     <button type="button" class="advanced-toggle" id="advancedToggle" aria-expanded="false" aria-controls="advancedSection">

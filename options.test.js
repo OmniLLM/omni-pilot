@@ -72,6 +72,8 @@ function createTestContext({ fetchImpl, sendMessageImpl, storageGetImpl, localSt
     a2aServerToken: createElement('secret-token'),
     a2aEndpoint: createElement('https://a2a.example.com'),
     a2aToken: createElement('secret-token'),
+    popupInitialWidth: createElement('720'),
+    popupInitialHeight: createElement('360'),
     addA2aServerBtn: createElement(),
     a2aStatus: createElement(),
     a2aServerList: createElement()
@@ -556,6 +558,56 @@ async function testSaveWritesProviderTypeAndNotLegacyAuthMethod() {
   const saved = syncWrites.at(-1);
   assert.strictEqual(saved.providerType, 'azure-foundry');
   assert.ok(!Object.prototype.hasOwnProperty.call(saved, 'authMethod'));
+}
+
+async function testSaveWritesPopupInitialSize() {
+  const { elements, domListeners, syncWrites } = createTestContext();
+  await domListeners.DOMContentLoaded();
+
+  elements.popupInitialWidth.value = '760';
+  elements.popupInitialHeight.value = '420';
+  await elements.saveBtn.listeners.click();
+
+  const saved = syncWrites.at(-1);
+  assert.strictEqual(saved.popupInitialWidth, 760);
+  assert.strictEqual(saved.popupInitialHeight, 420);
+}
+
+async function testStoredPopupInitialSizeLoadsIntoFields() {
+  const { elements, domListeners } = createTestContext({
+    storageGetImpl(keys, callback) {
+      callback({
+        popupInitialWidth: 820,
+        popupInitialHeight: 460,
+        languagePreference: 'en'
+      });
+    }
+  });
+
+  await domListeners.DOMContentLoaded();
+
+  assert.strictEqual(elements.popupInitialWidth.value, '820');
+  assert.strictEqual(elements.popupInitialHeight.value, '460');
+}
+
+async function testSaveClampsPopupInitialSize() {
+  const { elements, domListeners, syncWrites } = createTestContext();
+  await domListeners.DOMContentLoaded();
+
+  elements.popupInitialWidth.value = '100';
+  elements.popupInitialHeight.value = '9999';
+  await elements.saveBtn.listeners.click();
+
+  const saved = syncWrites.at(-1);
+  assert.strictEqual(saved.popupInitialWidth, 300);
+  assert.strictEqual(saved.popupInitialHeight, 900);
+}
+
+async function testOptionsHtmlContainsPopupInitialSizeControls() {
+  for (const expectedId of ['popupInitialWidth', 'popupInitialHeight']) {
+    assert.match(htmlSource, new RegExp(`id=\"${expectedId}\"`), `options.html should contain #${expectedId}`);
+  }
+  assert.match(htmlSource, /data-i18n=\"popupInitialSize\"/, 'options.html should label popup initial size settings');
 }
 
 async function testGithubCopilotSlowDownKeepsPollingUiPending() {
@@ -1046,6 +1098,10 @@ async function main() {
   await testAzureFoundryEditModelsButtonReopensManualInput();
   await testProviderChangeLoadsProviderSpecificConfig();
   await testSaveWritesProviderTypeAndNotLegacyAuthMethod();
+  await testSaveWritesPopupInitialSize();
+  await testStoredPopupInitialSizeLoadsIntoFields();
+  await testSaveClampsPopupInitialSize();
+  await testOptionsHtmlContainsPopupInitialSizeControls();
   await testGithubCopilotSlowDownKeepsPollingUiPending();
   await testGithubCopilotPendingFlowRestoresCodeOnLoad();
   await testGithubCopilotPollingUsesStoredInterval();

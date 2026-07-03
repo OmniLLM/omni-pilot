@@ -29,6 +29,11 @@ const PROVIDERS = {
   }
 };
 
+const POPUP_INITIAL_SIZE_LIMITS = {
+  width: { min: 300, max: 1200 },
+  height: { min: 180, max: 900 }
+};
+
 const DEFAULT_CONFIG = {
   endpoint: 'https://api.omnillm.com/v1',
   apiKey: '',
@@ -38,10 +43,12 @@ const DEFAULT_CONFIG = {
   languagePreference: 'en',
   apiShape: 'openai-compatible',
   providerType: PROVIDER_TYPES.CUSTOM,
-  a2aAutoRoute: true
+  a2aAutoRoute: true,
+  popupInitialWidth: 640,
+  popupInitialHeight: 400
 };
 
-const STORAGE_KEYS = ['endpoint', 'apiKey', 'model', 'models', 'themePreference', 'apiShape', 'languagePreference', 'providerType', 'authMethod', 'providerConfigs', 'a2aServers', 'a2aAutoRoute'];
+const STORAGE_KEYS = ['endpoint', 'apiKey', 'model', 'models', 'themePreference', 'apiShape', 'languagePreference', 'providerType', 'authMethod', 'providerConfigs', 'a2aServers', 'a2aAutoRoute', 'popupInitialWidth', 'popupInitialHeight'];
 const A2A_TOKEN_STORAGE_KEY = 'a2aServerTokens';
 const PROVIDER_CONFIG_FIELDS = ['endpoint', 'apiKey', 'model', 'models', 'apiShape'];
 
@@ -168,6 +175,28 @@ async function fetchModels(endpoint, apiKey, apiShape, providerType = PROVIDER_T
   } finally {
     refreshBtn.classList.remove('spinning');
   }
+}
+
+function normalizePopupInitialSize(value, axis) {
+  const limits = POPUP_INITIAL_SIZE_LIMITS[axis];
+  const fallback = axis === 'width' ? DEFAULT_CONFIG.popupInitialWidth : DEFAULT_CONFIG.popupInitialHeight;
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(limits.min, Math.min(limits.max, parsed));
+}
+
+function setPopupInitialSizeFields(config) {
+  const widthInput = document.getElementById('popupInitialWidth');
+  const heightInput = document.getElementById('popupInitialHeight');
+  if (widthInput) widthInput.value = String(normalizePopupInitialSize(config.popupInitialWidth, 'width'));
+  if (heightInput) heightInput.value = String(normalizePopupInitialSize(config.popupInitialHeight, 'height'));
+}
+
+function getPopupInitialSizeConfig() {
+  return {
+    popupInitialWidth: normalizePopupInitialSize(document.getElementById('popupInitialWidth')?.value, 'width'),
+    popupInitialHeight: normalizePopupInitialSize(document.getElementById('popupInitialHeight')?.value, 'height')
+  };
 }
 
 function getModelsFromBackground() {
@@ -703,6 +732,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     document.documentElement.setAttribute('data-theme', config.themePreference);
     applyLanguage(config.languagePreference);
+    setPopupInitialSizeFields(config);
     setProviderFormConfig(activeProviderConfig);
     const providerTypeElement = document.getElementById('providerType') || document.getElementById('authMethod');
     if (providerTypeElement) providerTypeElement.value = providerType;
@@ -803,6 +833,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const config = {
       ...providerConfig,
+      ...getPopupInitialSizeConfig(),
       providerType,
       providerConfigs,
       languagePreference: OmniPilotI18n.normalizeLanguage(document.getElementById('languageSelect').value)
