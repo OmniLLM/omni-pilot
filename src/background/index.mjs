@@ -1198,9 +1198,11 @@ function isA2aTaskComplete(task) {
   return getA2aTaskState(task) === 'completed';
 }
 
-function createA2aHttpError(status) {
-  const error = new Error(`A2A request failed: ${status}`);
+function createA2aHttpError(status, body = '') {
+  const suffix = body ? `: ${String(body).trim().slice(0, 300)}` : '';
+  const error = new Error(`A2A request failed: ${status}${suffix}`);
   error.status = status;
+  error.body = body;
   return error;
 }
 
@@ -1225,7 +1227,7 @@ async function postA2aRestMessage(server, task, contextText) {
   });
 
   if (!response.ok) {
-    throw createA2aHttpError(response.status);
+    throw createA2aHttpError(response.status, await response.text());
   }
 
   return response.json();
@@ -1241,7 +1243,7 @@ async function getA2aRestTask(server, taskId) {
   });
 
   if (!response.ok) {
-    throw createA2aHttpError(response.status);
+    throw createA2aHttpError(response.status, await response.text());
   }
 
   return response.json();
@@ -1258,7 +1260,7 @@ async function postA2aRpc(server, method, params) {
   });
 
   if (!response.ok) {
-    throw createA2aHttpError(response.status);
+    throw createA2aHttpError(response.status, await response.text());
   }
 
   const payload = await response.json();
@@ -1289,6 +1291,11 @@ async function discoverA2aRpcEndpoint(server) {
   return endpoint && endpoint !== server.endpoint ? { ...server, agentCard } : server;
 }
 
+function shouldFallbackToA2aRest(error) {
+  return error?.status === 404
+    || (error?.status === 400 && /missing field [`"]?messages[`"]?/i.test(error.message || ''));
+}
+
 async function sendInitialA2aTask(server, task, contextText) {
   try {
     return {
@@ -1296,7 +1303,7 @@ async function sendInitialA2aTask(server, task, contextText) {
       task: assertA2aTaskNotFailed(await postA2aRpc(server, 'message/send', createA2aMessageParams(task, contextText)))
     };
   } catch (error) {
-    if (error.status !== 404) throw error;
+    if (!shouldFallbackToA2aRest(error)) throw error;
 
     try {
       return {

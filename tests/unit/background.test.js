@@ -1458,6 +1458,54 @@ async function assertA2aDelegateTaskFallsBackFromStoredAgentCardBaseUrlToRestRou
   ]);
 }
 
+async function assertA2aDelegateTaskFallsBackFromJsonRpcMessagesErrorToRestRoutes() {
+  const { context, requests } = await createBackgroundContext({
+    storage: {
+      a2aServers: [
+        {
+          id: 'local',
+          name: 'A2A localhost',
+          endpoint: 'http://localhost:1423',
+          enabled: true,
+          agentCard: { name: 'OmniLauncher', url: 'http://localhost:1423' }
+        }
+      ],
+      a2aServerTokens: { local: 'server-token' }
+    },
+    fetchImpl: async (url, options) => {
+      assert.ok(!String(url).includes('localhost'), `expected loopback URL, got ${url}`);
+      if (url === 'http://127.0.0.1:1423') {
+        return { ok: false, status: 400, text: async () => 'Invalid JSON: missing field `messages` at line 1 column 246' };
+      }
+      if (url === 'http://127.0.0.1:1423/message:send') {
+        const body = JSON.parse(options.body);
+        assert.deepStrictEqual(Object.keys(body), ['messages']);
+        assert.strictEqual(body.messages[0].role, 'user');
+        assert.ok(body.messages[0].parts[0].text.includes('hi'));
+        return {
+          ok: true,
+          json: async () => ({
+            id: 'task-1',
+            status: {
+              state: 'completed',
+              message: { role: 'agent', parts: [{ type: 'text', text: 'REST messages result' }] }
+            }
+          })
+        };
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    }
+  });
+
+  const result = await context.delegateA2aTask({ serverId: 'local', task: 'hi', contextText: '' });
+
+  assert.strictEqual(result, 'REST messages result');
+  assert.deepStrictEqual(requests.map(request => request.url), [
+    'http://127.0.0.1:1423',
+    'http://127.0.0.1:1423/message:send'
+  ]);
+}
+
 async function assertA2aDelegateTaskFallsBackToRestRoutesAfterJsonRpc404() {
   const waits = [];
   const { context, requests } = await createBackgroundContext({
@@ -2575,6 +2623,7 @@ async function main() {
   await assertA2aDelegateTaskUsesAgentCardRpcUrl();
   await assertA2aDelegateTaskNormalizesLocalhostEndpointToLoopback();
   await assertA2aDelegateTaskFallsBackFromStoredAgentCardBaseUrlToRestRoutes();
+  await assertA2aDelegateTaskFallsBackFromJsonRpcMessagesErrorToRestRoutes();
   await assertA2aDelegateTaskFallsBackToRestRoutesAfterJsonRpc404();
   await assertA2aDelegateTaskDiscoversRpcUrlAfterBaseEndpoint404();
   await assertA2aDelegateTaskReturnsImmediateTextResult();
