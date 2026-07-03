@@ -71,6 +71,20 @@ async function openTranslatePanel(page) {
   await page.waitForTimeout(60);
 }
 
+test('floating panel title opens the GitHub repository', async ({ page }) => {
+  await setupPage(page);
+  const openedUrls = [];
+  await page.exposeFunction('__captureOpen', url => openedUrls.push(url));
+  await page.evaluate(() => {
+    window.open = url => window.__captureOpen(String(url));
+  });
+
+  await openTranslatePanel(page);
+  await page.locator('#omnipilot-panel .omnipilot-panel-title').click();
+
+  expect(openedUrls).toEqual(['https://github.com/OmniLLM/omni-pilot']);
+});
+
 test('BUG1: single click on the ✕ removes the selection context', async ({ page }) => {
   await setupPage(page);
   await openTranslatePanel(page);
