@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "skills": {
+    "accessibility-review": {
+      "source": "anthropics/knowledge-work-plugins",
+      "sourceType": "github",
+      "skillPath": "design/skills/accessibility-review/SKILL.md",
+      "computedHash": "80af1f666ac32630ecdfe223370b9006d4459f5459846c208872f9169600aa0d"
+    },
+    "accessibility-test-plan": {
+      "source": "owl-listener/designer-skills",
+      "sourceType": "github",
+      "skillPath": "prototyping-testing/skills/accessibility-test-plan/SKILL.md",
+      "computedHash": "e322787d37cf58544aa56502121b42550168917551d89b8438474258cb03e16b"
+    },
+    "design-critique": {
+      "source": "anthropics/knowledge-work-plugins",
+      "sourceType": "github",
+      "skillPath": "design/skills/design-critique/SKILL.md",
+      "computedHash": "ef158c069ebac6747cfb9cefabdd3daaedbffd1cff1c359c46bcf303358cbb1e"
+    },
+    "empathy-map": {
+      "source": "owl-listener/designer-skills",
+      "sourceType": "github",
+      "skillPath": "design-research/skills/empathy-map/SKILL.md",
+      "computedHash": "453a046b358a8356d567c33806ec054e9356ba05a00d0247e9313e70748256b0"
+    },
+    "information-architecture": {
+      "source": "julianoczkowski/designer-skills",
+      "sourceType": "github",
+      "skillPath": "information-architecture/SKILL.md",
+      "computedHash": "35b6a262d1fd0492804d00fada1400f3f54eadd008fad28ac506991cdedc6061"
+    },
+    "interaction-design": {
+      "source": "wshobson/agents",
+      "sourceType": "github",
+      "skillPath": "plugins/ui-design/skills/interaction-design/SKILL.md",
+      "computedHash": "d2e2127b91c76b2ed6706ce78bfc7eddcb6b340333f94d3d53d9f65e3253dea2"
+    },
+    "research-synthesis": {
+      "source": "anthropics/knowledge-work-plugins",
+      "sourceType": "github",
+      "skillPath": "design/skills/research-synthesis/SKILL.md",
+      "computedHash": "85bbb7e21bc42e9d5fa05f25d27c5b7d50095f100f1eeef271fc23c81a61fd8d"
+    },
+    "user-research": {
+      "source": "anthropics/knowledge-work-plugins",
+      "sourceType": "github",
+      "skillPath": "design/skills/user-research/SKILL.md",
+      "computedHash": "b7ff89f9fd30167870997f6cba8f0486142fc1b910ef0f5e9365916c55bf3b44"
+    }
+  }
+}

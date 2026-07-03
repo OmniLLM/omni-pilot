@@ -1,0 +1,5 @@
+1. Update OmniPilot's shared chat system prompt in `background.js` so ordinary chat uses a single named base prompt constant rather than repeating the literal string.
+2. Add a dedicated helper for A2A auto-routing prompt augmentation that explicitly instructs the model to compare the user's request against registered A2A agents/skills/tools metadata and to call the best-matching A2A tool when the request matches a registered skill/capability/tag, passing the full user request as `task`.
+3. Wire `executeApiRequestWithA2aRouting` to use that helper so the stronger instruction becomes part of the system prompt sent to the active provider, while keeping the existing fallback path when providers reject tools.
+4. Add/adjust tests in `background.test.js` to verify the system prompt includes the new matching behavior language (registered A2A skills/tools, match against user prompt, call matching tool/skill instead of answering locally) without changing the existing routing/delegation behavior.
+5. After approval, implement the code change and run the relevant test file(s) to confirm the prompt update does not break current A2A routing behavior.
