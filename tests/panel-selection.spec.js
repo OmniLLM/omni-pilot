@@ -125,28 +125,115 @@ test('BUG1: single click on the ✕ removes the selection context', async ({ pag
   expect(await page.locator('#omnipilot-panel .omnipilot-selected-context').count()).toBe(1);
 });
 
-test('BUG2: picking Translate from the header re-runs the action', async ({ page }) => {
-  await setupPage(page);
-  await openTranslatePanel(page);
-  // Streaming actions post AI_ACTION_STREAM via port instead of AI_ACTION via sendMessage
-  expect(await page.evaluate(() => window.__msgs.filter(m => m.type === 'AI_ACTION_STREAM').length)).toBe(1);
+// Like setupPage, but the stream port is *controllable*: it never auto-responds.
+// Tests drive it via window.__port.emit(msg) / window.__port.fireDisconnect(),
+// modelling a service worker that streams, stalls, or dies mid-request.
+async function setupPageWithControllablePort(page) {
+  await page.goto('about:blank');
+  await page.setContent(`<!DOCTYPE html><html><head><style>${stylesSource}</style></head>` +
+    `<body style="padding:40px">` +
+    `<p id="para">Bonjour le monde ceci est un texte de test a traduire.</p>` +
+    `</body></html>`);
+  await page.evaluate(({ contentSource }) => {
+    window.__msgs = [];
+    const makePort = () => {
+      const listeners = [];
+      const disconnectListeners = [];
+      const port = {
+        name: 'omnipilot-stream',
+        onMessage: { addListener(fn) { listeners.push(fn); } },
+        onDisconnect: { addListener(fn) { disconnectListeners.push(fn); } },
+        postMessage(msg) {
+          window.__msgs.push(msg);
+          // Auto-complete the initial action stream so the panel opens cleanly.
+          // Leave AI_CHAT_STREAM (the follow-up under test) fully controllable.
+          if (msg.type === 'AI_ACTION_STREAM') {
+            setTimeout(() => {
+              listeners.forEach(fn => fn({ type: 'chunk', text: 'ACTION:' + msg.action }));
+              listeners.forEach(fn => fn({ type: 'done' }));
+            }, 0);
+          }
+        },
+        disconnect() {},
+        emit(msg) { listeners.forEach(fn => fn(msg)); },
+        fireDisconnect() { disconnectListeners.forEach(fn => fn()); }
+      };
+      if (window.__pendingChat) window.__port = port;
+      window.__lastPort = port;
+      return port;
+    };
+    window.chrome = {
+      runtime: {
+        lastError: null,
+        onMessage: { addListener() {} },
+        connect() { return makePort(); },
+        sendMessage(message, callback) {
+          window.__msgs.push(message);
+          if (message.type === 'GET_MODELS') return callback({ models: ['gpt-4o'] });
+          return callback({ success: true });
+        },
+        openOptionsPage() {}
+      },
+      storage: {
+        sync: { get(d, cb) { cb({ ...d, apiKey: 'k', languagePreference: 'en' }); }, set(v, cb = () => {}) { cb(); } },
+        local: { get(k, cb) { cb({}); }, set(v, cb = () => {}) { cb(); } },
+        onChanged: { addListener() {} }
+      }
+    };
+    // eslint-disable-next-line no-eval
+    window.eval(contentSource);
+  }, { contentSource });
+}
 
-  // User clicks a blank area of the page — this clears lastSelection via the mouseup handler.
-  await page.mouse.click(50, 500);
-  await page.waitForTimeout(40);
-
-  // Open header action selector and pick "Translate" (index 1; chat is index 0).
-  await page.locator('#omnipilot-panel .omnipilot-meta-action-wrap').click();
-  await page.waitForTimeout(20);
-  await page.locator('#omnipilot-action-selector .omnipilot-model-item').nth(1).click();
+async function openChatAndSendFollowUp(page, text) {
+  // Open the panel via the translate dropdown action (auto-completes), then send
+  // a chat follow-up — follow-ups always post AI_CHAT_STREAM on a fresh port.
+  await selectAndMouseup(page, '#para');
+  await page.locator('#omnipilot-bubble').click();
+  await page.locator('#omnipilot-dropdown .omnipilot-dropdown-item').first().click();
   await page.waitForTimeout(60);
 
-  // A new translate request must have been sent — not a silent no-op.
-  const actionMsgs = await page.evaluate(() => window.__msgs.filter(m => m.type === 'AI_ACTION_STREAM'));
-  expect(actionMsgs.length).toBe(2);
-  expect(actionMsgs[1].action).toBe('translate');
+  await page.evaluate(() => { window.__pendingChat = true; });
+  const input = page.locator('#omnipilot-panel .omnipilot-panel-input');
+  await input.fill(text);
+  await input.press('Enter');
+  await page.waitForTimeout(40);
+}
 
-  // And the translation result must actually render in the panel.
-  const body = await page.locator('#omnipilot-panel .omnipilot-panel-body').innerHTML();
-  expect(body).toContain('ACTION:translate');
+// End-to-end reproduction of the reported bug in a real browser: a chat whose
+// stream port disconnects before any content used to leave the panel blank
+// (spinner removed, no answer, no error). It must now show an error.
+test('chat follow-up shows an error when the worker disconnects silently', async ({ page }) => {
+  await setupPageWithControllablePort(page);
+  await openChatAndSendFollowUp(page, 'how many VMs in alibaba');
+
+  // Spinner is up, request was sent, nothing has come back yet.
+  await expect(page.locator('#omnipilot-panel .omnipilot-loading')).toHaveCount(1);
+  expect(await page.evaluate(() => window.__msgs.some(m => m.type === 'AI_CHAT_STREAM'))).toBe(true);
+
+  // Service worker dies before sending anything.
+  await page.evaluate(() => window.__port.fireDisconnect());
+  await page.waitForTimeout(20);
+
+  await expect(page.locator('#omnipilot-panel .omnipilot-loading')).toHaveCount(0);
+  await expect(page.locator('#omnipilot-panel .omnipilot-error')).toHaveCount(1);
+});
+
+// A 'delegating' status keeps the spinner (relabeled) and a later chunk+done
+// still renders the delegated answer.
+test('chat follow-up surfaces delegating status then renders the answer', async ({ page }) => {
+  await setupPageWithControllablePort(page);
+  await openChatAndSendFollowUp(page, 'how many VMs in alibaba');
+
+  await page.evaluate(() => window.__port.emit({ type: 'status', status: 'delegating' }));
+  await expect(page.locator('#omnipilot-panel .omnipilot-loading-text')).toContainText(/deleg/i);
+
+  await page.evaluate(() => {
+    window.__port.emit({ type: 'chunk', text: '5 Alibaba VMs' });
+    window.__port.emit({ type: 'done' });
+  });
+  await page.waitForTimeout(20);
+
+  await expect(page.locator('#omnipilot-panel .omnipilot-loading')).toHaveCount(0);
+  await expect(page.locator('#omnipilot-panel .omnipilot-msg-assistant').last()).toContainText('5 Alibaba VMs');
 });

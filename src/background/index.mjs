@@ -71,7 +71,12 @@ const STORAGE_KEYS = ['endpoint', 'apiKey', 'model', 'models', 'apiShape', 'prov
 const A2A_TOKEN_STORAGE_KEY = 'a2aServerTokens';
 const PROVIDER_CONFIG_FIELDS = ['endpoint', 'apiKey', 'model', 'models', 'apiShape'];
 const A2A_POLL_INTERVAL_MS = 500;
-const A2A_MAX_POLL_ATTEMPTS = 20;
+const A2A_MAX_POLL_ATTEMPTS = 600;
+const A2A_STATUS_HEARTBEAT_MS = 10000;
+// Upper bound for a single non-streaming A2A delegation before we surface a
+// timeout error to the chat UI. Long-running A2A agents can perform many model
+// rounds after a tool result, so this must exceed the polling window.
+const A2A_DELEGATION_TIMEOUT_MS = 330000;
 const A2A_TOOL_NAME_PREFIX = 'a2a__';
 const A2A_TOOL_NAME_MAX_LEN = 64;
 const A2A_TOOL_DESCRIPTION_MAX_LEN = 1024;
@@ -218,14 +223,16 @@ chrome.runtime.onConnect?.addListener(port => {
           }
         });
       } else if (request.type === 'AI_CHAT_STREAM') {
-        try {
-          const result = await handleAIChat(request.messages);
-          port.postMessage({ type: 'chunk', text: result });
-          port.postMessage({ type: 'done' });
-        } catch (error) {
-          port.postMessage({ type: 'error', error: error.message || 'Unexpected extension error' });
-          port.postMessage({ type: 'done' });
-        }
+        await handleAIChatStreaming({
+          messages: request.messages,
+          onChunk: text => port.postMessage({ type: 'chunk', text }),
+          onStatus: status => port.postMessage({ type: 'status', status }),
+          onDone: () => port.postMessage({ type: 'done' }),
+          onError: error => {
+            port.postMessage({ type: 'error', error });
+            port.postMessage({ type: 'done' });
+          }
+        });
       }
     });
   }
@@ -1547,11 +1554,106 @@ async function handleAIChat(messages) {
   });
 }
 
+// Streaming-capable entry point for the side panel / floating-panel chat port.
+//
+// Contract (mirrors executeApiRequestStreaming): call onError(message) OR
+// onDone() exactly once — never both. The port handler turns onError into an
+// error+done pair, so callers must NOT also invoke onDone after onError.
+//
+// Restores real token streaming for ordinary chat (the common case) while
+// keeping A2A tool routing: A2A delegation is non-streaming, so those paths
+// surface a 'delegating' status and a bounded await instead of a dead spinner.
+async function handleAIChatStreaming({ messages, onChunk, onStatus, onDone, onError }) {
+  let config;
+  try {
+    config = await loadConfig();
+  } catch (error) {
+    onError(error?.message || 'Unexpected extension error');
+    return;
+  }
+
+  // Auto-route: expose enabled A2A agents as tools. The model either answers
+  // directly (full text returned here) or picks a tool (delegated inside
+  // executeApiRequestWithA2aRouting, which emits the 'delegating' status).
+  //
+  // Note: loadConfig() normalizes a dedicated `a2a:` provider down to the custom
+  // provider, so config.providerType is never an a2a type here — auto-route tool
+  // selection is the only way chat reaches A2A delegation, matching handleAIChat.
+  if (shouldAutoRouteA2a(config)) {
+    let a2aServers = [];
+    try {
+      a2aServers = await ensureEnabledA2aServersDiscovered();
+    } catch (error) {
+      // Discovery is best-effort; never let it kill the chat. Fall through to
+      // plain streaming so the user still gets a normal answer.
+      console.warn(`OmniPilot A2A discovery failed; streaming without tools: ${error?.message || error}`);
+      a2aServers = [];
+    }
+    if (a2aServers.length) {
+      try {
+        const toolSchemas = buildA2aToolSchemas(a2aServers);
+        // Bound the whole LLM-routing + possible delegation round-trip so a hung
+        // agent surfaces a timeout error instead of a dead spinner. This is the
+        // server-side half of the defense; the chat client also runs a watchdog.
+        const a2aRouting = executeApiRequestWithA2aRouting({
+          config,
+          messages,
+          systemPrompt: CHAT_SYSTEM_PROMPT,
+          a2aServers,
+          toolSchemas,
+          onStatus
+        });
+        const result = await withA2aDelegationTimeout(a2aRouting);
+        onChunk(result);
+        onDone();
+      } catch (error) {
+        onError(error?.message || 'Unexpected extension error');
+      }
+      return;
+    }
+  }
+
+  // Plain chat: stream tokens as they arrive. executeApiRequestStreaming owns
+  // the onDone/onError lifecycle from here.
+  await executeApiRequestStreaming({
+    config,
+    messages,
+    systemPrompt: CHAT_SYSTEM_PROMPT,
+    onChunk,
+    onDone,
+    onError
+  });
+}
+
+function withA2aStatusHeartbeat(promise, onStatus, ms = globalThis.A2A_STATUS_HEARTBEAT_MS || A2A_STATUS_HEARTBEAT_MS) {
+  if (!onStatus || typeof setInterval !== 'function' || !(ms > 0)) return promise;
+  const interval = setInterval(() => onStatus('delegating'), ms);
+  if (interval && typeof interval.unref === 'function') interval.unref();
+  return promise.finally(() => clearInterval(interval));
+}
+
+// Bound a non-streaming A2A delegation so a hung agent fetch surfaces an error
+// instead of hanging the port forever. No-op when setTimeout is unavailable
+// (the unit-test vm sandbox), so tests exercise the routing logic unchanged.
+function withA2aDelegationTimeout(promise, ms = A2A_DELEGATION_TIMEOUT_MS) {
+  if (typeof setTimeout !== 'function' || !(ms > 0)) return promise;
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error('A2A delegation timed out. The agent did not respond in time.')),
+      ms
+    );
+    promise.then(
+      value => { clearTimeout(timer); resolve(value); },
+      error => { clearTimeout(timer); reject(error); }
+    );
+  });
+}
+
 function shouldAutoRouteA2a(config) {
   return config.a2aAutoRoute !== false && !isA2aProviderType(config.providerType);
 }
 
-async function executeApiRequestWithA2aRouting({ config, messages, systemPrompt, a2aServers, toolSchemas }) {
+async function executeApiRequestWithA2aRouting({ config, messages, systemPrompt, a2aServers, toolSchemas, onStatus }) {
   const provider = getProvider(config);
   let copilotToken = '';
 
@@ -1603,11 +1705,13 @@ async function executeApiRequestWithA2aRouting({ config, messages, systemPrompt,
     const server = selectedTool && a2aServers.find(candidate => candidate.id === selectedTool.serverId);
     if (!server) throw new Error('A2A tool selected an unknown server.');
     if (!toolCall.task) throw new Error('A2A tool selected an empty task.');
-    return delegateA2aTask({
+    onStatus?.('delegating');
+    const delegation = delegateA2aTask({
       serverId: server.id,
       task: toolCall.task,
       contextText: getA2aConversationContext(messages)
     });
+    return withA2aStatusHeartbeat(delegation, onStatus);
   }
 
   const content = builtRequest.parseContent(data);
@@ -1930,6 +2034,7 @@ Object.assign(globalThis, {
   // Public entry points
   handleAIAction,
   handleAIChat,
+  handleAIChatStreaming,
   handleGetModels,
   setupContextMenus,
   wait

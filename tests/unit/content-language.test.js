@@ -96,6 +96,14 @@ function findByClass(root, className) {
   return null;
 }
 
+function findAllByClass(root, className, acc = []) {
+  for (const child of root.children || []) {
+    if (String(child.className).split(/\s+/).includes(className)) acc.push(child);
+    findAllByClass(child, className, acc);
+  }
+  return acc;
+}
+
 async function createContentContext(storedConfig = {}) {
   const documentRef = {
     elementsById: {},
@@ -486,11 +494,92 @@ async function testStoredPopupInitialSizeIsClampedToViewport() {
   assert.strictEqual(panel.style.height, '736px');
 }
 
+// Install a controllable stream port so a test can drive chunk/status/error/
+// done/disconnect by hand instead of the harness's auto-"done" default.
+function installControllablePort(context) {
+  const ports = [];
+  context.chrome.runtime.connect = opts => {
+    const messageListeners = [];
+    const disconnectListeners = [];
+    const port = {
+      name: opts?.name || '',
+      sent: [],
+      onMessage: { addListener(fn) { messageListeners.push(fn); } },
+      onDisconnect: { addListener(fn) { disconnectListeners.push(fn); } },
+      postMessage(msg) { this.sent.push(msg); },
+      disconnect() {},
+      emit(msg) { for (const fn of messageListeners) fn(msg); },
+      fireDisconnect() { for (const fn of disconnectListeners) fn(); }
+    };
+    ports.push(port);
+    return port;
+  };
+  return ports;
+}
+
+async function openPanelAndSendFollowUp(text) {
+  const ctx = await createContentContext({ apiKey: 'test-key', languagePreference: 'en' });
+  const { documentRef, context, setSelectionText } = ctx;
+
+  await selectText(documentRef, setSelectionText, 'seed context');
+  documentRef.getElementById('omnipilot-bubble').listeners.click({ preventDefault() {}, stopPropagation() {} });
+  documentRef.getElementById('omnipilot-dropdown').children[0].listeners.click({ preventDefault() {}, stopPropagation() {} });
+  // Let the initial action's default-port stream finish (chunk + done) so only
+  // the follow-up we drive by hand is in flight — mirrors a real session where
+  // the first result has already rendered before the user types again.
+  await new Promise(resolve => setTimeout(resolve, 20));
+
+  // Swap in the controllable port only for the follow-up we are about to send.
+  const ports = installControllablePort(context);
+  const input = documentRef.getElementById('omnipilot-panel').querySelector('.omnipilot-panel-input');
+  input.value = text;
+  input.listeners.keydown({ key: 'Enter', shiftKey: false, preventDefault() {}, stopPropagation() {} });
+
+  const body = documentRef.getElementById('omnipilot-panel').querySelector('.omnipilot-panel-body');
+  return { ...ctx, body, port: ports.at(-1) };
+}
+
+// Regression: the reported bug. A follow-up whose stream port disconnects before
+// any chunk (worker suspended / A2A delegation hung) used to remove the spinner
+// and leave the panel blank — no answer, no error. It must show an error now.
+async function testChatFollowUpShowsErrorOnPrematurePortDisconnect() {
+  const { body, port } = await openPanelAndSendFollowUp('how many VMs in alibaba');
+
+  assert.ok(body.querySelector('.omnipilot-loading'), 'spinner should appear while waiting');
+
+  // Worker dies before sending anything.
+  port.fireDisconnect();
+
+  assert.ok(!body.querySelector('.omnipilot-loading'), 'spinner must be cleared on disconnect');
+  assert.ok(body.querySelector('.omnipilot-error'), 'a premature disconnect must surface an error, not a blank panel');
+}
+
+// A 'delegating' status keeps the spinner but relabels it so the wait is explained.
+async function testChatFollowUpRelabelsSpinnerOnDelegatingStatus() {
+  const { body, port } = await openPanelAndSendFollowUp('how many VMs in alibaba');
+
+  port.emit({ type: 'status', status: 'delegating' });
+  const loadingText = body.querySelector('.omnipilot-loading-text');
+  assert.ok(loadingText, 'spinner should still be present during delegation');
+  assert.ok(/deleg/i.test(loadingText.textContent), 'spinner label should reflect the delegating status');
+
+  // A normal completion still renders the answer.
+  port.emit({ type: 'chunk', text: '5 Alibaba VMs' });
+  port.emit({ type: 'done' });
+  assert.ok(!body.querySelector('.omnipilot-loading'), 'spinner cleared after done');
+  // The panel may already hold the initial action's assistant message, so scan
+  // every assistant bubble for the freshly delegated answer rather than the first.
+  const assistantMessages = findAllByClass(body, 'omnipilot-msg-assistant');
+  assert.ok(assistantMessages.some(el => el.textContent.includes('5 Alibaba VMs')), 'delegated answer should render');
+}
+
 async function main() {
   await testA2aServersDoNotAppearAsProviderEntries();
   await testSyncRemovalOfLegacyA2aServersDoesNotClearLocalServers();
   await testLocalA2aServerChangesUpdateContentState();
   await testOrdinaryFollowUpUsesAIChatNotDirectA2a();
+  await testChatFollowUpShowsErrorOnPrematurePortDisconnect();
+  await testChatFollowUpRelabelsSpinnerOnDelegatingStatus();
   await testA2aMentionFollowUpUsesConversationContextWhenPresent();
   await testA2aMentionFollowUpDelegatesInsteadOfChat();
   await testA2aMentionFollowUpSendsPopupTranscriptContext();

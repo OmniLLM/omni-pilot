@@ -228,6 +228,10 @@ async function createBackgroundContext({
   const context = {
     URL,
     URLSearchParams,
+    setTimeout,
+    clearTimeout,
+    setInterval,
+    clearInterval,
     console: {
       info: () => {},
       warn: () => {},
@@ -1737,6 +1741,52 @@ async function assertA2aDelegateTaskPollsUntilCompleted() {
   assert.deepStrictEqual(waits, [500, 500]);
 }
 
+async function assertA2aDelegateTaskWaitsForSlowAgentCompletion() {
+  const waits = [];
+  const { context, requests } = await createBackgroundContext({
+    storage: {
+      a2aServers: [
+        { id: 'planner', name: 'Planner', endpoint: 'https://a2a.example/rpc', enabled: true }
+      ],
+      a2aServerTokens: { planner: 'server-token' }
+    },
+    fetchImpl: async (url, options) => {
+      const body = JSON.parse(options.body);
+      if (body.method === 'message/send') {
+        return {
+          ok: true,
+          json: async () => ({ result: { id: 'task-123', state: 'working' } })
+        };
+      }
+
+      const pollCount = requests.filter(request => JSON.parse(request.options.body).method === 'tasks/get').length;
+      return {
+        ok: true,
+        json: async () => ({
+          result: pollCount < 25
+            ? { id: 'task-123', state: 'working' }
+            : {
+                id: 'task-123',
+                state: 'completed',
+                artifacts: [{ parts: [{ type: 'text', text: 'Slow async done' }] }]
+              }
+        })
+      };
+    }
+  });
+
+  context.wait = async ms => waits.push(ms);
+
+  const result = await context.delegateA2aTask({
+    serverId: 'planner',
+    task: 'Wait for a slow A2A agent',
+    contextText: 'Context block'
+  });
+
+  assert.strictEqual(result, 'Slow async done');
+  assert.strictEqual(waits.length, 25);
+}
+
 async function assertA2aDelegateTaskSurfacesFailedTaskState() {
   const { context } = await createBackgroundContext({
     storage: {
@@ -2536,12 +2586,340 @@ async function assertStreamingChatAutoRouteHandlesA2aToolCalls() {
   });
 
   assert.deepStrictEqual(JSON.parse(JSON.stringify(portMessages)), [
+    { type: 'status', status: 'delegating' },
     { type: 'chunk', text: '11053 Alibaba VMs' },
     { type: 'done' }
   ]);
   assert.ok(requests.some(request => request.url === 'https://custom.example/v1/chat/completions'), 'should let the model choose an A2A tool');
   assert.ok(requests.some(request => request.url === 'https://launcher.example/a2a'), 'should delegate selected A2A tool call');
 }
+
+// Regression: before the streaming fix, ordinary chat (no A2A servers) was
+// forced through the non-streaming handleAIChat path — a single chunk with the
+// whole answer and, worse, no stream:true. This asserts real streaming is back.
+async function assertStreamingChatPlainChatStreams() {
+  const portMessages = [];
+  const { connectListeners, requests } = await createBackgroundContext({
+    storage: {
+      providerType: 'custom-provider',
+      endpoint: 'https://custom.example/v1',
+      apiKey: 'custom-key',
+      model: 'custom-model',
+      apiShape: 'openai-compatible'
+      // no a2aServers → plain streaming path
+    },
+    fetchImpl: async (url, options) => {
+      if (url === 'https://custom.example/v1/chat/completions') {
+        const body = JSON.parse(options.body);
+        assert.strictEqual(body.stream, true, 'plain chat must stream (stream: true)');
+        assert.ok(!('tools' in body), 'plain chat with no A2A servers should not send tools');
+        return { ok: true, json: async () => ({ choices: [{ message: { content: 'Refund policy explained.' } }] }) };
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    }
+  });
+
+  const messageListeners = [];
+  connectListeners[0]({
+    name: 'omnipilot-stream',
+    onMessage: { addListener(fn) { messageListeners.push(fn); } },
+    postMessage(message) { portMessages.push(message); }
+  });
+
+  await messageListeners[0]({
+    type: 'AI_CHAT_STREAM',
+    messages: [{ role: 'user', content: 'Check refund eligibility' }]
+  });
+
+  assert.ok(!portMessages.some(m => m.type === 'status'), 'plain chat should not emit a delegating status');
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(portMessages)), [
+    { type: 'chunk', text: 'Refund policy explained.' },
+    { type: 'done' }
+  ]);
+  assert.ok(requests.some(request => request.url === 'https://custom.example/v1/chat/completions'), 'plain chat should reach the chat endpoint');
+}
+
+async function assertStreamingChatDoesNotShowDelegatingBeforeToolSelection() {
+  const portMessages = [];
+  const { connectListeners, context } = await createBackgroundContext({
+    storage: {
+      providerType: 'custom-provider',
+      endpoint: 'https://custom.example/v1',
+      apiKey: 'custom-key',
+      model: 'custom-model',
+      apiShape: 'openai-compatible',
+      a2aServers: [
+        {
+          id: 'launcher',
+          name: 'OmniLauncher',
+          endpoint: 'https://launcher.example/a2a',
+          enabled: true,
+          agentCard: {
+            name: 'OmniLauncher',
+            description: 'Runs cloud and desktop skills.',
+            skills: [{ id: 'skill:alibaba', name: 'alibaba', description: 'Query Alibaba Cloud resources and accounts.' }]
+          }
+        }
+      ],
+      a2aServerTokens: { launcher: 'server-token' }
+    },
+    fetchImpl: async (url) => {
+      if (url === 'https://custom.example/v1/chat/completions') {
+        await new Promise(resolve => setTimeout(resolve, 20));
+        return {
+          ok: true,
+          json: async () => ({ choices: [{ message: { content: 'Direct answer without delegation.' } }] })
+        };
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    }
+  });
+  context.A2A_STATUS_HEARTBEAT_MS = 5;
+
+  const messageListeners = [];
+  connectListeners[0]({
+    name: 'omnipilot-stream',
+    onMessage: { addListener(fn) { messageListeners.push(fn); } },
+    postMessage(message) { portMessages.push(message); }
+  });
+
+  await messageListeners[0]({
+    type: 'AI_CHAT_STREAM',
+    messages: [{ role: 'user', content: 'Explain this selected text' }]
+  });
+
+  assert.ok(!portMessages.some(m => m.type === 'status'), 'direct answers should not show A2A delegation status before any tool call');
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(portMessages)), [
+    { type: 'chunk', text: 'Direct answer without delegation.' },
+    { type: 'done' }
+  ]);
+}
+
+// Regression: OmniLauncher can spend a long time inside the initial A2A
+// message/send call while its own model/tool loop runs. The extension must send
+// status heartbeats during that await too; polling heartbeats are too late.
+async function assertStreamingChatKeepsA2aDelegationAliveDuringSlowInitialSend() {
+  const portMessages = [];
+  const { connectListeners, context } = await createBackgroundContext({
+    storage: {
+      providerType: 'custom-provider',
+      endpoint: 'https://custom.example/v1',
+      apiKey: 'custom-key',
+      model: 'custom-model',
+      apiShape: 'openai-compatible',
+      a2aServers: [
+        {
+          id: 'launcher',
+          name: 'OmniLauncher',
+          endpoint: 'https://launcher.example/a2a',
+          enabled: true,
+          agentCard: {
+            name: 'OmniLauncher',
+            description: 'Runs cloud and desktop skills.',
+            skills: [{ id: 'skill:alibaba', name: 'alibaba', description: 'Query Alibaba Cloud resources and accounts.' }]
+          }
+        }
+      ],
+      a2aServerTokens: { launcher: 'server-token' }
+    },
+    fetchImpl: async (url, options) => {
+      if (url === 'https://custom.example/v1/chat/completions') {
+        return {
+          ok: true,
+          json: async () => ({
+            choices: [{
+              message: {
+                tool_calls: [{
+                  type: 'function',
+                  function: { name: 'a2a__launcher__skill_alibaba', arguments: JSON.stringify({ task: 'How many VMs in Alibaba now' }) }
+                }]
+              }
+            }]
+          })
+        };
+      }
+      if (url === 'https://launcher.example/a2a') {
+        await new Promise(() => {});
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    }
+  });
+  context.A2A_STATUS_HEARTBEAT_MS = 5;
+
+  const messageListeners = [];
+  connectListeners[0]({
+    name: 'omnipilot-stream',
+    onMessage: { addListener(fn) { messageListeners.push(fn); } },
+    postMessage(message) { portMessages.push(message); }
+  });
+
+  const pending = messageListeners[0]({
+    type: 'AI_CHAT_STREAM',
+    messages: [{ role: 'user', content: 'How many VMs in Alibaba now' }]
+  });
+
+  await new Promise(resolve => setTimeout(resolve, 30));
+
+  const statusMessages = portMessages.filter(m => m.type === 'status' && m.status === 'delegating');
+  assert.ok(statusMessages.length >= 2, 'slow initial A2A send should emit repeated delegating status messages');
+  assert.ok(!portMessages.some(m => m.type === 'done'), 'still-running delegation should not finish');
+  assert.strictEqual(typeof pending?.then, 'function', 'stream handler should still be awaiting the A2A send');
+}
+
+// Regression: slow A2A agents can run for many polling intervals. The background
+// worker must keep sending status heartbeats so the content-side stream watchdog
+// does not replace an in-progress delegation with "No response".
+async function assertStreamingChatKeepsA2aDelegationAliveDuringSlowPoll() {
+  const portMessages = [];
+  const { connectListeners, requests, context } = await createBackgroundContext({
+    storage: {
+      providerType: 'custom-provider',
+      endpoint: 'https://custom.example/v1',
+      apiKey: 'custom-key',
+      model: 'custom-model',
+      apiShape: 'openai-compatible',
+      a2aServers: [
+        {
+          id: 'launcher',
+          name: 'OmniLauncher',
+          endpoint: 'https://launcher.example/a2a',
+          enabled: true,
+          agentCard: {
+            name: 'OmniLauncher',
+            description: 'Runs cloud and desktop skills.',
+            skills: [{ id: 'skill:alibaba', name: 'alibaba', description: 'Query Alibaba Cloud resources and accounts.' }]
+          }
+        }
+      ],
+      a2aServerTokens: { launcher: 'server-token' }
+    },
+    fetchImpl: async (url, options) => {
+      if (url === 'https://custom.example/v1/chat/completions') {
+        return {
+          ok: true,
+          json: async () => ({
+            choices: [{
+              message: {
+                tool_calls: [{
+                  type: 'function',
+                  function: { name: 'a2a__launcher__skill_alibaba', arguments: JSON.stringify({ task: 'How many VMs in Alibaba now' }) }
+                }]
+              }
+            }]
+          })
+        };
+      }
+      if (url === 'https://launcher.example/a2a') {
+        const body = JSON.parse(options.body);
+        if (body.method === 'message/send') {
+          return { ok: true, json: async () => ({ result: { id: 'task-123', state: 'working' } }) };
+        }
+
+        const pollCount = requests.filter(request => request.url === 'https://launcher.example/a2a' && JSON.parse(request.options.body).method === 'tasks/get').length;
+        return {
+          ok: true,
+          json: async () => ({
+            result: pollCount < 25
+              ? { id: 'task-123', state: 'working' }
+              : { id: 'task-123', state: 'completed', artifacts: [{ parts: [{ type: 'text', text: '11053 Alibaba VMs' }] }] }
+          })
+        };
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    }
+  });
+  context.A2A_STATUS_HEARTBEAT_MS = 5;
+  context.wait = async () => new Promise(resolve => setTimeout(resolve, 1));
+
+  const messageListeners = [];
+  connectListeners[0]({
+    name: 'omnipilot-stream',
+    onMessage: { addListener(fn) { messageListeners.push(fn); } },
+    postMessage(message) { portMessages.push(message); }
+  });
+
+  await messageListeners[0]({
+    type: 'AI_CHAT_STREAM',
+    messages: [{ role: 'user', content: 'How many VMs in Alibaba now' }]
+  });
+
+  const statusMessages = portMessages.filter(m => m.type === 'status' && m.status === 'delegating');
+  assert.ok(statusMessages.length >= 2, 'slow delegation should emit repeated delegating status messages');
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(portMessages.slice(-2))), [
+    { type: 'chunk', text: '11053 Alibaba VMs' },
+    { type: 'done' }
+  ]);
+}
+
+// Regression: a failing A2A delegation used to leave the panel spinner spinning
+// forever. The streaming handler must translate the failure into error + done.
+async function assertStreamingChatReportsA2aDelegationError() {
+  const portMessages = [];
+  const { connectListeners } = await createBackgroundContext({
+    storage: {
+      providerType: 'custom-provider',
+      endpoint: 'https://custom.example/v1',
+      apiKey: 'custom-key',
+      model: 'custom-model',
+      apiShape: 'openai-compatible',
+      a2aServers: [
+        {
+          id: 'launcher',
+          name: 'OmniLauncher',
+          endpoint: 'https://launcher.example/a2a',
+          enabled: true,
+          agentCard: {
+            name: 'OmniLauncher',
+            description: 'Runs cloud and desktop skills.',
+            skills: [{ id: 'skill:alibaba', name: 'alibaba', description: 'Query Alibaba Cloud resources and accounts.' }]
+          }
+        }
+      ],
+      a2aServerTokens: { launcher: 'server-token' }
+    },
+    fetchImpl: async (url) => {
+      if (url === 'https://custom.example/v1/chat/completions') {
+        return {
+          ok: true,
+          json: async () => ({
+            choices: [{
+              message: {
+                tool_calls: [{
+                  type: 'function',
+                  function: { name: 'a2a__launcher__skill_alibaba', arguments: JSON.stringify({ task: 'How many VMs in Alibaba now' }) }
+                }]
+              }
+            }]
+          })
+        };
+      }
+      if (url === 'https://launcher.example/a2a') {
+        return { ok: false, status: 503, text: async () => 'agent offline' };
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    }
+  });
+
+  const messageListeners = [];
+  connectListeners[0]({
+    name: 'omnipilot-stream',
+    onMessage: { addListener(fn) { messageListeners.push(fn); } },
+    postMessage(message) { portMessages.push(message); }
+  });
+
+  await messageListeners[0]({
+    type: 'AI_CHAT_STREAM',
+    messages: [{ role: 'user', content: 'How many VMs in Alibaba now' }]
+  });
+
+  assert.ok(portMessages.some(m => m.type === 'status' && m.status === 'delegating'), 'should announce delegation before it fails');
+  const errorMsg = portMessages.find(m => m.type === 'error');
+  assert.ok(errorMsg, 'a failed delegation must emit an error message');
+  assert.strictEqual(portMessages.at(-1).type, 'done', 'must always finish with done so the client clears its spinner');
+  assert.ok(!portMessages.some(m => m.type === 'chunk'), 'a failed delegation should not emit a content chunk');
+}
+
+// A dedicated A2A provider streams a delegating status then the delegated text.
 
 async function assertStreamingReportsErrorOnBadStatus() {
   const { context } = await createBackgroundContext({
@@ -2719,12 +3097,18 @@ async function main() {
   await assertA2aDelegateTaskDiscoversRpcUrlAfterBaseEndpoint404();
   await assertA2aDelegateTaskReturnsImmediateTextResult();
   await assertA2aDelegateTaskPollsUntilCompleted();
+  await assertA2aDelegateTaskWaitsForSlowAgentCompletion();
   await assertA2aDelegateTaskSurfacesFailedTaskState();
   // New feature tests: streaming, context menu, page summary
   await assertSummarizePageActionPromptExists();
   await assertSummarizePageRejectsUnknownAction();
   await assertStreamingRequestSetsSseFlag();
   await assertStreamingChatAutoRouteHandlesA2aToolCalls();
+  await assertStreamingChatPlainChatStreams();
+  await assertStreamingChatDoesNotShowDelegatingBeforeToolSelection();
+  await assertStreamingChatKeepsA2aDelegationAliveDuringSlowInitialSend();
+  await assertStreamingChatKeepsA2aDelegationAliveDuringSlowPoll();
+  await assertStreamingChatReportsA2aDelegationError();
   await assertStreamingReportsErrorOnBadStatus();
   await assertStreamingReportsErrorWhenNoApiKey();
   await assertStreamChunkParsersWorkForAllShapes();

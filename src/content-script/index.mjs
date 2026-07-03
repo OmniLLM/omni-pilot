@@ -30,6 +30,11 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
   let popupInitialWidth = null;
   let popupInitialHeight = null;
   const REPOSITORY_URL = 'https://github.com/OmniLLM/omni-pilot';
+  // If the stream port goes silent this long without any message, assume the
+  // service worker died / an A2A delegation hung and surface an error instead of
+  // a spinner that never resolves. Reset on every message, so healthy long
+  // streams and delegations are unaffected.
+  const STREAM_WATCHDOG_MS = 90000;
   const PROVIDER_LABELS = {
     'custom-provider': 'Custom',
     'github-copilot': 'GitHub Copilot',
@@ -1507,6 +1512,20 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
     return loading;
   }
 
+  // Remove every spinner in the body, not just the first. A panel can briefly
+  // hold more than one loading indicator (e.g. an initial action still resolving
+  // when a follow-up starts); terminal stream events must clear them all so no
+  // orphan spinner is left behind.
+  function removeLoadingIndicators(body) {
+    if (!body) return;
+    let loading = body.querySelector('.omnipilot-loading');
+    let guard = 0;
+    while (loading && guard++ < 50) {
+      loading.remove();
+      loading = body.querySelector('.omnipilot-loading');
+    }
+  }
+
   function createUserMessage(text) {
     const container = document.createElement('div');
     container.className = 'omnipilot-msg-container';
@@ -1619,6 +1638,13 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
     if (/network|fetch|timeout|ECONNREFUSED/i.test(s)) return label('networkError');
     if (/empty.*response/i.test(s)) return label('emptyResponseError');
     return s;
+  }
+
+  // Map a background 'status' signal to a localized spinner label. Falls back to
+  // the generic thinking label for unknown statuses.
+  function statusLabel(status) {
+    if (status === 'delegating') return `${label('delegating')}…`;
+    return label('thinking');
   }
 
   // ── Cancel Support ─────────────────────────────────────────────────────────────
@@ -1760,9 +1786,40 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
     let accumulated = '';
     let streamingMsg = null;
     let streamMsgDiv = null;
+    let settled = false;
+
+    // Watchdog: if the service worker is suspended or an A2A delegation hangs,
+    // the port can go quiet (or disconnect) without ever sending 'done'. Without
+    // this, the spinner would spin forever / vanish silently. Any message resets
+    // the timer, so long-but-alive streams and delegations are never cut short.
+    let watchdog = null;
+    function clearWatchdog() {
+      if (watchdog !== null && typeof clearTimeout === 'function') clearTimeout(watchdog);
+      watchdog = null;
+    }
+    function armWatchdog() {
+      if (typeof setTimeout !== 'function') return;
+      clearWatchdog();
+      watchdog = setTimeout(() => {
+        if (settled || signal.aborted) return;
+        settled = true;
+        removeLoadingIndicators(body);
+        if (!accumulated && !body.querySelector('.omnipilot-error')) {
+          body.appendChild(createErrorElement(label('noResponse')));
+        }
+        currentAction = '';
+        updatePanelMeta();
+        try { port.disconnect(); } catch {}
+      }, STREAM_WATCHDOG_MS);
+      // A watchdog must never keep a process alive on its own. In the browser
+      // timer handles are numbers (no-op); under Node's test vm they expose
+      // unref(), so a leaked watchdog can't hold the event loop open.
+      if (watchdog && typeof watchdog.unref === 'function') watchdog.unref();
+    }
 
     port.onMessage.addListener(msg => {
       if (signal.aborted) { try { port.disconnect(); } catch {} return; }
+      armWatchdog();
 
       if (msg.type === 'chunk') {
         if (!streamingMsg) {
@@ -1775,30 +1832,53 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
         accumulated += msg.text;
         streamMsgDiv.textContent = accumulated;
         body.scrollTop = body.scrollHeight;
+      } else if (msg.type === 'status') {
+        // Non-streaming step in progress (e.g. delegating to an A2A agent).
+        // Keep the spinner but relabel it so the wait is explained.
+        const loadingText = body.querySelector('.omnipilot-loading-text');
+        if (loadingText) loadingText.textContent = statusLabel(msg.status);
       } else if (msg.type === 'error') {
-        body.querySelector('.omnipilot-loading')?.remove();
+        removeLoadingIndicators(body);
         if (!accumulated) {
           body.appendChild(createErrorElement(humanizeError(msg.error || label('unknownError'))));
         }
       } else if (msg.type === 'done') {
-        body.querySelector('.omnipilot-loading')?.remove();
+        settled = true;
+        clearWatchdog();
+        removeLoadingIndicators(body);
         if (accumulated && streamMsgDiv) {
           finalizeStreamingMessage(streamMsgDiv);
           conversationHistory.push({ role: 'assistant', content: accumulated });
         } else if (!accumulated && !body.querySelector('.omnipilot-error')) {
           body.appendChild(createErrorElement(label('noResponse')));
         }
+        currentAction = '';
+        updatePanelMeta();
         body.scrollTop = body.scrollHeight;
         try { port.disconnect(); } catch {}
       }
     });
 
     port.onDisconnect.addListener(() => {
-      if (!accumulated && !signal.aborted) {
-        body.querySelector('.omnipilot-loading')?.remove();
-        currentAction = '';
-        updatePanelMeta();
+      clearWatchdog();
+      if (settled || signal.aborted) return;
+      settled = true;
+      // Premature disconnect (worker died / crashed before 'done'). Previously
+      // this path silently removed the spinner and left the panel blank — the
+      // exact silent failure this fix targets. Surface an error instead. Judge
+      // "did this turn produce output?" from local state (accumulated /
+      // streamMsgDiv), never from body-wide selectors, which also match earlier
+      // turns' messages and would wrongly suppress this turn's error.
+      removeLoadingIndicators(body);
+      if (accumulated && streamMsgDiv) {
+        // Partial stream arrived, then the worker vanished: keep what we have.
+        finalizeStreamingMessage(streamMsgDiv);
+        conversationHistory.push({ role: 'assistant', content: accumulated });
+      } else if (!body.querySelector('.omnipilot-error')) {
+        body.appendChild(createErrorElement(label('noResponse')));
       }
+      currentAction = '';
+      updatePanelMeta();
     });
 
     port.postMessage({ type: 'AI_CHAT_STREAM', messages });
