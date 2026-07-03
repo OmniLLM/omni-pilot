@@ -596,34 +596,21 @@ function buildA2aToolParameters() {
   };
 }
 
-const A2A_MATCH_STOPWORDS = new Set([
-  'a', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'for', 'from', 'how', 'i', 'in', 'is', 'it', 'many',
-  'me', 'my', 'now', 'of', 'on', 'or', 'please', 'the', 'to', 'use', 'what', 'when', 'where', 'with'
-]);
-
 function normalizeA2aMatchText(value) {
   return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
 function a2aMatchTokens(value) {
-  return new Set(normalizeA2aMatchText(value)
-    .split(/\s+/)
-    .filter(token => token && !A2A_MATCH_STOPWORDS.has(token)));
+  return new Set(normalizeA2aMatchText(value).split(/\s+/).filter(Boolean));
 }
 
-function getA2aWeightedSkillTerms(toolSchema) {
-  const weighted = new Map();
-  const addTerms = (value, weight) => {
-    for (const token of a2aMatchTokens(value)) {
-      weighted.set(token, Math.max(weighted.get(token) || 0, weight));
-    }
-  };
-
-  addTerms(toolSchema.skillId, 4);
-  addTerms(toolSchema.skillName, 4);
-  addTerms((toolSchema.skillTags || []).join(' '), 3);
-  addTerms(toolSchema.skillDescription, 1);
-  return weighted;
+function getA2aSkillTerms(toolSchema) {
+  return a2aMatchTokens([
+    toolSchema.skillId,
+    toolSchema.skillName,
+    toolSchema.skillDescription,
+    ...(toolSchema.skillTags || [])
+  ].filter(Boolean).join(' '));
 }
 
 function findA2aSkillToolMatch(messages, toolSchemas) {
@@ -633,10 +620,10 @@ function findA2aSkillToolMatch(messages, toolSchemas) {
   const matches = [];
   for (const tool of toolSchemas) {
     if (!tool.skillId) continue;
-    const terms = getA2aWeightedSkillTerms(tool);
+    const terms = getA2aSkillTerms(tool);
     let score = 0;
     for (const token of queryTokens) {
-      score += terms.get(token) || 0;
+      if (terms.has(token)) score += 1;
     }
     if (score > 0) matches.push({ tool, score });
   }
