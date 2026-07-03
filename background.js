@@ -86,10 +86,120 @@ const ACTION_PROMPTS = {
   translate: 'Translate the following text to English. If already English, translate to Chinese. Return only the translation, no explanations.',
   summarize: 'Summarize the following text in 2-3 concise sentences. Return only the summary.',
   explain: 'Explain the following text clearly and simply. Be concise.',
-  improve: 'Improve the writing of the following text. Keep the same language and meaning but make it clearer and more polished. Return only the improved text.'
+  improve: 'Improve the writing of the following text. Keep the same language and meaning but make it clearer and more polished. Return only the improved text.',
+  'summarize-page': 'Summarize the following page content concisely. Provide a clear, well-structured summary that captures the key points, main arguments, and important details. Use 3-5 sentences.'
 };
 
 const CHAT_SYSTEM_PROMPT = 'You are a helpful assistant. Continue the conversation naturally.';
+
+// ── Context Menu Setup ─────────────────────────────────────────────────────────
+
+function setupContextMenus() {
+  chrome.contextMenus.removeAll(() => {
+    chrome.contextMenus.create({
+      id: 'omnipilot-translate',
+      title: '🌍 Translate',
+      contexts: ['selection']
+    });
+    chrome.contextMenus.create({
+      id: 'omnipilot-summarize',
+      title: '📝 Summarize',
+      contexts: ['selection']
+    });
+    chrome.contextMenus.create({
+      id: 'omnipilot-explain',
+      title: '💡 Explain',
+      contexts: ['selection']
+    });
+    chrome.contextMenus.create({
+      id: 'omnipilot-improve',
+      title: '✨ Improve',
+      contexts: ['selection']
+    });
+    chrome.contextMenus.create({
+      id: 'omnipilot-separator',
+      type: 'separator',
+      contexts: ['page', 'selection']
+    });
+    chrome.contextMenus.create({
+      id: 'omnipilot-summarize-page',
+      title: '📄 Summarize Page',
+      contexts: ['page', 'selection']
+    });
+  });
+}
+
+if (chrome.contextMenus) {
+  chrome.runtime.onInstalled?.addListener(() => {
+    setupContextMenus();
+  });
+
+  // Re-create on startup in case they were lost
+  chrome.runtime.onStartup?.addListener(() => {
+    setupContextMenus();
+  });
+
+  chrome.contextMenus.onClicked?.addListener((info, tab) => {
+    const menuId = info.menuItemId;
+    if (!menuId || !String(menuId).startsWith('omnipilot-') || menuId === 'omnipilot-separator') return;
+
+    const action = String(menuId).replace('omnipilot-', '');
+
+    if (action === 'summarize-page') {
+      // Send message to content script to extract page content and trigger summarization
+      chrome.tabs.sendMessage(tab.id, {
+        type: 'CONTEXT_MENU_PAGE_SUMMARY'
+      });
+    } else {
+      const selectedText = info.selectionText;
+      if (!selectedText) return;
+      // Send selected text action to content script
+      chrome.tabs.sendMessage(tab.id, {
+        type: 'CONTEXT_MENU_ACTION',
+        action,
+        text: selectedText
+      });
+    }
+  });
+}
+
+// ── Streaming via Ports ────────────────────────────────────────────────────────
+
+chrome.runtime.onConnect?.addListener(port => {
+  if (port.name === 'omnipilot-stream') {
+    port.onMessage.addListener(async request => {
+      if (request.type === 'AI_ACTION_STREAM') {
+        const systemPrompt = ACTION_PROMPTS[request.action];
+        if (!systemPrompt) {
+          port.postMessage({ type: 'error', error: `Unknown action: ${request.action}` });
+          port.postMessage({ type: 'done' });
+          return;
+        }
+        await executeApiRequestStreaming({
+          messages: [{ role: 'user', content: request.text }],
+          systemPrompt,
+          onChunk: text => port.postMessage({ type: 'chunk', text }),
+          onDone: () => port.postMessage({ type: 'done' }),
+          onError: error => {
+            port.postMessage({ type: 'error', error });
+            port.postMessage({ type: 'done' });
+          }
+        });
+      } else if (request.type === 'AI_CHAT_STREAM') {
+        await executeApiRequestStreaming({
+          messages: request.messages,
+          systemPrompt: CHAT_SYSTEM_PROMPT,
+          onChunk: text => port.postMessage({ type: 'chunk', text }),
+          onDone: () => port.postMessage({ type: 'done' }),
+          onError: error => {
+            port.postMessage({ type: 'error', error });
+            port.postMessage({ type: 'done' });
+          }
+        });
+      }
+    });
+  }
+});
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.type === 'AI_ACTION') {
@@ -1643,4 +1753,158 @@ async function executeApiRequestRaw({ config, messages, systemPrompt, copilotTok
   const content = parseContent(data);
 
   return { rawData: data, content, apiShape };
+}
+
+// ── Streaming Support ────────────────────────────────────────────────────────
+
+function buildStreamingApiRequest({ config, messages, systemPrompt, copilotToken }) {
+  const built = buildApiRequest({ config, messages, systemPrompt, copilotToken, tools: [] });
+  built.requestBody.stream = true;
+  return built;
+}
+
+function parseStreamChunkOpenAIChat(json) {
+  return json.choices?.[0]?.delta?.content || '';
+}
+
+function parseStreamChunkAnthropic(json) {
+  if (json.type === 'content_block_delta' && json.delta?.type === 'text_delta') {
+    return json.delta.text || '';
+  }
+  return '';
+}
+
+function parseStreamChunkOpenAIResponses(json) {
+  if (json.type === 'response.output_text.delta') {
+    return json.delta || '';
+  }
+  return '';
+}
+
+function getStreamChunkParser(apiShape) {
+  if (apiShape === API_SHAPES.ANTHROPIC_MESSAGES) return parseStreamChunkAnthropic;
+  if (apiShape === API_SHAPES.OPENAI_RESPONSES) return parseStreamChunkOpenAIResponses;
+  return parseStreamChunkOpenAIChat;
+}
+
+async function executeApiRequestStreaming({ config: preloadedConfig, messages, systemPrompt, onChunk, onDone, onError }) {
+  const config = preloadedConfig || await loadConfig();
+  const provider = getProvider(config);
+  let copilotToken = '';
+
+  if (provider.usesCopilotAuth) {
+    try {
+      copilotToken = await getCopilotAccessToken();
+      config.apiKey = copilotToken;
+    } catch (e) {
+      onError('GitHub Copilot authentication failed. Please re-authenticate in Settings.');
+      return;
+    }
+  } else if (!config.apiKey) {
+    onError('No API key configured. Click the OmniPilot icon to set up.');
+    return;
+  }
+
+  const { apiShape, requestUrl, requestHeaders, requestBody } = buildStreamingApiRequest({
+    config, messages, systemPrompt, copilotToken
+  });
+
+  const serializedBody = JSON.stringify(requestBody);
+
+  console.info('OmniPilot streaming API request', JSON.stringify({
+    requestUrl,
+    apiFormat: apiShape,
+    model: config.model,
+    hasApiKey: Boolean(config.apiKey),
+    streaming: true,
+    requestHeaders: redactHeaders(requestHeaders)
+  }, null, 2));
+
+  let response;
+  try {
+    response = await fetch(requestUrl, {
+      method: 'POST',
+      headers: requestHeaders,
+      body: serializedBody
+    });
+  } catch (err) {
+    onError('Network error. Check your connection and endpoint.');
+    return;
+  }
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    let message = `API error: ${response.status}`;
+    try {
+      const err = JSON.parse(errorText);
+      message = err.error?.message || err.message || message;
+    } catch {
+      if (errorText.trim()) message = `${message}: ${errorText.trim().slice(0, 300)}`;
+    }
+    if (response.status === 401 || response.status === 403) {
+      message += '. Check your API key, endpoint, and selected model access.';
+    } else if (response.status === 429) {
+      message += '. Check your rate limit or quota.';
+    }
+    onError(message);
+    return;
+  }
+
+  // If the response is not actually streaming (no readable body), fall back
+  if (!response.body) {
+    try {
+      const data = await response.json();
+      const parseContent = apiShape === API_SHAPES.ANTHROPIC_MESSAGES
+        ? parseAnthropicText
+        : apiShape === API_SHAPES.OPENAI_RESPONSES
+          ? parseOpenAIResponsesText
+          : parseOpenAIChatText;
+      const content = parseContent(data);
+      if (content) onChunk(content);
+      onDone();
+    } catch (err) {
+      onError('Failed to parse API response.');
+    }
+    return;
+  }
+
+  const parseChunk = getStreamChunkParser(apiShape);
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+
+      // Parse SSE lines from buffer
+      const lines = buffer.split('\n');
+      buffer = lines.pop(); // keep incomplete last line
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith(':')) continue;
+        if (trimmed === 'data: [DONE]') continue;
+        if (trimmed.startsWith('data: ')) {
+          const jsonStr = trimmed.slice(6);
+          try {
+            const json = JSON.parse(jsonStr);
+            const text = parseChunk(json);
+            if (text) onChunk(text);
+          } catch {
+            // Ignore malformed JSON chunks
+          }
+        } else if (trimmed.startsWith('event:')) {
+          // Anthropic sends event: lines; we parse data: on the next line
+          continue;
+        }
+      }
+    }
+    onDone();
+  } catch (err) {
+    onError(err.message || 'Stream interrupted.');
+  }
 }

@@ -19,6 +19,29 @@ async function setupPage(page) {
     window.chrome = {
       runtime: {
         lastError: null,
+        onMessage: { addListener() {} },
+        connect(opts) {
+          const listeners = [];
+          return {
+            name: opts && opts.name || '',
+            onMessage: { addListener(fn) { listeners.push(fn); } },
+            onDisconnect: { addListener() {} },
+            postMessage(msg) {
+              window.__msgs.push(msg);
+              // Simulate streaming response
+              setTimeout(function() {
+                var result = '';
+                if (msg.type === 'AI_ACTION_STREAM') result = 'ACTION:' + msg.action + ' -> Hello world';
+                else if (msg.type === 'AI_CHAT_STREAM') result = 'CHAT reply';
+                for (var i = 0; i < listeners.length; i++) {
+                  listeners[i]({ type: 'chunk', text: result });
+                  listeners[i]({ type: 'done' });
+                }
+              }, 0);
+            },
+            disconnect() {}
+          };
+        },
         sendMessage(message, callback) {
           window.__msgs.push(message);
           if (message.type === 'GET_MODELS') return callback({ models: ['gpt-4o'] });
@@ -108,7 +131,8 @@ test('BUG1: single click on the ✕ removes the selection context', async ({ pag
 test('BUG2: picking Translate from the header re-runs the action', async ({ page }) => {
   await setupPage(page);
   await openTranslatePanel(page);
-  expect(await page.evaluate(() => window.__msgs.filter(m => m.type === 'AI_ACTION').length)).toBe(1);
+  // Streaming actions post AI_ACTION_STREAM via port instead of AI_ACTION via sendMessage
+  expect(await page.evaluate(() => window.__msgs.filter(m => m.type === 'AI_ACTION_STREAM').length)).toBe(1);
 
   // User clicks a blank area of the page — this clears lastSelection via the mouseup handler.
   await page.mouse.click(50, 500);
@@ -121,7 +145,7 @@ test('BUG2: picking Translate from the header re-runs the action', async ({ page
   await page.waitForTimeout(60);
 
   // A new translate request must have been sent — not a silent no-op.
-  const actionMsgs = await page.evaluate(() => window.__msgs.filter(m => m.type === 'AI_ACTION'));
+  const actionMsgs = await page.evaluate(() => window.__msgs.filter(m => m.type === 'AI_ACTION_STREAM'));
   expect(actionMsgs.length).toBe(2);
   expect(actionMsgs[1].action).toBe('translate');
 
