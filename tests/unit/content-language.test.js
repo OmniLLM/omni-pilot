@@ -2,8 +2,7 @@ const fs = require('fs');
 const vm = require('vm');
 const assert = require('assert');
 
-const i18nSource = fs.readFileSync('i18n.js', 'utf8');
-const contentSource = fs.readFileSync('content.js', 'utf8');
+const contentSource = fs.readFileSync('dist/content.js', 'utf8');
 
 function createElement(documentRef, tagName = 'div') {
   const listeners = {};
@@ -227,7 +226,6 @@ async function createContentContext(storedConfig = {}) {
   context.window.document = documentRef;
 
   vm.createContext(context);
-  vm.runInContext(i18nSource, context);
   vm.runInContext(contentSource, context);
 
   return {

@@ -1,7 +1,7 @@
 const { test, expect } = require('@playwright/test');
 const path = require('path');
 
-const optionsUrl = `file://${path.resolve(__dirname, '..', 'options.html').replace(/\\/g, '/')}`;
+const optionsUrl = `file://${path.resolve(__dirname, '..', 'dist', 'options.html').replace(/\\/g, '/')}`;
 
 async function openOptionsPage(page, { syncStorage = {}, localStorage = {}, modelResponse = ['gpt-4.1', 'gpt-5.4'] } = {}) {
   await page.addInitScript(({ syncStorage, localStorage, modelResponse }) => {

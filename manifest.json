@@ -3,24 +3,38 @@
   "name": "OmniPilot",
   "version": "0.1.4",
   "description": "Select text → AI actions: translate, summarize, explain, improve, and more",
-  "permissions": ["storage", "clipboardWrite", "tabs", "contextMenus", "sidePanel"],
-  "host_permissions": ["<all_urls>"],
+  "permissions": [
+    "storage",
+    "clipboardWrite",
+    "tabs",
+    "contextMenus",
+    "sidePanel"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "dist/background.js"
   },
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
-      "js": ["i18n.js", "content.js"],
-      "css": ["styles.css"],
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "dist/content.js"
+      ],
+      "css": [
+        "dist/styles.css"
+      ],
       "run_at": "document_idle"
     }
   ],
   "side_panel": {
-    "default_path": "sidepanel.html"
+    "default_path": "dist/sidepanel.html"
   },
   "action": {
-    "default_popup": "popup.html",
+    "default_popup": "dist/popup.html",
     "default_icon": {
       "16": "icons/icon16.png",
       "48": "icons/icon48.png",
@@ -28,7 +42,7 @@
     }
   },
   "options_ui": {
-    "page": "options.html",
+    "page": "dist/options.html",
     "open_in_tab": true
   },
   "icons": {

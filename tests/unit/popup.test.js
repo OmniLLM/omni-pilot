@@ -2,8 +2,7 @@ const fs = require('fs');
 const vm = require('vm');
 const assert = require('assert');
 
-const i18nSource = fs.readFileSync('i18n.js', 'utf8');
-const popupSource = fs.readFileSync('popup.js', 'utf8');
+const source = fs.readFileSync('dist/popup.js', 'utf8');
 
 function createElement(id = '') {
   return {
@@ -79,8 +78,7 @@ function loadPopup(storedConfig) {
   context.globalThis = context;
 
   vm.createContext(context);
-  vm.runInContext(i18nSource, context);
-  vm.runInContext(popupSource, context);
+  vm.runInContext(source, context);
 
   return { elements, writes, documentElement: context.document.documentElement };
 }
