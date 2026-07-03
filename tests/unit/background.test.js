@@ -2286,6 +2286,63 @@ async function assertQuestionMatchingA2aSkillDelegatesBeforeCallingLlm() {
   assert.ok(!requests.some(r => r.url === 'https://custom.example/v1/chat/completions'), 'high-confidence skill match should not depend on the LLM emitting a tool call');
 }
 
+async function assertQuestionMatchingA2aSkillIgnoresStopwordsWhenChoosingBestSkill() {
+  const { context, requests } = await createBackgroundContext({
+    storage: {
+      providerType: 'custom-provider',
+      endpoint: 'https://custom.example/v1',
+      apiKey: 'custom-key',
+      model: 'custom-model',
+      apiShape: 'openai-compatible',
+      a2aServers: [
+        {
+          id: 'omnilauncher',
+          name: 'OmniLauncher',
+          endpoint: 'https://launcher.example/a2a',
+          enabled: true,
+          agentCard: {
+            name: 'OmniLauncher',
+            description: 'Desktop agent with cloud skills.',
+            skills: [
+              {
+                id: 'skill:csv-processing',
+                name: 'csv-processing',
+                description: 'Force CSV file output for ANY tool result, across providers like AWS, Alibaba, Azure, GCP, Jira, etc.'
+              },
+              {
+                id: 'skill:alibaba',
+                name: 'alibaba',
+                description: 'Query Alibaba Cloud resources and accounts. Covers all resource types via SQL against Resource Center.'
+              },
+              {
+                id: 'skill:inventory',
+                name: 'inventory',
+                description: 'Query Entity Inventory resources — servers/VMs, images, projects, owners, and IPs.'
+              }
+            ]
+          }
+        }
+      ],
+      a2aServerTokens: { omnilauncher: 'server-token' }
+    },
+    fetchImpl: async (url) => {
+      if (url === 'https://launcher.example/a2a') {
+        return { ok: true, json: async () => ({ result: { message: { parts: [{ type: 'text', text: '11053 Alibaba VMs' }] } } }) };
+      }
+      if (url === 'https://custom.example/v1/chat/completions') {
+        return { ok: true, json: async () => ({ choices: [{ message: { content: 'LLM fallback answer' } }] }) };
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    }
+  });
+
+  const result = await context.handleAIChat([{ role: 'user', content: 'How many VMs in Alibaba now' }]);
+
+  assert.strictEqual(result, '11053 Alibaba VMs');
+  assert.ok(requests.some(r => r.url === 'https://launcher.example/a2a'), 'Alibaba prompt should delegate to the Alibaba skill');
+  assert.ok(!requests.some(r => r.url === 'https://custom.example/v1/chat/completions'), 'stopword matches must not make routing fall back to the LLM');
+}
+
 async function assertAutoRouteRefreshesSparseCachedAgentCard() {
   const { context, requests } = await createBackgroundContext({
     storage: {
@@ -2600,6 +2657,7 @@ async function main() {
   await assertA2aToolSchemasFallBackToServerToolWhenNoSkills();
   await assertSkillToolCallDelegatesToCorrectServer();
   await assertQuestionMatchingA2aSkillDelegatesBeforeCallingLlm();
+  await assertQuestionMatchingA2aSkillIgnoresStopwordsWhenChoosingBestSkill();
   await assertAutoRouteRefreshesSparseCachedAgentCard();
   await assertAutoRouteDiscoversAgentCardOnDemand();
   await assertCopilotAutoRouteToolCallDelegates();
