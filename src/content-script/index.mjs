@@ -1,6 +1,8 @@
 // OmniPilot - content script
 // Detects text selection and shows AI action bubble
 
+import { t, normalizeLanguage } from '../utils/i18n.mjs';
+
 (function () {
   'use strict';
 
@@ -35,11 +37,11 @@
   };
 
   function label(key) {
-    return OmniPilotI18n.t(key, currentLanguage);
+    return t(key, currentLanguage);
   }
 
   function applyLanguage(language) {
-    currentLanguage = OmniPilotI18n.normalizeLanguage(language);
+    currentLanguage = normalizeLanguage(language);
     document.documentElement.lang = currentLanguage;
     updatePanelMeta();
   }

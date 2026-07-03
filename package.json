@@ -3,9 +3,10 @@
   "version": "0.1.4",
   "private": true,
   "scripts": {
-    "test": "node background.test.js && node options.test.js && node popup.test.js && node i18n.test.js && node content-language.test.js && node options-language.test.js && npx playwright test",
-    "test:unit": "node background.test.js && node options.test.js && node popup.test.js && node i18n.test.js && node content-language.test.js && node options-language.test.js",
-    "test:playwright": "npx playwright test"
+    "build": "node build.mjs",
+    "test:unit": "node build.mjs && node tests/unit/background.test.js && node tests/unit/options.test.js && node tests/unit/popup.test.js && node tests/unit/i18n.test.js && node tests/unit/content-language.test.js && node tests/unit/options-language.test.js",
+    "test:playwright": "node build.mjs && npx playwright test",
+    "test": "npm run test:unit && npm run test:playwright"
   },
   "devDependencies": {
     "@playwright/test": "latest"

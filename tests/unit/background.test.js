@@ -2,7 +2,7 @@ const fs = require('fs');
 const vm = require('vm');
 const assert = require('assert');
 
-const source = fs.readFileSync('background.js', 'utf8');
+const source = fs.readFileSync('dist/background.js', 'utf8');
 
 const RESPONSE_BY_SHAPE = {
   'openai-compatible': { choices: [{ message: { content: 'ok' } }] },

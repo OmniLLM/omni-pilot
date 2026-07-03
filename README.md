@@ -32,7 +32,7 @@ Select any text on any webpage, choose an action, get results in a floating pane
 ✅ **Offline ready** — Works with self-hosted LLMs  
 ✅ **Privacy first** — Open source, transparent, auditable  
 ✅ **Multi-language** — English, Chinese, Japanese, Indonesian, Turkish  
-✅ **Lightweight** — Zero dependencies, pure vanilla JavaScript  
+✅ **Lightweight** — Pure vanilla JavaScript; only esbuild is used at build time  
 
 ### 🔌 Advanced Features
 
@@ -125,38 +125,62 @@ Example: `@Planner help me organize my schedule`
 
 ## 🛠️ Development
 
-No build step required. Pure vanilla JavaScript, no dependencies.
+Sources live in `src/`; running `npm run build` bundles them into `dist/` via
+esbuild. The `manifest.json` loads scripts and HTML from `dist/` — always
+rebuild after editing sources.
 
 ```
 omni-pilot/
-├── manifest.json       # Extension manifest (Manifest V3)
-├── content.js          # Selection detection + UI rendering
-├── background.js       # API calls & provider orchestration (service worker)
-├── i18n.js             # Internationalization support
-├── styles.css          # All UI styles
-├── popup.html/js       # Toolbar popup & provider selector
-├── options.html/js     # Settings page & configuration
-├── icons/              # Extension icons (16x16, 48x48, 128x128)
-├── *.test.js           # Unit tests (Node)
-└── tests/              # E2E tests (Playwright)
+├── manifest.json                   # Extension manifest (Manifest V3) — loads dist/*
+├── build.mjs                       # esbuild bundler (src/ → dist/)
+├── pack.mjs                        # ZIP packager (manifest + icons/ + dist/)
+├── Makefile                        # `make package` → omni-pilot-<version>.zip
+├── package.json                    # npm scripts (build, test:unit, test:playwright)
+├── src/
+│   ├── background/index.mjs        # Service worker: API calls, provider logic, A2A
+│   ├── content-script/index.mjs    # Selection detection + floating panel UI
+│   ├── content-script/styles.css   # All in-page styles
+│   ├── popup/{index.html,index.mjs}       # Toolbar popup
+│   ├── options/{index.html,index.mjs}     # Settings page
+│   ├── sidepanel/{index.html,index.mjs}   # Chrome side panel
+│   └── utils/i18n.mjs              # Internationalization (shared across pages)
+├── dist/                           # Built output (gitignored) — loaded by the extension
+├── icons/                          # Extension icons (16x16, 48x48, 128x128)
+└── tests/
+    ├── *.spec.js                   # Playwright E2E specs (browser-driven)
+    ├── unit/*.test.js              # Node unit tests (vm-sandboxed dist/*.js)
+    └── e2e/*.test.js               # Live-backend integration tests (skipped by default)
 ```
+
+### Packaging a release
+
+```bash
+make package          # → omni-pilot-<version>.zip (ready for Load unpacked or Web Store upload)
+make clean-package    # remove all omni-pilot-*.zip
+make clean            # remove ZIPs and dist/
+```
+
+The ZIP contains `manifest.json`, `icons/`, and `dist/` — the same layout the
+manifest references in development, so `Load unpacked` on either the extracted
+ZIP or on the repo root (after `npm run build`) produces an identical
+extension.
 
 ### Running Tests
 
 ```bash
-npm test              # All tests (unit + E2E)
-npm run test:unit     # Unit tests only
-npm run test:playwright # E2E tests only
+npm test              # Unit tests + Playwright specs (build runs automatically)
+npm run test:unit     # Node vm-sandbox unit tests only
+npm run test:playwright # Playwright browser specs only
 ```
 
 ### Core Architecture
 
 | Module | Role |
 |--------|------|
-| **content.js** | Detects text selection, renders floating bubble, handles UI interactions |
-| **background.js** | Service worker; manages API calls, provider logic, A2A delegation, storage |
-| **options.js** | Settings UI, provider configuration, A2A server management |
-| **i18n.js** | Multi-language support (strings, formatting) |
+| **src/content-script** | Detects text selection, renders floating bubble, handles UI interactions |
+| **src/background** | Service worker: manages API calls, provider logic, A2A delegation, storage |
+| **src/options** | Settings UI, provider configuration, A2A server management |
+| **src/utils/i18n** | Multi-language support (strings, formatting) — shared across pages |
 
 ---
 
@@ -176,17 +200,19 @@ Contributions welcome! Add a language by extending `i18n.js`.
 
 We welcome contributions! Areas we need help with:
 
-- **New languages** — Add translations to `i18n.js`
-- **New providers** — Extend `background.js` with more AI services
+- **New languages** — Add translations to `src/utils/i18n.mjs`
+- **New providers** — Extend `src/background/index.mjs` with more AI services
 - **Bug reports** — File issues with reproducible steps
 - **Feature requests** — Discuss in issues first
 
 ### Development Setup
 
 1. Clone this repo
-2. Load it unpacked in Chrome/Firefox (see Installation)
-3. Edit files, save, reload extension
-4. Run tests: `npm test`
+2. Run `npm install` to fetch the esbuild bundler
+3. Run `npm run build` to produce `dist/`
+4. Load `omni-pilot/` unpacked in Chrome/Firefox (see Installation)
+5. Edit files under `src/`, run `npm run build`, then reload the extension
+6. Run tests: `npm test`
 
 ---
 

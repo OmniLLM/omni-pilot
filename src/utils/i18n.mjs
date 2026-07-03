@@ -1,6 +1,3 @@
-(function () {
-  'use strict';
-
   const DEFAULT_LANGUAGE = 'en';
   const SUPPORTED_LANGUAGES = ['en', 'zh'];
 
@@ -239,12 +236,11 @@
     });
   }
 
-  globalThis.OmniPilotI18n = {
-    DEFAULT_LANGUAGE,
-    SUPPORTED_LANGUAGES,
-    MESSAGES,
-    normalizeLanguage,
-    t,
-    applyTranslations
-  };
-})();
+export {
+  DEFAULT_LANGUAGE,
+  SUPPORTED_LANGUAGES,
+  MESSAGES,
+  normalizeLanguage,
+  t,
+  applyTranslations
+};

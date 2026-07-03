@@ -1,3 +1,5 @@
+import { t, normalizeLanguage, applyTranslations } from '../utils/i18n.mjs';
+
 const PROVIDER_TYPES = {
   CUSTOM: 'custom-provider',
   GITHUB_COPILOT: 'github-copilot',
@@ -60,14 +62,14 @@ let a2aServers = [];
 let a2aServerTokens = {};
 
 function label(key) {
-  return OmniPilotI18n.t(key, currentLanguage);
+  return t(key, currentLanguage);
 }
 
 function applyLanguage(language) {
-  currentLanguage = OmniPilotI18n.normalizeLanguage(language);
+  currentLanguage = normalizeLanguage(language);
   document.documentElement.lang = currentLanguage;
   document.getElementById('languageSelect').value = currentLanguage;
-  OmniPilotI18n.applyTranslations(document, currentLanguage);
+  applyTranslations(document, currentLanguage);
 }
 
 // ── Model Fetch ──────────────────────────────────────────────────────────────
@@ -789,7 +791,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
   document.getElementById('languageSelect').addEventListener('change', () => {
-    const languagePreference = OmniPilotI18n.normalizeLanguage(document.getElementById('languageSelect').value);
+    const languagePreference = normalizeLanguage(document.getElementById('languageSelect').value);
     applyLanguage(languagePreference);
     chrome.storage.sync.set({ languagePreference });
   });
@@ -836,7 +838,7 @@ document.addEventListener('DOMContentLoaded', () => {
       ...getPopupInitialSizeConfig(),
       providerType,
       providerConfigs,
-      languagePreference: OmniPilotI18n.normalizeLanguage(document.getElementById('languageSelect').value)
+      languagePreference: normalizeLanguage(document.getElementById('languageSelect').value)
     };
 
     chrome.storage.sync.set(config, () => {
@@ -852,3 +854,18 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 });
+
+// Expose internals on globalThis for the unit-test vm sandbox.
+// In production (options page), globalThis === window; these properties are harmless.
+Object.assign(globalThis, {
+  fetchModels,
+  getModelsFromBackground,
+  updateAuthMethodUI,
+  updateProviderTypeUI,
+  scheduleFetch,
+  startCopilotAuth,
+  addA2aServerFromForm,
+  renderA2aServers,
+  discoverAndSaveA2aServer
+});
+
