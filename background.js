@@ -84,10 +84,18 @@ const API_SHAPES = {
 
 const ACTION_PROMPTS = {
   translate: 'Translate the following text to English. If already English, translate to Chinese. Return only the translation, no explanations.',
+  'translate-en': 'Translate the following text into English. Return only the translation, no explanations.',
+  'translate-zh': 'Translate the following text into Chinese. Return only the translation, no explanations.',
+  'translate-bidi': 'Translate the following text. If it is in the user\'s preferred language, translate to English. If it is in English, translate to the user\'s preferred language. Return only the translation, no explanations.',
   summarize: 'Summarize the following text in 2-3 concise sentences. Return only the summary.',
   explain: 'Explain the following text clearly and simply. Be concise.',
   improve: 'Improve the writing of the following text. Keep the same language and meaning but make it clearer and more polished. Return only the improved text.',
-  'summarize-page': 'Summarize the following page content concisely. Provide a clear, well-structured summary that captures the key points, main arguments, and important details. Use 3-5 sentences.'
+  sentiment: 'Analyze the sentiment of the following text. Provide a brief summary of the overall emotional tone, labeling it with a short descriptive word or phrase. Be concise.',
+  'code-explain': 'You are a senior software engineer. Break down the following code step by step, explain how each part works and why it was designed that way, note any potential issues, and summarize the overall purpose.',
+  'divide-paragraphs': 'Divide the following text into clear, easy-to-read paragraphs. Return only the reformatted text.',
+  ask: 'Analyze the following content carefully and provide a concise answer or opinion with a short explanation.',
+  'summarize-page': 'Summarize the following page content concisely. Provide a clear, well-structured summary that captures the key points, main arguments, and important details. Use 3-5 sentences.',
+  'summarize-github': 'You are an expert in analyzing GitHub discussions. Please provide a concise summary of the following GitHub issue or pull request thread. Identify the main problem reported, key points discussed by participants, proposed solutions (if any), and the current status or next steps. Present the summary in a structured markdown format.'
 };
 
 const CHAT_SYSTEM_PROMPT = 'You are a helpful assistant. Continue the conversation naturally.';
@@ -117,6 +125,21 @@ function setupContextMenus() {
       contexts: ['selection']
     });
     chrome.contextMenus.create({
+      id: 'omnipilot-sentiment',
+      title: '😊 Sentiment',
+      contexts: ['selection']
+    });
+    chrome.contextMenus.create({
+      id: 'omnipilot-code-explain',
+      title: '🔧 Code Explain',
+      contexts: ['selection']
+    });
+    chrome.contextMenus.create({
+      id: 'omnipilot-ask',
+      title: '❓ Ask',
+      contexts: ['selection']
+    });
+    chrome.contextMenus.create({
       id: 'omnipilot-separator',
       type: 'separator',
       contexts: ['page', 'selection']
@@ -125,6 +148,12 @@ function setupContextMenus() {
       id: 'omnipilot-summarize-page',
       title: '📄 Summarize Page',
       contexts: ['page', 'selection']
+    });
+    chrome.contextMenus.create({
+      id: 'omnipilot-summarize-github',
+      title: '🐙 Summarize Issue/PR',
+      contexts: ['page'],
+      documentUrlPatterns: ['*://github.com/*/issues/*', '*://github.com/*/pull/*']
     });
   });
 }
@@ -146,9 +175,12 @@ if (chrome.contextMenus) {
     const action = String(menuId).replace('omnipilot-', '');
 
     if (action === 'summarize-page') {
-      // Send message to content script to extract page content and trigger summarization
       chrome.tabs.sendMessage(tab.id, {
         type: 'CONTEXT_MENU_PAGE_SUMMARY'
+      });
+    } else if (action === 'summarize-github') {
+      chrome.tabs.sendMessage(tab.id, {
+        type: 'CONTEXT_MENU_GITHUB_SUMMARY'
       });
     } else {
       const selectedText = info.selectionText;
