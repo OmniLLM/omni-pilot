@@ -1,8 +1,4 @@
-const fs = require('fs');
-const vm = require('vm');
 const assert = require('assert');
-
-const source = fs.readFileSync('i18n.js', 'utf8');
 
 function createElement() {
   return {
@@ -26,25 +22,18 @@ function createElement() {
   };
 }
 
-function loadI18n() {
-  const context = { globalThis: {} };
-  vm.createContext(context);
-  vm.runInContext(source, context);
-  return context.globalThis.OmniPilotI18n;
-}
+async function main() {
+  // i18n is now an ES module (src/utils/i18n.mjs); import it directly to test its exports.
+  const { normalizeLanguage, t, applyTranslations } = await import('../../src/utils/i18n.mjs');
 
-function assertMessages() {
-  const i18n = loadI18n();
+  // assertMessages
+  assert.strictEqual(normalizeLanguage('zh'), 'zh');
+  assert.strictEqual(normalizeLanguage('fr'), 'en');
+  assert.strictEqual(t('settings', 'zh'), '设置');
+  assert.strictEqual(t('settings', 'en'), 'Settings');
+  assert.strictEqual(t('missing-key', 'zh'), 'missing-key');
 
-  assert.strictEqual(i18n.normalizeLanguage('zh'), 'zh');
-  assert.strictEqual(i18n.normalizeLanguage('fr'), 'en');
-  assert.strictEqual(i18n.t('settings', 'zh'), '设置');
-  assert.strictEqual(i18n.t('settings', 'en'), 'Settings');
-  assert.strictEqual(i18n.t('missing-key', 'zh'), 'missing-key');
-}
-
-function assertDomTranslation() {
-  const i18n = loadI18n();
+  // assertDomTranslation
   const root = createElement();
   const textEl = createElement();
   const inputEl = createElement();
@@ -57,7 +46,7 @@ function assertDomTranslation() {
   ariaEl.dataset.i18nAriaLabel = 'language';
   root.children.push(textEl, inputEl, buttonEl, ariaEl);
 
-  i18n.applyTranslations(root, 'zh');
+  applyTranslations(root, 'zh');
 
   assert.strictEqual(textEl.textContent, '设置');
   assert.strictEqual(inputEl.placeholder, '询问后续问题...');
@@ -65,5 +54,7 @@ function assertDomTranslation() {
   assert.strictEqual(ariaEl.ariaLabel, '语言');
 }
 
-assertMessages();
-assertDomTranslation();
+main().catch(err => {
+  console.error(err);
+  process.exit(1);
+});

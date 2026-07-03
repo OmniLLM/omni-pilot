@@ -1271,7 +1271,9 @@ async function postA2aRpc(server, method, params) {
 
 async function pollA2aTask(server, taskId) {
   for (let attempt = 0; attempt < A2A_MAX_POLL_ATTEMPTS; attempt += 1) {
-    await wait(A2A_POLL_INTERVAL_MS);
+    // Look up via globalThis so tests can inject a mock wait implementation
+    // without needing to stub setTimeout in the vm sandbox.
+    await globalThis.wait(A2A_POLL_INTERVAL_MS);
     const task = assertA2aTaskNotFailed(server.protocol === 'rest'
       ? await getA2aRestTask(server, taskId)
       : await postA2aRpc(server, 'tasks/get', { id: taskId }));
@@ -1940,3 +1942,36 @@ async function executeApiRequestStreaming({ config: preloadedConfig, messages, s
     onError(err.message || 'Stream interrupted.');
   }
 }
+
+// Expose internals on globalThis for the unit-test vm sandbox.
+// In production (service worker), globalThis is the worker's own scope, so these are harmless.
+Object.assign(globalThis, {
+  // Config + storage
+  loadConfig,
+  loadA2aServers,
+  loadA2aServersWithTokens,
+  // A2A helpers
+  createA2aProviderType,
+  isA2aProviderType,
+  getA2aServerIdFromProviderType,
+  buildA2aToolSchemas,
+  delegateA2aTask,
+  discoverA2aServer,
+  removeA2aServer,
+  // Copilot auth
+  clearCopilotAuth,
+  getCopilotAccessToken,
+  pollCopilotToken,
+  startCopilotDeviceFlow,
+  // Streaming parsers
+  parseStreamChunkOpenAIChat,
+  parseStreamChunkAnthropic,
+  parseStreamChunkOpenAIResponses,
+  executeApiRequestStreaming,
+  // Public entry points
+  handleAIAction,
+  handleAIChat,
+  handleGetModels,
+  setupContextMenus,
+  wait
+});

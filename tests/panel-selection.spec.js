@@ -2,9 +2,8 @@ const { test, expect } = require('@playwright/test');
 const path = require('path');
 const fs = require('fs');
 
-const contentSource = fs.readFileSync(path.resolve(__dirname, '..', 'content.js'), 'utf8');
-const i18nSource = fs.readFileSync(path.resolve(__dirname, '..', 'i18n.js'), 'utf8');
-const stylesSource = fs.readFileSync(path.resolve(__dirname, '..', 'styles.css'), 'utf8');
+const contentSource = fs.readFileSync(path.resolve(__dirname, '..', 'dist', 'content.js'), 'utf8');
+const stylesSource = fs.readFileSync(path.resolve(__dirname, '..', 'dist', 'styles.css'), 'utf8');
 
 async function setupPage(page) {
   await page.goto('about:blank');
@@ -14,7 +13,7 @@ async function setupPage(page) {
     `<p id="p2">Comment allez vous aujourd hui mon ami.</p>` +
     `<div id="blank" style="height:400px"></div>` +
     `</body></html>`);
-  await page.evaluate(({ i18nSource, contentSource }) => {
+  await page.evaluate(({ contentSource }) => {
     window.__msgs = [];
     window.chrome = {
       runtime: {
@@ -58,10 +57,8 @@ async function setupPage(page) {
       }
     };
     // eslint-disable-next-line no-eval
-    window.eval(i18nSource);
-    // eslint-disable-next-line no-eval
     window.eval(contentSource);
-  }, { i18nSource, contentSource });
+  }, { contentSource });
 }
 
 // Set the window selection over a node (models the real-browser invariant that the

@@ -1,16 +1,18 @@
+import { DEFAULT_LANGUAGE, t, normalizeLanguage, applyTranslations } from '../utils/i18n.mjs';
+
 document.addEventListener('DOMContentLoaded', () => {
   const dot  = document.getElementById('statusDot');
   const text = document.getElementById('statusText');
   const themeToggle = document.getElementById('themeToggle');
   const themeValue = document.getElementById('themeValue');
   const languageSelect = document.getElementById('languageSelect');
-  let currentLanguage = OmniPilotI18n.DEFAULT_LANGUAGE;
+  let currentLanguage = DEFAULT_LANGUAGE;
   let hasApiKey = false;
   let providerType = 'custom-provider';
   let authMethod = 'api-key';
 
   function label(key) {
-    return OmniPilotI18n.t(key, currentLanguage);
+    return t(key, currentLanguage);
   }
 
   function renderStatus() {
@@ -23,10 +25,10 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function applyLanguage(language) {
-    currentLanguage = OmniPilotI18n.normalizeLanguage(language);
+    currentLanguage = normalizeLanguage(language);
     document.documentElement.lang = currentLanguage;
     if (languageSelect) languageSelect.value = currentLanguage;
-    OmniPilotI18n.applyTranslations(document, currentLanguage);
+    applyTranslations(document, currentLanguage);
     renderStatus();
   }
 
@@ -49,7 +51,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   languageSelect?.addEventListener('change', () => {
-    const languagePreference = OmniPilotI18n.normalizeLanguage(languageSelect.value);
+    const languagePreference = normalizeLanguage(languageSelect.value);
     applyLanguage(languagePreference);
     chrome.storage.sync.set({ languagePreference });
   });

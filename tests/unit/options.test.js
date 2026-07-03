@@ -2,9 +2,8 @@ const fs = require('fs');
 const vm = require('vm');
 const assert = require('assert');
 
-const source = fs.readFileSync('options.js', 'utf8');
-const i18nSource = fs.readFileSync('i18n.js', 'utf8');
-const htmlSource = fs.readFileSync('options.html', 'utf8');
+const source = fs.readFileSync('dist/options.js', 'utf8');
+const htmlSource = fs.readFileSync('dist/options.html', 'utf8');
 
 function createElement(initialValue = '') {
   return {
@@ -145,7 +144,6 @@ function createTestContext({ fetchImpl, sendMessageImpl, storageGetImpl, localSt
   context.globalThis = context;
 
   vm.createContext(context);
-  vm.runInContext(i18nSource, context);
   vm.runInContext(source, context);
 
   return { context, elements, fetchUrls, sendMessageCalls, domListeners, timeoutCalls, syncWrites, syncRemoves, localWrites, localRemoves };
