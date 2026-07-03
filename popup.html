@@ -43,7 +43,21 @@
       justify-content: space-between;
       margin-bottom: 12px;
     }
-    .header-left { display: flex; align-items: center; gap: 8px; }
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: inherit;
+      text-decoration: none;
+      border-radius: 8px;
+      outline: none;
+      transition: color 0.12s, transform 0.12s;
+    }
+    .header-left:hover,
+    .header-left:focus-visible {
+      color: var(--accent);
+      transform: translateY(-1px);
+    }
     .logo {
       width: 24px; height: 24px;
       background: var(--accent);
@@ -197,10 +211,10 @@
 </head>
 <body>
   <div class="header">
-    <div class="header-left">
+    <a class="header-left" href="https://github.com/OmniLLM/omni-pilot" target="_blank" rel="noopener noreferrer" title="Open OmniPilot on GitHub">
       <div class="logo">✦</div>
       <span class="title">OmniPilot</span>
-    </div>
+    </a>
   </div>
 
   <div class="divider"></div>
