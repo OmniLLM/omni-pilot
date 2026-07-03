@@ -187,11 +187,19 @@
     if (titleEl && currentAction) {
       const actionLabels = {
         translate: label('translating'),
+        'translate-en': label('translating'),
+        'translate-zh': label('translating'),
+        'translate-bidi': label('translating'),
         summarize: label('summarizing'),
         explain: label('explaining'),
         improve: label('improving'),
+        sentiment: label('analyzing'),
+        'code-explain': label('explaining'),
+        'divide-paragraphs': label('dividing'),
+        ask: label('asking'),
         'delegate-a2a': label('delegating'),
-        'summarize-page': label('summarizingPage')
+        'summarize-page': label('summarizingPage'),
+        'summarize-github': label('summarizingGitHub')
       };
       titleEl.textContent = `✦ ${actionLabels[currentAction] || 'OmniPilot'}`;
     } else if (titleEl) {
@@ -203,15 +211,139 @@
     { id: 'translate', labelKey: 'translate', icon: '🌍' },
     { id: 'summarize', labelKey: 'summarize', icon: '📝' },
     { id: 'explain', labelKey: 'explain', icon: '💡' },
-    { id: 'improve', labelKey: 'improve', icon: '✨' }
+    { id: 'improve', labelKey: 'improve', icon: '✨' },
+    { id: 'sentiment', labelKey: 'sentiment', icon: '😊' },
+    { id: 'code-explain', labelKey: 'codeExplain', icon: '🔧' },
+    { id: 'divide-paragraphs', labelKey: 'divideParagraphs', icon: '📋' },
+    { id: 'ask', labelKey: 'ask', icon: '❓' }
   ];
 
   const PAGE_CONTENT_MAX_CHARS = 12000;
 
+  // ── Smart Page Content Extraction ─────────────────────────────────────────────
+
+  const SITE_CONTENT_SELECTORS = {
+    'scholar.google': ['#gs_res_ccl_mid'],
+    'google': ['#search'],
+    'bing': ['#b_results'],
+    'wikipedia': ['#mw-content-text'],
+    'github': ['[data-testid="issue-body"]', '.comment-body', '.markdown-body', '#readme'],
+    'stackoverflow': ['#answers', '.js-post-body'],
+    'reddit': ['[data-testid="post-container"]', '.Post'],
+    'medium.com': ['article']
+  };
+
+  function getElementArea(el) {
+    const rect = el.getBoundingClientRect();
+    return rect.width * rect.height;
+  }
+
+  function findLargestContentElement(root) {
+    if (!root) return null;
+    let maxArea = 0;
+    let largest = null;
+    const limitedArea = 0.8 * getElementArea(root);
+    function traverse(node) {
+      if (node.nodeType !== 1) return; // ELEMENT_NODE
+      const area = getElementArea(node);
+      if (area > maxArea && area < limitedArea) {
+        maxArea = area;
+        largest = node;
+      }
+      for (let i = 0; i < node.children.length; i++) traverse(node.children[i]);
+    }
+    traverse(root);
+    return largest;
+  }
+
+  function cleanExtractedText(text) {
+    return text.trim().replace(/\t/g, '').replace(/\n{3,}/g, '\n\n').replace(/  +/g, ' ');
+  }
+
   function extractPageContent() {
-    const text = (document.body?.innerText || '').trim();
+    const hostname = location.hostname;
+
+    // Try site-specific selectors first
+    for (const [site, selectors] of Object.entries(SITE_CONTENT_SELECTORS)) {
+      if (hostname.includes(site)) {
+        for (const sel of selectors) {
+          const el = document.querySelector(sel);
+          if (el?.innerText?.trim()) {
+            const text = cleanExtractedText(el.innerText);
+            if (text.length > 50) {
+              return text.length > PAGE_CONTENT_MAX_CHARS
+                ? text.slice(0, PAGE_CONTENT_MAX_CHARS) + '\n\n[Content truncated]'
+                : text;
+            }
+          }
+        }
+        break;
+      }
+    }
+
+    // Try <article> tag
+    const article = document.querySelector('article');
+    if (article?.innerText?.trim().length > 50) {
+      const text = cleanExtractedText(article.innerText);
+      return text.length > PAGE_CONTENT_MAX_CHARS
+        ? text.slice(0, PAGE_CONTENT_MAX_CHARS) + '\n\n[Content truncated]'
+        : text;
+    }
+
+    // Heuristic: find largest content element
+    const largest = findLargestContentElement(document.body);
+    if (largest) {
+      const secondLargest = findLargestContentElement(largest);
+      const target = (secondLargest && getElementArea(secondLargest) > 0.5 * getElementArea(largest))
+        ? secondLargest : largest;
+      const text = cleanExtractedText(target.innerText || '');
+      if (text.length > 50) {
+        return text.length > PAGE_CONTENT_MAX_CHARS
+          ? text.slice(0, PAGE_CONTENT_MAX_CHARS) + '\n\n[Content truncated]'
+          : text;
+      }
+    }
+
+    // Fallback to body
+    const text = cleanExtractedText(document.body?.innerText || '');
     if (!text) return '';
-    return text.length > PAGE_CONTENT_MAX_CHARS ? text.slice(0, PAGE_CONTENT_MAX_CHARS) + '\n\n[Content truncated]' : text;
+    return text.length > PAGE_CONTENT_MAX_CHARS
+      ? text.slice(0, PAGE_CONTENT_MAX_CHARS) + '\n\n[Content truncated]'
+      : text;
+  }
+
+  // ── GitHub Issue/PR Content Extraction ────────────────────────────────────────
+
+  function isGitHubIssuePage() {
+    return location.hostname === 'github.com' && /\/issues\/\d+/.test(location.pathname);
+  }
+
+  function isGitHubPullPage() {
+    return location.hostname === 'github.com' && /\/pull\/\d+/.test(location.pathname);
+  }
+
+  function extractGitHubIssueContent() {
+    const title = document.querySelector('.js-issue-title')?.textContent?.trim()
+      || document.querySelector('[data-testid="issue-title"]')?.textContent?.trim()
+      || document.title;
+
+    const comments = [];
+    const commentElements = document.querySelectorAll('.timeline-comment-group, .js-comment-container');
+    commentElements.forEach((el, i) => {
+      const author = (el.querySelector('.author') || el.querySelector('.author-name'))?.textContent?.trim() || 'Unknown';
+      const date = el.querySelector('relative-time')?.getAttribute('datetime') || '';
+      const body = el.querySelector('.comment-body')?.textContent?.trim() || '';
+      if (body) {
+        comments.push(`Comment ${i + 1} by ${author}${date ? ' on ' + date : ''}:\n${body}`);
+      }
+    });
+
+    const type = isGitHubPullPage() ? 'Pull Request' : 'Issue';
+    let prompt = `GitHub ${type}: ${title}\n\n`;
+    prompt += comments.join('\n\n');
+    return prompt.length > PAGE_CONTENT_MAX_CHARS
+      ? prompt.slice(0, PAGE_CONTENT_MAX_CHARS) + '\n\n[Content truncated]'
+      : prompt;
   }
 
   function hasEnabledA2aServers() {
@@ -525,6 +657,24 @@
         showModelSelector(modelWrap);
       });
 
+      const exportBtn = document.createElement('button');
+      exportBtn.className = 'omnipilot-export-btn';
+      exportBtn.innerHTML = '📋';
+      exportBtn.setAttribute('title', label('exportConversation'));
+      exportBtn.setAttribute('aria-label', label('exportConversation') || 'Copy conversation');
+      exportBtn.addEventListener('click', e => {
+        e.stopPropagation();
+        const text = conversationHistory
+          .filter(m => m.role === 'user' || m.role === 'assistant')
+          .map(m => `${m.role === 'user' ? 'You' : 'OmniPilot'}: ${m.content}`)
+          .join('\n\n');
+        navigator.clipboard.writeText(text).then(() => {
+          exportBtn.innerHTML = '✓';
+          setTimeout(() => { exportBtn.innerHTML = '📋'; }, 1500);
+        });
+      });
+      header.appendChild(exportBtn);
+
       const closeBtn = document.createElement('button');
       closeBtn.className = 'omnipilot-close-btn';
       closeBtn.innerHTML = '✕';
@@ -543,7 +693,7 @@
       let dragOffsetY = 0;
 
       header.addEventListener('mousedown', e => {
-        if (e.target === closeBtn || e.target.closest('.omnipilot-panel-title') || e.target.closest('.omnipilot-meta-action-wrap') || e.target.closest('.omnipilot-meta-provider-wrap') || e.target.closest('.omnipilot-meta-model-wrap')) return;
+        if (e.target === closeBtn || e.target === exportBtn || e.target.closest('.omnipilot-panel-title') || e.target.closest('.omnipilot-meta-action-wrap') || e.target.closest('.omnipilot-meta-provider-wrap') || e.target.closest('.omnipilot-meta-model-wrap')) return;
         dragging = true;
         const panelLeft = parseFloat(panel.style.left) || 0;
         const panelTop = parseFloat(panel.style.top) || 0;
@@ -1189,11 +1339,17 @@
   function formatResult(text) {
     if (typeof text !== 'string') return '';
 
-    // First, let's extract code blocks: ```lang\ncode\n```
-    // We will replace them with custom placeholders to protect them from inline parsing,
-    // and then render them as beautiful code cards.
+    // Extract and protect <think> blocks for collapsible rendering
+    const thinkBlocks = [];
+    let formatted = text.replace(/<think>([\s\S]*?)<\/think>/gi, (match, content) => {
+      const placeholder = `__OP_THINK_PLACEHOLDER_${thinkBlocks.length}__`;
+      thinkBlocks.push(content.trim());
+      return placeholder;
+    });
+
+    // Extract fenced code blocks: ```lang\ncode\n```
     const blocks = [];
-    let formatted = text.replace(/```(\w*)\n([\s\S]*?)\n```/g, (match, lang, code) => {
+    formatted = formatted.replace(/```(\w*)\n([\s\S]*?)\n```/g, (match, lang, code) => {
       const placeholder = `__OP_CODE_BLOCK_PLACEHOLDER_${blocks.length}__`;
       blocks.push({ lang: lang || 'code', code });
       return placeholder;
@@ -1207,37 +1363,81 @@
       return placeholder;
     });
 
-    // Escape HTML of the remaining text to make it safe
+    // Extract markdown tables before escaping
+    const tables = [];
+    formatted = formatted.replace(/(?:^|\n)((?:\|[^\n]+\|\s*\n){2,})/gm, (match, tableBlock) => {
+      const placeholder = `__OP_TABLE_PLACEHOLDER_${tables.length}__`;
+      tables.push(tableBlock.trim());
+      return '\n' + placeholder + '\n';
+    });
+
+    // Escape HTML
     formatted = escapeHtml(formatted);
 
-    // Markdown Bold: **text**
+    // Markdown Headings: ### text
+    formatted = formatted.replace(/^#{3}\s+(.*?)$/gm, '<h4>$1</h4>');
+    formatted = formatted.replace(/^#{2}\s+(.*?)$/gm, '<h3>$1</h3>');
+    formatted = formatted.replace(/^#{1}\s+(.*?)$/gm, '<h3>$1</h3>');
+
+    // Markdown Links: [text](url)
+    formatted = formatted.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+
+    // Strikethrough: ~~text~~
+    formatted = formatted.replace(/~~(.*?)~~/g, '<del>$1</del>');
+
+    // Bold: **text**
     formatted = formatted.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
 
-    // Markdown Italic: *text*
+    // Italic: *text*
     formatted = formatted.replace(/\*(.*?)\*/g, '<em>$1</em>');
 
-    // Markdown Blockquotes: > text
-    formatted = formatted.replace(/^>\s+(.*?)$/gm, '<blockquote>$1</blockquote>');
+    // Blockquotes: > text
+    formatted = formatted.replace(/^&gt;\s+(.*?)$/gm, '<blockquote>$1</blockquote>');
 
-    // Markdown Unordered lists: - text
+    // Horizontal rules: --- or ***
+    formatted = formatted.replace(/^(---|\*\*\*)$/gm, '<hr>');
+
+    // Unordered lists: - text
     formatted = formatted.replace(/^\s*-\s+(.*?)$/gm, '<ul><li>$1</li></ul>');
-    // Fix adjacent <ul> elements
     formatted = formatted.replace(/<\/ul>\s*<ul>/g, '');
 
-    // Markdown Ordered lists: 1. text
+    // Ordered lists: 1. text
     formatted = formatted.replace(/^\s*\d+\.\s+(.*?)$/gm, '<ol><li>$1</li></ol>');
-    // Fix adjacent <ol> elements
     formatted = formatted.replace(/<\/ol>\s*<ol>/g, '');
 
-    // Markdown Newlines
+    // Newlines
     formatted = formatted.replace(/\n/g, '<br>');
 
-    // Restore inline codes safely
+    // Restore inline codes
     inlineCodes.forEach((code, index) => {
       formatted = formatted.replace(`__OP_INLINE_CODE_PLACEHOLDER_${index}__`, `<code>${escapeHtml(code)}</code>`);
     });
 
-    // Restore and render block codes beautifully
+    // Restore tables as HTML tables
+    tables.forEach((tableText, index) => {
+      const rows = tableText.split('\n').filter(r => r.trim());
+      if (rows.length < 2) {
+        formatted = formatted.replace(`__OP_TABLE_PLACEHOLDER_${index}__`, escapeHtml(tableText));
+        return;
+      }
+      const parseRow = row => row.split('|').map(c => c.trim()).filter((c, i, a) => i > 0 && i < a.length);
+      const headerCells = parseRow(rows[0]);
+      const isSeparator = row => /^\|?[\s\-:|]+\|?$/.test(row);
+      const dataStartIdx = isSeparator(rows[1]) ? 2 : 1;
+      let tableHtml = '<table class="omnipilot-table"><thead><tr>';
+      headerCells.forEach(cell => { tableHtml += `<th>${escapeHtml(cell)}</th>`; });
+      tableHtml += '</tr></thead><tbody>';
+      for (let i = dataStartIdx; i < rows.length; i++) {
+        const cells = parseRow(rows[i]);
+        tableHtml += '<tr>';
+        cells.forEach(cell => { tableHtml += `<td>${escapeHtml(cell)}</td>`; });
+        tableHtml += '</tr>';
+      }
+      tableHtml += '</tbody></table>';
+      formatted = formatted.replace(`__OP_TABLE_PLACEHOLDER_${index}__`, tableHtml);
+    });
+
+    // Restore code blocks
     blocks.forEach((block, index) => {
       const cardHtml = `<div class="omnipilot-code-block-card">
         <div class="omnipilot-code-block-header">
@@ -1247,6 +1447,15 @@
         <pre class="omnipilot-code-block-body">${escapeHtml(block.code)}</pre>
       </div>`;
       formatted = formatted.replace(`__OP_CODE_BLOCK_PLACEHOLDER_${index}__`, cardHtml);
+    });
+
+    // Restore think blocks as collapsible sections
+    thinkBlocks.forEach((content, index) => {
+      const thinkHtml = `<details class="omnipilot-think-block" open>
+        <summary class="omnipilot-think-summary"><span class="omnipilot-think-icon">💭</span> ${label('thinkingContent')}</summary>
+        <div class="omnipilot-think-body">${escapeHtml(content).replace(/\n/g, '<br>')}</div>
+      </details>`;
+      formatted = formatted.replace(`__OP_THINK_PLACEHOLDER_${index}__`, thinkHtml);
     });
 
     return formatted;
@@ -1316,6 +1525,58 @@
     const headerDiv = document.createElement('div');
     headerDiv.className = 'omnipilot-msg-header';
     headerDiv.innerHTML = `<span class="omnipilot-msg-header-avatar">✦</span><span>OmniPilot</span>`;
+
+    // Message toolbar: copy + read aloud
+    const toolbar = document.createElement('div');
+    toolbar.className = 'omnipilot-msg-toolbar';
+
+    const copyBtn = document.createElement('button');
+    copyBtn.className = 'omnipilot-msg-toolbar-btn';
+    copyBtn.title = label('copyMessage');
+    copyBtn.textContent = '📋';
+    copyBtn.addEventListener('click', e => {
+      e.preventDefault();
+      e.stopPropagation();
+      navigator.clipboard.writeText(result).then(() => {
+        copyBtn.textContent = '✓';
+        setTimeout(() => { copyBtn.textContent = '📋'; }, 1500);
+      });
+    });
+    toolbar.appendChild(copyBtn);
+
+    const readBtn = document.createElement('button');
+    readBtn.className = 'omnipilot-msg-toolbar-btn';
+    readBtn.title = label('readAloud');
+    readBtn.textContent = '🔊';
+    let speaking = false;
+    readBtn.addEventListener('click', e => {
+      e.preventDefault();
+      e.stopPropagation();
+      const synth = globalThis.speechSynthesis;
+      if (!synth) return;
+      if (speaking) {
+        synth.cancel();
+        speaking = false;
+        readBtn.textContent = '🔊';
+        return;
+      }
+      const utterance = new SpeechSynthesisUtterance(result);
+      const voices = synth.getVoices();
+      let voice;
+      if (currentLanguage === 'zh') voice = voices.find(v => v.lang.startsWith('zh'));
+      if (!voice) voice = voices.find(v => v.lang.startsWith(currentLanguage));
+      if (!voice) voice = voices.find(v => v.lang.startsWith(navigator.language));
+      if (voice) utterance.voice = voice;
+      utterance.rate = 1;
+      utterance.onend = () => { speaking = false; readBtn.textContent = '🔊'; };
+      utterance.onerror = () => { speaking = false; readBtn.textContent = '🔊'; };
+      synth.speak(utterance);
+      speaking = true;
+      readBtn.textContent = '🔇';
+    });
+    toolbar.appendChild(readBtn);
+    headerDiv.appendChild(toolbar);
+
     const msgDiv = document.createElement('div');
     msgDiv.className = 'omnipilot-msg omnipilot-msg-assistant';
     msgDiv.innerHTML = formatResult(result);
@@ -1634,6 +1895,37 @@
     streamAction('summarize-page', pageContent, body);
   }
 
+  function runGitHubSummary() {
+    hideBubble();
+    hideDropdown();
+
+    if (!isGitHubIssuePage() && !isGitHubPullPage()) {
+      runPageSummary(); // Fallback to page summary
+      return;
+    }
+
+    const githubContent = extractGitHubIssueContent();
+    if (!githubContent) return;
+
+    currentAction = 'summarize-github';
+
+    const contextId = `github-summary-${++selectionContextSeq}`;
+    conversationHistory = [{ role: 'user', content: githubContent, kind: 'github-context', contextId }];
+    lastAppendedSelectionContext = '';
+
+    showPanel('', false, false);
+    updatePanelMeta();
+    const body = panel.querySelector('.omnipilot-panel-body');
+
+    const indicator = document.createElement('div');
+    indicator.className = 'omnipilot-selected-context';
+    indicator.textContent = `🐙 ${label('summarizingGitHub')}`;
+    body.appendChild(indicator);
+
+    body.appendChild(createLoadingIndicator());
+    streamAction('summarize-github', githubContent, body);
+  }
+
   // ── Context Menu Handler ──────────────────────────────────────────────────────
 
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
@@ -1645,6 +1937,11 @@
     }
     if (request.type === 'CONTEXT_MENU_PAGE_SUMMARY') {
       runPageSummary();
+      sendResponse({ success: true });
+      return true;
+    }
+    if (request.type === 'CONTEXT_MENU_GITHUB_SUMMARY') {
+      runGitHubSummary();
       sendResponse({ success: true });
       return true;
     }

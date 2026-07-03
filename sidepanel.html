@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OmniPilot</title>
+  <style>
+    :root {
+      --sp-bg: #ffffff;
+      --sp-bg2: #f8f9fa;
+      --sp-border: #dadce0;
+      --sp-ink: #202124;
+      --sp-ink2: #5f6368;
+      --sp-accent: #1a73e8;
+      --sp-hover: rgba(60, 64, 67, 0.06);
+    }
+
+    [data-theme="dark"] {
+      --sp-bg: #1e1e1e;
+      --sp-bg2: #2d2d2d;
+      --sp-border: #444;
+      --sp-ink: #e8eaed;
+      --sp-ink2: #9aa0a6;
+      --sp-accent: #8ab4f8;
+      --sp-hover: rgba(255, 255, 255, 0.08);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Google Sans', 'Segoe UI', Roboto, sans-serif;
+      background: var(--sp-bg);
+      color: var(--sp-ink);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .sp-header {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--sp-border);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+
+    .sp-header h1 {
+      font-size: 16px;
+      font-weight: 600;
+    }
+
+    .sp-header .sp-theme-btn {
+      margin-left: auto;
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-size: 16px;
+      padding: 4px;
+      border-radius: 4px;
+    }
+
+    .sp-header .sp-theme-btn:hover {
+      background: var(--sp-hover);
+    }
+
+    .sp-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .sp-msg {
+      padding: 10px 14px;
+      border-radius: 12px;
+      font-size: 14px;
+      line-height: 1.5;
+      max-width: 95%;
+      word-wrap: break-word;
+    }
+
+    .sp-msg-user {
+      background: var(--sp-accent);
+      color: #fff;
+      align-self: flex-end;
+      border-radius: 12px 12px 4px 12px;
+    }
+
+    .sp-msg-assistant {
+      background: var(--sp-bg2);
+      align-self: flex-start;
+      border: 1px solid var(--sp-border);
+      border-radius: 4px 12px 12px 12px;
+    }
+
+    .sp-msg-assistant.sp-streaming::after {
+      content: '█';
+      animation: sp-blink 0.6s step-end infinite;
+      color: var(--sp-accent);
+      margin-left: 1px;
+    }
+
+    @keyframes sp-blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0; }
+    }
+
+    .sp-input-area {
+      padding: 12px 16px;
+      border-top: 1px solid var(--sp-border);
+      display: flex;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+
+    .sp-input {
+      flex: 1;
+      border: 1px solid var(--sp-border);
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-size: 14px;
+      background: var(--sp-bg);
+      color: var(--sp-ink);
+      outline: none;
+      resize: none;
+      min-height: 36px;
+      max-height: 120px;
+    }
+
+    .sp-input:focus {
+      border-color: var(--sp-accent);
+    }
+
+    .sp-send {
+      background: var(--sp-accent);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      padding: 8px 16px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+      align-self: flex-end;
+    }
+
+    .sp-send:hover {
+      opacity: 0.9;
+    }
+
+    .sp-empty {
+      text-align: center;
+      color: var(--sp-ink2);
+      padding: 40px 20px;
+      font-size: 14px;
+    }
+
+    .sp-error {
+      color: #d93025;
+      background: rgba(217, 48, 37, 0.08);
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+  <div class="sp-header">
+    <span>✦</span>
+    <h1>OmniPilot</h1>
+    <button class="sp-theme-btn" id="themeToggle" title="Toggle theme">🌙</button>
+  </div>
+  <div class="sp-body" id="chatBody">
+    <div class="sp-empty">Start a conversation. Ask anything.</div>
+  </div>
+  <div class="sp-input-area">
+    <textarea class="sp-input" id="chatInput" placeholder="Ask anything..." rows="1"></textarea>
+    <button class="sp-send" id="sendBtn">Send</button>
+  </div>
+  <script src="sidepanel.js"></script>
+</body>
+</html>

@@ -862,6 +862,171 @@
   50% { opacity: 0; }
 }
 
+/* ── Message Toolbar (copy, read aloud) ──────────────────────── */
+
+.omnipilot-msg-toolbar {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.omnipilot-msg-toolbar-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  opacity: 0.5;
+  transition: opacity 0.15s, background 0.15s;
+}
+
+.omnipilot-msg-toolbar-btn:hover {
+  opacity: 1;
+  background: var(--op-hover);
+}
+
+/* ── Export Button ────────────────────────────────────────────── */
+
+.omnipilot-export-btn {
+  position: absolute;
+  top: 10px;
+  right: 36px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  opacity: 0.5;
+  padding: 2px 4px;
+  border-radius: 4px;
+  transition: opacity 0.15s, background 0.15s;
+}
+
+.omnipilot-export-btn:hover {
+  opacity: 1;
+  background: var(--op-hover);
+}
+
+/* ── Think Blocks (collapsible reasoning) ────────────────────── */
+
+.omnipilot-think-block {
+  margin: 10px 0;
+  border-radius: 8px;
+  border: 1px solid var(--op-border);
+  overflow: hidden;
+}
+
+.omnipilot-think-summary {
+  cursor: pointer;
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--op-ink2);
+  user-select: none;
+  list-style: none;
+}
+
+.omnipilot-think-summary::-webkit-details-marker { display: none; }
+
+.omnipilot-think-summary::after {
+  content: '▼';
+  font-size: 10px;
+  margin-left: auto;
+  transition: transform 0.2s;
+}
+
+.omnipilot-think-block[open] .omnipilot-think-summary::after {
+  transform: rotate(180deg);
+}
+
+.omnipilot-think-icon {
+  font-size: 14px;
+}
+
+.omnipilot-think-body {
+  padding: 10px 14px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--op-ink2);
+  border-top: 1px solid var(--op-border);
+  font-family: 'SF Mono', Consolas, monospace;
+  white-space: pre-wrap;
+}
+
+[data-op-theme="dark"] .omnipilot-think-block {
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+[data-op-theme="dark"] .omnipilot-think-body {
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+/* ── Markdown Tables ─────────────────────────────────────────── */
+
+.omnipilot-table {
+  border-collapse: collapse;
+  margin: 10px 0;
+  font-size: 13px;
+  width: 100%;
+}
+
+.omnipilot-table th,
+.omnipilot-table td {
+  border: 1px solid var(--op-border);
+  padding: 6px 10px;
+  text-align: left;
+}
+
+.omnipilot-table th {
+  background: var(--op-bg2);
+  font-weight: 600;
+}
+
+.omnipilot-table tr:nth-child(even) {
+  background: rgba(0, 0, 0, 0.02);
+}
+
+[data-op-theme="dark"] .omnipilot-table tr:nth-child(even) {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+/* ── Headings in responses ───────────────────────────────────── */
+
+.omnipilot-msg-assistant h3 {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 12px 0 6px;
+}
+
+.omnipilot-msg-assistant h4 {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 10px 0 4px;
+}
+
+.omnipilot-msg-assistant a {
+  color: var(--op-accent);
+  text-decoration: none;
+}
+
+.omnipilot-msg-assistant a:hover {
+  text-decoration: underline;
+}
+
+.omnipilot-msg-assistant hr {
+  border: none;
+  border-top: 1px solid var(--op-border);
+  margin: 10px 0;
+}
+
+.omnipilot-msg-assistant del {
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+
 /* Code Highlight & Markdown Elements */
 .omnipilot-msg-assistant code {
   font-family: 'SF Mono', Consolas, 'Fira Code', Menlo, monospace;

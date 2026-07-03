@@ -2487,6 +2487,37 @@ async function assertContextMenuSetupCreatesExpectedMenuItems() {
   assert.strictEqual(typeof context.setupContextMenus, 'function');
 }
 
+async function assertNewActionPromptsExist() {
+  const { context } = await createBackgroundContext({
+    storage: {
+      endpoint: 'http://localhost:5000/v1',
+      apiKey: 'test-key',
+      model: 'gpt-4o'
+    },
+    fetchImpl: async () => ({
+      ok: true,
+      json: async () => ({ choices: [{ message: { content: 'result' } }] })
+    })
+  });
+
+  // All new actions should have prompts and be callable
+  for (const action of ['sentiment', 'code-explain', 'divide-paragraphs', 'ask', 'translate-en', 'translate-zh', 'translate-bidi', 'summarize-github']) {
+    const result = await context.handleAIAction(action, 'test text');
+    assert.strictEqual(result, 'result', `${action} should return a result`);
+  }
+}
+
+async function assertStreamChunkParsersHandleEdgeCases() {
+  const { context } = await createBackgroundContext({ storage: {} });
+
+  // OpenAI: empty delta
+  assert.strictEqual(context.parseStreamChunkOpenAIChat({ choices: [{ delta: { role: 'assistant' } }] }), '');
+  // Anthropic: non-delta event
+  assert.strictEqual(context.parseStreamChunkAnthropic({ type: 'message_stop' }), '');
+  // Responses: non-text event
+  assert.strictEqual(context.parseStreamChunkOpenAIResponses({ type: 'response.done' }), '');
+}
+
 async function main() {
   await assertA2aServerMetadataAndTokensUseSeparateStorageAreas();
   await assertLoadA2aServersReadsFromLocalStorage();
@@ -2556,7 +2587,9 @@ async function main() {
   await assertStreamingReportsErrorOnBadStatus();
   await assertStreamingReportsErrorWhenNoApiKey();
   await assertStreamChunkParsersWorkForAllShapes();
+  await assertStreamChunkParsersHandleEdgeCases();
   await assertContextMenuSetupCreatesExpectedMenuItems();
+  await assertNewActionPromptsExist();
 }
 
 main().catch(err => {

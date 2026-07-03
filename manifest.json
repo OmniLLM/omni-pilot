@@ -2,8 +2,8 @@
   "manifest_version": 3,
   "name": "OmniPilot",
   "version": "0.1.4",
-  "description": "Select text → AI actions: translate, summarize, explain, improve",
-  "permissions": ["storage", "clipboardWrite", "tabs", "contextMenus"],
+  "description": "Select text → AI actions: translate, summarize, explain, improve, and more",
+  "permissions": ["storage", "clipboardWrite", "tabs", "contextMenus", "sidePanel"],
   "host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "background.js"
@@ -16,6 +16,9 @@
       "run_at": "document_idle"
     }
   ],
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
   "action": {
     "default_popup": "popup.html",
     "default_icon": {
