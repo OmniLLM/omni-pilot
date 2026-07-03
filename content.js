@@ -25,6 +25,8 @@
   let a2aServers = [];
   let lastAppendedSelectionContext = '';
   let selectionContextSeq = 0;
+  let popupInitialWidth = null;
+  let popupInitialHeight = null;
   const REPOSITORY_URL = 'https://github.com/OmniLLM/omni-pilot';
   const PROVIDER_LABELS = {
     'custom-provider': 'Custom',
@@ -67,13 +69,21 @@
     });
   }
 
+  function normalizePopupSizeValue(value, min, max) {
+    const parsed = Number.parseInt(value, 10);
+    if (!Number.isFinite(parsed)) return null;
+    return Math.max(min, Math.min(max, parsed));
+  }
+
   // Load config from storage
-  chrome.storage.sync.get({ model: 'claude-sonnet-4-5', endpoint: 'https://api.omnillm.com/v1', apiKey: '', providerType: 'custom-provider', authMethod: 'api-key' }, cfg => {
+  chrome.storage.sync.get({ model: 'claude-sonnet-4-5', endpoint: 'https://api.omnillm.com/v1', apiKey: '', providerType: 'custom-provider', authMethod: 'api-key', popupInitialWidth: null, popupInitialHeight: null }, cfg => {
     currentModel = cfg.model || 'claude-sonnet-4-5';
     currentProviderType = normalizeProviderType(cfg.providerType || 'custom-provider');
     currentAuthMethod = cfg.authMethod || 'api-key';
     currentApiKey = cfg.apiKey || '';
     currentEndpoint = cfg.endpoint || '';
+    popupInitialWidth = normalizePopupSizeValue(cfg.popupInitialWidth, 300, 1200);
+    popupInitialHeight = normalizePopupSizeValue(cfg.popupInitialHeight, 180, 900);
     currentProvider = getProviderLabel(currentProviderType || currentAuthMethod, currentEndpoint);
     hasApiKey = currentProviderType === 'github-copilot' || currentAuthMethod === 'github-copilot' || isA2aProviderType(currentProviderType) || Boolean(currentApiKey);
     updatePanelMeta();
@@ -107,6 +117,8 @@
     }
     if (changes.themePreference) applyTheme(changes.themePreference.newValue || 'dark');
     if (changes.languagePreference) applyLanguage(changes.languagePreference.newValue || 'en');
+    if (changes.popupInitialWidth) popupInitialWidth = normalizePopupSizeValue(changes.popupInitialWidth.newValue, 300, 1200);
+    if (changes.popupInitialHeight) popupInitialHeight = normalizePopupSizeValue(changes.popupInitialHeight.newValue, 180, 900);
   });
 
   function isA2aProviderType(providerType) {
@@ -442,9 +454,12 @@
   function calcInitialPanelSize() {
     const vw = window.innerWidth;
     const vh = window.innerHeight;
-    // Rectangular: wider than tall
-    const w = Math.max(420, Math.min(640, Math.round(vw * 0.4)));
-    const h = Math.max(220, Math.min(400, Math.round(vh * 0.32)));
+    const maxW = Math.max(300, vw - 32);
+    const maxH = Math.max(180, vh - 32);
+    const fallbackW = Math.max(420, Math.min(640, Math.round(vw * 0.4)));
+    const fallbackH = Math.max(220, Math.min(400, Math.round(vh * 0.32)));
+    const w = Math.min(popupInitialWidth || fallbackW, maxW);
+    const h = Math.min(popupInitialHeight || fallbackH, maxH);
     return { w, h };
   }
 
