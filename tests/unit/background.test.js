@@ -279,6 +279,80 @@ async function assertAgentConstantsLoadedFromAgentFolder() {
   assert.strictEqual(vm.runInContext('A2A_POLL_INTERVAL_MS', context), 500);
 }
 
+async function assertMemoryPrimitiveRoundTripsLongTermAndDailyLogs() {
+  const { context, stores } = await createBackgroundContext({ storage: {} });
+
+  const memory = await context.createMemory({
+    // Deterministic clock — real code reads `new Date()` inside `appendDailyLog`,
+    // which we override here so the test doesn't depend on wall-clock time.
+    now: () => new Date('2026-07-04T12:34:56Z')
+  });
+
+  // Long-term memory round-trip.
+  assert.strictEqual(await memory.getLongTerm(), '');
+  await memory.setLongTerm('Prefers TypeScript. Timezone Asia/Shanghai.');
+  assert.strictEqual(await memory.getLongTerm(), 'Prefers TypeScript. Timezone Asia/Shanghai.');
+
+  // Daily log append is grouped by YYYY-MM-DD.
+  await memory.appendDailyLog('12:34:56 action=chat user_len=5 assistant_len=12');
+  const recent = await memory.getRecent(1);
+  assert.strictEqual(recent.length, 1);
+  assert.strictEqual(recent[0].date, '2026-07-04');
+  assert.strictEqual(recent[0].entries.length, 1);
+  assert.ok(recent[0].entries[0].includes('action=chat'));
+
+  // Storage was actually written to chrome.storage.local (not sync).
+  assert.ok(stores.localStore.omnipilotMemoryLongTerm);
+  assert.ok(stores.localStore.omnipilotMemoryDailyLogs);
+  assert.strictEqual(stores.syncStore.omnipilotMemoryLongTerm, undefined);
+}
+
+async function assertMemoryPrunesLogsOlderThanRetentionWindow() {
+  const { context, stores } = await createBackgroundContext({ storage: {} });
+
+  // Pre-seed 10 days of logs directly into local storage so we can prove
+  // the pruner drops the oldest ones on the next append.
+  const seeded = {};
+  for (let i = 0; i < 10; i += 1) {
+    const d = new Date(Date.UTC(2026, 6, 1 + i));
+    seeded[d.toISOString().slice(0, 10)] = [`seed entry for day ${i}`];
+  }
+  stores.localStore.omnipilotMemoryDailyLogs = seeded;
+
+  const memory = await context.createMemory({
+    now: () => new Date('2026-07-11T00:00:00Z')
+  });
+  await memory.appendDailyLog('new entry');
+
+  const stored = stores.localStore.omnipilotMemoryDailyLogs;
+  const dates = Object.keys(stored).sort();
+  assert.strictEqual(dates.length, 7, 'should retain exactly MEMORY_RETENTION_DAYS = 7 dates');
+  // Oldest three (2026-07-01, 02, 03) should be gone; 04-11 remain (though 08-10
+  // are seeded and 11 has the fresh entry, all within window).
+  assert.ok(!dates.includes('2026-07-01'));
+  assert.ok(!dates.includes('2026-07-02'));
+  assert.ok(!dates.includes('2026-07-03'));
+  assert.ok(dates.includes('2026-07-11'));
+}
+
+async function assertMemorySummaryOmitsEmptyBlockAndFormatsFilledBlock() {
+  const { context } = await createBackgroundContext({ storage: {} });
+
+  // Empty memory → empty summary (no "Memory: (empty)" pollution).
+  const empty = await context.createMemory({ now: () => new Date('2026-07-04T00:00:00Z') });
+  assert.strictEqual(await empty.summary(), '');
+
+  // Filled memory → fenced block with long-term first, then recent activity.
+  const filled = await context.createMemory({ now: () => new Date('2026-07-04T00:00:00Z') });
+  await filled.setLongTerm('Prefers concise answers.');
+  await filled.appendDailyLog('09:00:00 action=chat user_len=3 assistant_len=42');
+  const s = await filled.summary();
+  assert.ok(s.startsWith('## Memory'), 'summary starts with a Memory heading');
+  assert.ok(s.includes('Prefers concise answers.'));
+  assert.ok(/Recent activity/i.test(s));
+  assert.ok(s.includes('2026-07-04'));
+}
+
 async function assertA2aServerMetadataAndTokensUseSeparateStorageAreas() {
   const { context, stores } = await createBackgroundContext({
     storage: {
@@ -3677,6 +3751,9 @@ async function assertA2aToolProviderUsesCollisionSafeNames() {
 
 async function main() {
   await assertAgentConstantsLoadedFromAgentFolder();
+  await assertMemoryPrimitiveRoundTripsLongTermAndDailyLogs();
+  await assertMemoryPrunesLogsOlderThanRetentionWindow();
+  await assertMemorySummaryOmitsEmptyBlockAndFormatsFilledBlock();
   await assertA2aServerMetadataAndTokensUseSeparateStorageAreas();
   await assertLoadA2aServersReadsFromLocalStorage();
   await assertLoadA2aServersMigratesLegacySyncStorageToLocal();

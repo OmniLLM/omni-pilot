@@ -18,3 +18,10 @@ const A2A_TOOL_DESCRIPTION_MAX_LEN = 1024;
 // round feeds prior tool_result messages back and lets the model either
 // summarize or emit more tool calls.
 const A2A_MAX_ROUNDS = 3;
+
+// Memory subsystem — storage keys and retention policy.
+// Long-term memory (MEMORY.md-equivalent) is user-editable; daily logs
+// are agent-appended and rolled over every MEMORY_RETENTION_DAYS days.
+const MEMORY_LONG_TERM_KEY = 'omnipilotMemoryLongTerm';
+const MEMORY_DAILY_LOGS_KEY = 'omnipilotMemoryDailyLogs';
+const MEMORY_RETENTION_DAYS = 7;
