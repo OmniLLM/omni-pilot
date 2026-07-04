@@ -57,7 +57,7 @@ The Agent maintains cross-session memory via `src/background/agent/memory.mjs`:
 
 Both tiers live in `chrome.storage.local`. Users can disable memory or clear the daily logs from the options page.
 
-The agent primitives are inspired by [Google's Agent Development Kit](https://adk.dev/get-started/) and the harness patterns from the [Harness Guide](https://harness-guide.com/guide/what-is-harness/) (agentic loop, tool registry, session/context/memory separation). Later phases add memory, priority-based context assembly, guardrails, and observability on top of these primitives.
+The agent primitives are inspired by [Google's Agent Development Kit](https://adk.dev/get-started/) and the harness patterns from the [Harness Guide](https://harness-guide.com/guide/what-is-harness/) (agentic loop, tool registry, session/context/memory separation). Memory has since been added (see below); later phases add priority-based context assembly, guardrails, and observability on top of these primitives.
 
 ---
 
