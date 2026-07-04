@@ -30,6 +30,7 @@ function registerA2aToolsInRegistry(registry, servers, options = {}) {
           }),
           meta: {
             serverId: server.id,
+            serverName: server.agentCard?.name || server.name || server.id,
             skillId,
             skillName: skill.name || skill.id || '',
             skillDescription: skill.description || '',
@@ -52,6 +53,7 @@ function registerA2aToolsInRegistry(registry, servers, options = {}) {
       }),
       meta: {
         serverId: server.id,
+        serverName: server.agentCard?.name || server.name || server.id,
         skillId: null,
         skillName: '',
         skillDescription: '',

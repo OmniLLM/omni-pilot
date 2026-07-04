@@ -1681,124 +1681,22 @@ async function executeApiRequestWithA2aRouting({ config, messages, systemPrompt,
     throw new Error('No API key configured. Click the OmniPilot icon to set up.');
   }
 
-  const routingPrompt = buildA2aRoutingSystemPrompt(systemPrompt);
-  // Conversation for the agentic loop: seeded with the caller's messages,
-  // grows by an assistant + tool_result turn each round that dispatches
-  // tools. The very first request uses this to hit the provider.
-  let conversation = messages;
-  // Track (serverId, task) triples already dispatched so a chatty model
-  // that re-emits the same call in a later round doesn't re-run it.
-  const dispatched = new Set();
-  // Last non-empty round's settled results, kept as the fallback answer
-  // if the loop hits A2A_MAX_ROUNDS before the model produces final text.
-  let lastSettled = null;
+  const session = createSession({ messages });
+  const registry = createToolRegistry();
+  const contextText = getA2aConversationContext(messages);
+  registerA2aToolsInRegistry(registry, a2aServers, { getContextText: () => contextText });
 
-  for (let round = 0; round < A2A_MAX_ROUNDS; round += 1) {
-    const builtRequest = buildApiRequest({ config, messages: conversation, systemPrompt: routingPrompt, copilotToken });
-    const apiShape = builtRequest.apiShape;
-    const tools = getA2aToolsForApiShape(toolSchemas, apiShape);
-    const requestBody = applyA2aToolsToRequestBody(builtRequest.requestBody, apiShape, tools);
+  const runner = createRunner({
+    config,
+    copilotToken,
+    systemPrompt: buildA2aRoutingSystemPrompt(systemPrompt),
+    toolRegistry: registry,
+    session,
+    onStatus,
+    maxTurns: A2A_MAX_ROUNDS
+  });
 
-    console.info('OmniPilot API request', JSON.stringify({
-      requestUrl: builtRequest.requestUrl,
-      apiFormat: apiShape,
-      model: config.model,
-      hasApiKey: Boolean(config.apiKey),
-      toolCount: tools.length,
-      round,
-      requestHeaders: redactHeaders(builtRequest.requestHeaders)
-    }, null, 2));
-
-    const response = await fetch(builtRequest.requestUrl, {
-      method: 'POST',
-      headers: builtRequest.requestHeaders,
-      body: JSON.stringify(requestBody)
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      // Only retry the plain (no-tools) request on round 0; later rounds
-      // already have tool_result messages baked in that the plain path
-      // wouldn't know how to serialize.
-      if (round === 0 && isToolsUnsupportedError(response.status, errorText)) {
-        return executeApiRequest({ config, messages, systemPrompt });
-      }
-      throwApiResponseError(response, errorText, builtRequest.requestUrl, apiShape, config.model);
-    }
-
-    const data = await response.json();
-    const toolCalls = extractA2aToolCallsFromResponse(data, apiShape);
-
-    if (!toolCalls.length) {
-      // Terminal state: the model produced a plain response. Return it.
-      const content = builtRequest.parseContent(data);
-      if (content) return content;
-      // Empty model response: fall back to prior tool results if any.
-      if (lastSettled) return renderA2aSettledSections(lastSettled);
-      console.error('OmniPilot unexpected API response', data);
-      throw new Error('The API returned an empty or unexpected response. Check that the endpoint and model match the selected API format.');
-    }
-
-    // De-dupe (serverId, task) triples across rounds so a model that
-    // keeps re-emitting the same call doesn't re-run it. Also filter
-    // out calls to unknown servers or with empty tasks.
-    const roundSeen = new Set();
-    const runnable = [];
-    for (const call of toolCalls) {
-      const selectedTool = toolSchemas.find(tool => tool.name === call.toolName);
-      const server = selectedTool && a2aServers.find(candidate => candidate.id === selectedTool.serverId);
-      if (!server) continue;
-      if (!call.task) continue;
-      const key = `${server.id} ${call.task}`;
-      if (roundSeen.has(key)) continue;
-      if (dispatched.has(key)) continue;
-      roundSeen.add(key);
-      runnable.push({ call, server, tool: selectedTool, key });
-    }
-
-    if (!runnable.length) {
-      if (round === 0) {
-        // Round 0 with only unusable calls: preserve the original error surface.
-        const first = toolCalls[0];
-        const selectedTool = toolSchemas.find(tool => tool.name === first.toolName);
-        const server = selectedTool && a2aServers.find(candidate => candidate.id === selectedTool.serverId);
-        if (!server) throw new Error('A2A tool selected an unknown server.');
-        if (!first.task) throw new Error('A2A tool selected an empty task.');
-      }
-      // Later rounds: model kept calling tools but every call duplicates a
-      // prior round. Break out and use the last accumulated results.
-      break;
-    }
-
-    onStatus?.('delegating');
-    const contextText = getA2aConversationContext(conversation);
-
-    // Fan out: every matched skill runs in parallel. One agent's failure must
-    // not sink the others; its section becomes an italicized error line.
-    const settled = await Promise.all(runnable.map(async ({ call, server, tool, key }) => {
-      dispatched.add(key);
-      try {
-        const delegation = delegateA2aTask({
-          serverId: server.id,
-          task: call.task,
-          contextText
-        });
-        const text = await withA2aStatusHeartbeat(delegation, onStatus);
-        return { call, server, tool, text, error: null };
-      } catch (error) {
-        return { call, server, tool, text: '', error: error?.message || String(error) };
-      }
-    }));
-
-    lastSettled = settled;
-    // Append assistant + tool_result turn to conversation for the next round.
-    conversation = [...conversation, ...buildA2aFollowUpMessages(apiShape, data, settled)];
-  }
-
-  // Loop hit A2A_MAX_ROUNDS without the model producing final text. Render
-  // the last round's tool outputs so the user still sees the results.
-  if (lastSettled) return renderA2aSettledSections(lastSettled);
-  throw new Error('A2A auto-routing exceeded the maximum number of rounds without producing a response.');
+  return await runner.run();
 }
 
 // Render an array of {call, server, tool, text, error} into either a plain

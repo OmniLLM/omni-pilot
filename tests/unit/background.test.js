@@ -2386,6 +2386,61 @@ async function assertA2aAutoRouteRunsAgenticLoopSequentially() {
   assert.strictEqual(round1ToolMessages[0].content, 'Alibaba: 11,157 VMs');
 }
 
+async function assertRunnerRunsAgenticLoopEndToEnd() {
+  // Same shape as assertA2aAutoRouteRunsAgenticLoopSequentially but drives
+  // the Runner directly, proving the primitive is wired.
+  let chatCallCount = 0;
+  const { context } = await createBackgroundContext({
+    storage: {},
+    fetchImpl: async (url, options) => {
+      if (url === 'https://custom.example/v1/chat/completions') {
+        chatCallCount += 1;
+        if (chatCallCount === 1) return {
+          ok: true,
+          json: async () => ({ choices: [{ message: { tool_calls: [
+            { id: 'x', type: 'function', function: { name: 'a2a__local__echo', arguments: JSON.stringify({ task: 'ping' }) } }
+          ] } }] })
+        };
+        const body = JSON.parse(options.body);
+        const toolMessages = body.messages.filter(message => message.role === 'tool');
+        assert.strictEqual(toolMessages.length, 1);
+        assert.strictEqual(toolMessages[0].tool_call_id, 'x');
+        assert.strictEqual(toolMessages[0].content, 'ping-pong');
+        return { ok: true, json: async () => ({ choices: [{ message: { content: 'done: ping-pong' } }] }) };
+      }
+      throw new Error(`unexpected ${url}`);
+    }
+  });
+
+  const registry = context.createToolRegistry();
+  registry.register(context.createTool({
+    name: 'a2a__local__echo',
+    description: 'echo',
+    parameters: { type: 'object', properties: { task: { type: 'string' } }, required: ['task'] },
+    dispatch: async ({ task }) => `${task}-pong`,
+    meta: { serverId: 'local', skillId: 'echo' }
+  }));
+
+  const session = context.createSession({ messages: [{ role: 'user', content: 'ping' }] });
+  const runner = context.createRunner({
+    config: {
+      providerType: 'custom-provider',
+      endpoint: 'https://custom.example/v1',
+      apiKey: 'k',
+      model: 'm',
+      apiShape: 'openai-compatible'
+    },
+    systemPrompt: 'You are a helpful assistant.',
+    toolRegistry: registry,
+    session,
+    maxTurns: 3
+  });
+
+  const result = await runner.run();
+  assert.strictEqual(result, 'done: ping-pong');
+  assert.strictEqual(chatCallCount, 2);
+}
+
 async function assertA2aAutoRouteAgenticLoopBoundsRoundsAndDedupes() {
   // A misbehaving model that keeps re-emitting the same tool call must not
   // cause an infinite loop. The router must dedupe across rounds and, if the
@@ -3642,6 +3697,7 @@ async function main() {
   await assertA2aAutoRouteDelegatesToEveryMatchedTool();
   await assertA2aAutoRouteMultiToolIsolatesPerAgentFailures();
   await assertA2aAutoRouteRunsAgenticLoopSequentially();
+  await assertRunnerRunsAgenticLoopEndToEnd();
   await assertA2aAutoRouteAgenticLoopBoundsRoundsAndDedupes();
   await assertAutoRouteRequestEnablesParallelToolCalls();
   await assertA2aAutoRouteToolCallUsesCollisionSafeToolMapping();
