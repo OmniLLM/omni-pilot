@@ -4143,6 +4143,68 @@ async function assertGuardrailsOffModeIsNoop() {
   assert.strictEqual(result, 'ran anyway');
 }
 
+async function assertTraceRecorderCapturesEventsAndPersists() {
+  const { context, stores } = await createBackgroundContext({ storage: {} });
+
+  const rec = context.createTraceRecorder({ maxRuns: 5, maxEventsPerRun: 10 });
+  const runId = rec.startRun('chat');
+  assert.ok(runId, 'startRun returns an id');
+  rec.event('provider.request', { round: 0 });
+  rec.event('provider.response', { round: 0, toolCallCount: 0, textLen: 5 });
+  await rec.endRun('ok');
+
+  const snap = await rec.snapshot();
+  assert.strictEqual(snap.length, 1);
+  assert.strictEqual(snap[0].label, 'chat');
+  assert.strictEqual(snap[0].status, 'ok');
+  assert.strictEqual(snap[0].events.length, 2);
+  assert.strictEqual(snap[0].events[0].type, 'provider.request');
+  assert.strictEqual(snap[0].events[1].type, 'provider.response');
+
+  assert.ok(stores.localStore.omnipilotTraces);
+  assert.strictEqual(stores.syncStore.omnipilotTraces, undefined);
+}
+
+async function assertTraceRecorderRingBuffersRuns() {
+  const { context } = await createBackgroundContext({ storage: {} });
+
+  const rec = context.createTraceRecorder({ maxRuns: 3, maxEventsPerRun: 10 });
+  for (let i = 0; i < 5; i += 1) {
+    rec.startRun(`r${i}`);
+    rec.event('provider.request', { round: 0 });
+    await rec.endRun('ok');
+  }
+
+  const snap = await rec.snapshot();
+  assert.strictEqual(snap.length, 3, 'maxRuns = 3');
+  assert.strictEqual(snap[0].label, 'r2');
+  assert.strictEqual(snap[2].label, 'r4');
+}
+
+async function assertTraceRecorderDropsOldestEventsBeyondCap() {
+  const { context } = await createBackgroundContext({ storage: {} });
+
+  const rec = context.createTraceRecorder({ maxRuns: 5, maxEventsPerRun: 3 });
+  rec.startRun('bursty');
+  for (let i = 0; i < 6; i += 1) rec.event('provider.request', { round: i });
+  await rec.endRun('ok');
+
+  const snap = await rec.snapshot();
+  assert.strictEqual(snap[0].events.length, 3);
+  assert.strictEqual(snap[0].events[0].data.round, 3, 'oldest events dropped');
+  assert.strictEqual(snap[0].events[2].data.round, 5);
+}
+
+async function assertTraceRecorderSwallowsPersistFailures() {
+  const { context } = await createBackgroundContext({ storage: {} });
+  context.chrome.storage.local.set = () => { throw new Error('boom'); };
+
+  const rec = context.createTraceRecorder({ maxRuns: 5, maxEventsPerRun: 10 });
+  rec.startRun('chat');
+  rec.event('provider.request', { round: 0 });
+  await rec.endRun('ok');
+}
+
 async function main() {
   await assertAgentConstantsLoadedFromAgentFolder();
   await assertContextAssemblerBasicRoundTrip();
@@ -4153,6 +4215,10 @@ async function main() {
   await assertGuardrailsDenyByDestructiveTag();
   await assertGuardrailsWrapEnforcesOnDispatch();
   await assertGuardrailsOffModeIsNoop();
+  await assertTraceRecorderCapturesEventsAndPersists();
+  await assertTraceRecorderRingBuffersRuns();
+  await assertTraceRecorderDropsOldestEventsBeyondCap();
+  await assertTraceRecorderSwallowsPersistFailures();
   await assertMemoryPrimitiveRoundTripsLongTermAndDailyLogs();
   await assertMemoryPrunesLogsOlderThanRetentionWindow();
   await assertMemorySummaryOmitsEmptyBlockAndFormatsFilledBlock();

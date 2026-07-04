@@ -35,3 +35,8 @@ const GUARDRAIL_TIERS = { LOW: 'low', MEDIUM: 'medium', HIGH: 'high', CRITICAL: 
 const GUARDRAIL_AUDIT_KEY = 'omnipilotGuardrailsAudit';
 const GUARDRAIL_AUDIT_MAX_ENTRIES = 200;
 const GUARDRAIL_DESTRUCTIVE_TAGS = ['destructive', 'delete', 'admin', 'payments'];
+
+// Observability — trace ring buffer stored in chrome.storage.local.
+const TRACES_KEY = 'omnipilotTraces';
+const TRACES_MAX_RUNS = 20;
+const TRACES_MAX_EVENTS_PER_RUN = 200;
