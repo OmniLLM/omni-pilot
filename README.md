@@ -41,6 +41,15 @@ Select any text on any webpage, choose an action, get results in a floating pane
 - **Format Flexibility** — Works with OpenAI, Anthropic, or custom API formats
 - **Provider Auto-Routing** — LLM chooses the best agent for each task
 
+## Architecture
+
+Background service-worker logic is split between two areas:
+
+- **`src/background/index.mjs`** — Chrome runtime code: context menus, ports, message routing, `chrome.storage` schemas, provider abstraction (custom / GitHub Copilot / Azure Foundry), OAuth flows, and the streaming SSE parsers.
+- **`src/background/agent/`** — Harness-style agent primitives (`Agent`, `Runner`, `Tool`, `ToolRegistry`, `Session`, `State`) plus the A2A tool provider. Files are concatenated into `dist/background.js` by `build.mjs` before the entry file, so declarations are top-level bindings at runtime.
+
+The agent primitives are inspired by [Google's Agent Development Kit](https://adk.dev/get-started/) and the harness patterns from the [Harness Guide](https://harness-guide.com/guide/what-is-harness/) (agentic loop, tool registry, session/context/memory separation). Later phases add memory, priority-based context assembly, guardrails, and observability on top of these primitives.
+
 ---
 
 ## 📦 Installation

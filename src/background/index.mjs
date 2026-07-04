@@ -1,5 +1,11 @@
-// OmniPilot - background service worker
-// Handles API calls to avoid CORS issues in content scripts
+// OmniPilot - background service worker.
+//
+// Chrome runtime + extension host code (context menus, ports, message
+// routing, storage, provider abstraction, OAuth). Agentic behavior
+// (Agent, Runner, Tool, ToolRegistry, Session, State) lives under
+// src/background/agent/ and is concatenated into this bundle by
+// build.mjs. Handlers in this file are thin wrappers that instantiate
+// an Agent and delegate.
 
 const PROVIDER_TYPES = {
   CUSTOM: 'custom-provider',

@@ -3,9 +3,15 @@
 // Manual concat instead of a real bundler: our unit tests exercise the built
 // scripts through `vm.runInContext`, which exposes top-level declarations as
 // context properties. Wrapping the output in an IIFE (as esbuild/rollup do
-// by default) would hide those declarations and break the tests. Since the
-// only shared module is `src/utils/i18n.mjs`, hand-inlining it is trivial
-// and keeps the output shape identical to the original flat scripts.
+// by default) would hide those declarations and break the tests.
+//
+// Two concat sources feed into the built scripts:
+//   * `src/utils/i18n.mjs` is inlined into content/popup/options bundles.
+//   * `src/background/agent/*.mjs` (Agent, Runner, Tool, ToolRegistry,
+//     Session, State, A2aToolProvider, follow-up, constants) is inlined
+//     into the background bundle before its entry file.
+// In both cases, `export ...` lines are stripped so declarations land at
+// top level in the concatenated script.
 //
 // Run with: npm run build
 import fs from 'fs'
