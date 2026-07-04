@@ -368,6 +368,16 @@ async function assertMemoryEnabledDefaultsTrueAndPersists() {
   assert.strictEqual(config2.memoryEnabled, false, 'stored false is honored');
 }
 
+async function assertContextMaxTokensConfigDefaultsAndPersists() {
+  const { context, stores } = await createBackgroundContext({ storage: {} });
+  const config = await context.loadConfig();
+  assert.strictEqual(config.contextMaxTokens, 8000);
+
+  stores.syncStore.contextMaxTokens = 4000;
+  const config2 = await context.loadConfig();
+  assert.strictEqual(config2.contextMaxTokens, 4000);
+}
+
 async function assertAgentInjectsMemoryIntoSystemPrompt() {
   // Pre-seed memory so createAgent picks it up on first chat().
   const seedLocalStore = {
@@ -3956,6 +3966,7 @@ async function main() {
   await assertMemoryPrunesLogsOlderThanRetentionWindow();
   await assertMemorySummaryOmitsEmptyBlockAndFormatsFilledBlock();
   await assertMemoryEnabledDefaultsTrueAndPersists();
+  await assertContextMaxTokensConfigDefaultsAndPersists();
   await assertAgentInjectsMemoryIntoSystemPrompt();
   await assertAgentSkipsMemoryWhenDisabled();
   await assertAgentAppendsDailyLogAfterSuccessfulChat();
