@@ -1540,31 +1540,8 @@ async function handleA2aProviderChat(config, messages) {
 }
 
 async function handleAIChat(messages) {
-  const config = await loadConfig();
-  const systemPrompt = CHAT_SYSTEM_PROMPT;
-
-  // Ordinary panel chat can still become A2A delegation here: enabled A2A
-  // agent cards are exposed as tools (auto-discovering any missing card first)
-  // and the model chooses one only when the request matches that agent's skills.
-  if (shouldAutoRouteA2a(config)) {
-    const a2aServers = await ensureEnabledA2aServersDiscovered();
-    if (a2aServers.length) {
-      const toolSchemas = buildA2aToolSchemas(a2aServers);
-      return executeApiRequestWithA2aRouting({
-        config,
-        messages,
-        systemPrompt,
-        a2aServers,
-        toolSchemas
-      });
-    }
-  }
-
-  return executeApiRequest({
-    config,
-    messages,
-    systemPrompt
-  });
+  const agent = await createAgent();
+  return agent.chat(messages);
 }
 
 // Streaming-capable entry point for the side panel / floating-panel chat port.
@@ -1721,13 +1698,8 @@ function renderA2aSettledSections(settled) {
 }
 
 async function handleAIAction(action, text) {
-  const systemPrompt = ACTION_PROMPTS[action];
-  if (!systemPrompt) throw new Error(`Unknown action: ${action}`);
-
-  return executeApiRequest({
-    messages: [{ role: 'user', content: text }],
-    systemPrompt
-  });
+  const agent = await createAgent();
+  return agent.action(action, text);
 }
 
 async function executeApiRequest({ config: preloadedConfig, messages, systemPrompt }) {

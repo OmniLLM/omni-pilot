@@ -3560,6 +3560,27 @@ async function assertToolAndToolRegistryPrimitivesExist() {
   await assert.rejects(() => registry.dispatch('nope', {}), /nope/);
 }
 
+async function assertAgentChatDelegatesToRunner() {
+  const { context } = await createBackgroundContext({
+    storage: {
+      providerType: 'custom-provider',
+      endpoint: 'https://custom.example/v1',
+      apiKey: 'k',
+      model: 'm',
+      apiShape: 'openai-compatible',
+      a2aAutoRoute: false
+    },
+    fetchImpl: async () => ({
+      ok: true,
+      json: async () => ({ choices: [{ message: { content: 'hi from agent' } }] })
+    })
+  });
+
+  const agent = await context.createAgent();
+  const result = await agent.chat([{ role: 'user', content: 'hello' }]);
+  assert.strictEqual(result, 'hi from agent');
+}
+
 async function assertSessionAndStatePrimitivesExist() {
   const { context } = await createBackgroundContext({ storage: {} });
 
@@ -3740,6 +3761,7 @@ async function main() {
   await assertStreamChunkParsersWorkForAllShapes();
   await assertStreamChunkParsersHandleEdgeCases();
   await assertToolAndToolRegistryPrimitivesExist();
+  await assertAgentChatDelegatesToRunner();
   await assertSessionAndStatePrimitivesExist();
   await assertA2aToolProviderRegistersOnePerSkill();
   await assertA2aToolProviderUsesCollisionSafeNames();
