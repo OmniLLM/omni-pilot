@@ -40,18 +40,26 @@ async function createAgent(overrides = {}) {
         });
       }
     }
-    return await executeApiRequest({ config, messages, systemPrompt });
+    return await executeApiRequestWithConfig({
+      config,
+      messages,
+      systemPrompt,
+      copilotToken,
+      allowModelFallback: provider.usesCopilotAuth
+    });
   }
 
   async function action(actionName, text) {
     const systemPrompt = ACTION_PROMPTS[actionName];
     if (!systemPrompt) throw new Error(`Unknown action: ${actionName}`);
-    return await executeApiRequest({
+    return await executeApiRequestWithConfig({
       config,
       messages: [{ role: 'user', content: text }],
-      systemPrompt
+      systemPrompt,
+      copilotToken,
+      allowModelFallback: provider.usesCopilotAuth
     });
   }
 
-  return { chat, action, config, copilotToken };
+  return { chat, action, config };
 }
