@@ -46,11 +46,12 @@ const DEFAULT_CONFIG = {
   apiShape: 'openai-compatible',
   providerType: PROVIDER_TYPES.CUSTOM,
   a2aAutoRoute: true,
+  memoryEnabled: true,
   popupInitialWidth: 640,
   popupInitialHeight: 400
 };
 
-const STORAGE_KEYS = ['endpoint', 'apiKey', 'model', 'models', 'themePreference', 'apiShape', 'languagePreference', 'providerType', 'authMethod', 'providerConfigs', 'a2aServers', 'a2aAutoRoute', 'popupInitialWidth', 'popupInitialHeight'];
+const STORAGE_KEYS = ['endpoint', 'apiKey', 'model', 'models', 'themePreference', 'apiShape', 'languagePreference', 'providerType', 'authMethod', 'providerConfigs', 'a2aServers', 'a2aAutoRoute', 'memoryEnabled', 'popupInitialWidth', 'popupInitialHeight'];
 const A2A_TOKEN_STORAGE_KEY = 'a2aServerTokens';
 const PROVIDER_CONFIG_FIELDS = ['endpoint', 'apiKey', 'model', 'models', 'apiShape'];
 
@@ -478,6 +479,54 @@ function updateA2aAutoRouteState(enabled) {
   if (state) state.textContent = enabled ? 'On' : 'Off';
 }
 
+async function initMemoryCard() {
+  const enabledEl = document.getElementById('memoryEnabled');
+  const longTermEl = document.getElementById('memoryLongTerm');
+  const saveBtn = document.getElementById('saveMemory');
+  const clearBtn = document.getElementById('clearDailyLogs');
+  const statusEl = document.getElementById('memoryStatus');
+  if (!enabledEl || !longTermEl || !saveBtn || !clearBtn) return;
+
+  const syncStored = await new Promise(resolve => chrome.storage.sync.get(['memoryEnabled'], resolve));
+  enabledEl.checked = syncStored.memoryEnabled !== false;
+
+  const memoryStorageArea = chrome.storage.local || chrome.storage.sync;
+  const localStored = await new Promise(resolve => {
+    memoryStorageArea.get(['omnipilotMemoryLongTerm'], resolve);
+  });
+  longTermEl.value = localStored.omnipilotMemoryLongTerm || '';
+
+  enabledEl.addEventListener('change', () => {
+    chrome.storage.sync.set({ memoryEnabled: enabledEl.checked });
+  });
+
+  saveBtn.addEventListener('click', async () => {
+    await new Promise(resolve => {
+      memoryStorageArea.set({ omnipilotMemoryLongTerm: longTermEl.value }, resolve);
+    });
+    if (statusEl) {
+      const message = label('memorySaved');
+      statusEl.textContent = message;
+      setTimeout(() => {
+        if (statusEl.textContent === message) statusEl.textContent = '';
+      }, 2500);
+    }
+  });
+
+  clearBtn.addEventListener('click', async () => {
+    await new Promise(resolve => {
+      memoryStorageArea.set({ omnipilotMemoryDailyLogs: {} }, resolve);
+    });
+    if (statusEl) {
+      const message = label('memoryLogsCleared');
+      statusEl.textContent = message;
+      setTimeout(() => {
+        if (statusEl.textContent === message) statusEl.textContent = '';
+      }, 2500);
+    }
+  });
+}
+
 function showManualModelsEditor() {
   const modelSelect = document.getElementById('modelSelect');
   const modelInput = document.getElementById('model');
@@ -724,6 +773,7 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     };
     initA2aServers();
+    initMemoryCard();
     getA2aTokens().then(tokens => {
       a2aServerTokens = tokens;
       renderA2aServers();

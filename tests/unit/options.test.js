@@ -608,6 +608,13 @@ async function testOptionsHtmlContainsPopupInitialSizeControls() {
   assert.match(htmlSource, /data-i18n=\"popupInitialSize\"/, 'options.html should label popup initial size settings');
 }
 
+async function testOptionsHtmlContainsMemoryCardControls() {
+  for (const expectedId of ['memoryEnabled', 'memoryLongTerm', 'saveMemory', 'clearDailyLogs']) {
+    assert.match(htmlSource, new RegExp(`id=\"${expectedId}\"`), `options.html should contain #${expectedId}`);
+  }
+  assert.match(htmlSource, /data-i18n=\"memory\"/, 'options.html should label the memory card');
+}
+
 async function testGithubCopilotSlowDownKeepsPollingUiPending() {
   const { elements, domListeners } = createTestContext({
     storageGetImpl(keys, callback) {
@@ -1100,6 +1107,7 @@ async function main() {
   await testStoredPopupInitialSizeLoadsIntoFields();
   await testSaveClampsPopupInitialSize();
   await testOptionsHtmlContainsPopupInitialSizeControls();
+  await testOptionsHtmlContainsMemoryCardControls();
   await testGithubCopilotSlowDownKeepsPollingUiPending();
   await testGithubCopilotPendingFlowRestoresCodeOnLoad();
   await testGithubCopilotPollingUsesStoredInterval();

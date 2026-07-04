@@ -641,6 +641,30 @@
       </div>
     </div>
 
+    <div class="card">
+      <div class="card-title" data-i18n="memory">Memory</div>
+      <div class="field">
+        <label class="a2a-auto-route-control" for="memoryEnabled">
+          <input type="checkbox" class="a2a-auto-route-checkbox" id="memoryEnabled" checked>
+          <span class="a2a-auto-route-box" aria-hidden="true"></span>
+          <span class="a2a-auto-route-copy">
+            <span class="a2a-auto-route-title" data-i18n="memoryEnabled">Enable cross-session memory</span>
+          </span>
+        </label>
+        <div class="hint" data-i18n="memoryEnabledHint">When on, the assistant sees your long-term notes and recent activity across sessions.</div>
+      </div>
+      <div class="field">
+        <label for="memoryLongTerm" data-i18n="memoryLongTerm">Long-term notes</label>
+        <textarea id="memoryLongTerm" rows="8"></textarea>
+        <div class="hint" data-i18n="memoryLongTermHint">Facts, preferences, and context you want the assistant to remember across sessions.</div>
+      </div>
+      <div class="field">
+        <button type="button" id="saveMemory" data-i18n="memorySave">Save memory</button>
+        <button type="button" id="clearDailyLogs" data-i18n="memoryClearLogs">Clear recent activity</button>
+        <div class="status" id="memoryStatus"></div>
+      </div>
+    </div>
+
     </div><!-- end .advanced-section -->
 
     <div class="card">
