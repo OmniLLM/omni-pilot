@@ -88,6 +88,30 @@ function createRunner({
 
       onStatus?.('delegating');
 
+      /*
+       * TRANSITIONAL compatibility shim: settled A2A results are still rebuilt into
+       * the legacy { call, server, tool, text, error } shape consumed today by
+       * renderA2aSettledSections() and buildA2aFollowUpMessages(). That shape was
+       * carried over from the pre-restructure inline code path.
+       *
+       * A future phase should either migrate those helpers to consume Tool.meta
+       * directly, or formalize a SettledResult type in agent/ that owns this
+       * compatibility shape explicitly.
+       *
+       * Future callers must not rely on the synthetic server.agentCard.name field;
+       * read Tool.meta.serverName instead.
+       */
+      function buildSettledEntry(call, tool, text, error) {
+        const serverName = tool.meta.serverName || tool.meta.serverId;
+        return {
+          call,
+          server: { id: tool.meta.serverId, name: serverName, agentCard: { name: serverName } },
+          tool: { skillName: tool.meta.skillName || '' },
+          text,
+          error
+        };
+      }
+
       const settled = await Promise.all(runnable.map(async ({ call, tool, key }) => {
         session.markDispatched(key);
         try {
@@ -95,23 +119,9 @@ function createRunner({
             toolRegistry.dispatch(call.toolName, { task: call.task }),
             onStatus
           );
-          const serverName = tool.meta.serverName || tool.meta.serverId;
-          return {
-            call,
-            server: { id: tool.meta.serverId, name: serverName, agentCard: { name: serverName } },
-            tool: { skillName: tool.meta.skillName || '' },
-            text,
-            error: null
-          };
+          return buildSettledEntry(call, tool, text, null);
         } catch (error) {
-          const serverName = tool.meta.serverName || tool.meta.serverId;
-          return {
-            call,
-            server: { id: tool.meta.serverId, name: serverName, agentCard: { name: serverName } },
-            tool: { skillName: tool.meta.skillName || '' },
-            text: '',
-            error: error?.message || String(error)
-          };
+          return buildSettledEntry(call, tool, '', error?.message || String(error));
         }
       }));
 

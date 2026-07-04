@@ -1683,6 +1683,9 @@ async function executeApiRequestWithA2aRouting({ config, messages, systemPrompt,
 
   const session = createSession({ messages });
   const registry = createToolRegistry();
+  // registerA2aToolsInRegistry() calls getContextText() inside each tool dispatch
+  // closure, so wrap the already-computed value in a lambda to freeze one
+  // contextText per run and ensure every dispatch sees the same text.
   const contextText = getA2aConversationContext(messages);
   registerA2aToolsInRegistry(registry, a2aServers, { getContextText: () => contextText });
 
