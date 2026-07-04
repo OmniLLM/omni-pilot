@@ -61,6 +61,10 @@ Both tiers live in `chrome.storage.local`. Users can disable memory or clear the
 
 Every chat/action turn's system prompt is packed by `src/background/agent/context-assembler.mjs`. Sections (system prompt, long-term memory, recent activity, tool schemas) are added with integer priorities (lower = kept first); when the running token estimate would exceed `contextMaxTokens` (default 8000), lower-priority sections are dropped. The latest user message is always pinned so an oversized history can't silently drop the prompt the user just typed.
 
+### Guardrails
+
+Every tool dispatch in the A2A auto-route path is checked by `src/background/agent/guardrails.mjs` before it runs. The default `deny-list` mode blocks A2A endpoints on any domain in `guardrailsDenyDomains` and tools whose skill tags mark them as destructive/admin/payments-related. Denied calls surface to the model as `tool_result` errors instead of being executed, and each classification lands in a rolling 200-entry audit log at `chrome.storage.local["omnipilotGuardrailsAudit"]`.
+
 The agent primitives are inspired by [Google's Agent Development Kit](https://adk.dev/get-started/) and the harness patterns from the [Harness Guide](https://harness-guide.com/guide/what-is-harness/) (agentic loop, tool registry, session/context/memory separation). Memory has since been added (see below); later phases add priority-based context assembly, guardrails, and observability on top of these primitives.
 
 ---
