@@ -3572,6 +3572,31 @@ async function assertA2aToolProviderRegistersOnePerSkill() {
   const planner = registry.get('a2a__planner');
   assert.strictEqual(planner.meta.serverId, 'planner');
   assert.strictEqual(planner.meta.skillId, null);
+  assert.strictEqual(planner.meta.skillName, '');
+}
+
+async function assertA2aToolProviderUsesCollisionSafeNames() {
+  const { context } = await createBackgroundContext({ storage: {} });
+  const registry = context.createToolRegistry();
+
+  registry.register(context.createTool({
+    name: 'a2a__launcher__disk',
+    description: 'pre-existing tool with the same name',
+    dispatch: async () => 'noop'
+  }));
+
+  context.registerA2aToolsInRegistry(registry, [
+    {
+      id: 'launcher',
+      name: 'OmniLauncher',
+      endpoint: 'https://launcher.example/a2a',
+      enabled: true,
+      agentCard: { name: 'OmniLauncher', skills: [{ id: 'disk', name: 'Disk usage' }] }
+    }
+  ]);
+
+  const names = JSON.parse(JSON.stringify(registry.list().map(t => t.name).sort()));
+  assert.deepStrictEqual(names, ['a2a__launcher__disk', 'a2a__launcher__disk_2']);
 }
 
 async function main() {
@@ -3661,6 +3686,7 @@ async function main() {
   await assertToolAndToolRegistryPrimitivesExist();
   await assertSessionAndStatePrimitivesExist();
   await assertA2aToolProviderRegistersOnePerSkill();
+  await assertA2aToolProviderUsesCollisionSafeNames();
   await assertContextMenuSetupCreatesExpectedMenuItems();
   await assertNewActionPromptsExist();
 }
