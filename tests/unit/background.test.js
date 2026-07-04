@@ -3453,6 +3453,8 @@ async function assertStreamingChatPlainChatStreams() {
     messages: [{ role: 'user', content: 'Check refund eligibility' }]
   });
 
+  await new Promise(resolve => setTimeout(resolve, 30));
+
   assert.ok(!portMessages.some(m => m.type === 'status'), 'plain chat should not emit a delegating status');
   assert.deepStrictEqual(JSON.parse(JSON.stringify(portMessages)), [
     { type: 'chunk', text: 'Refund policy explained.' },
@@ -4262,6 +4264,59 @@ async function assertObservabilityDisabledLeavesNoTraces() {
   assert.strictEqual(stores.localStore.omnipilotTraces, undefined);
 }
 
+async function assertAgentChatStreamingUsesHarness() {
+  const chunks = [];
+  const statuses = [];
+  let doneCalled = false;
+  let errorCalled = null;
+  let capturedSystemPrompt = null;
+
+  const { context, stores } = await createBackgroundContext({
+    storage: {
+      providerType: 'custom-provider',
+      endpoint: 'https://custom.example/v1',
+      apiKey: 'k',
+      model: 'm',
+      apiShape: 'openai-compatible',
+      a2aAutoRoute: false,
+      memoryEnabled: true,
+      observabilityEnabled: true,
+      omnipilotMemoryLongTerm: 'STREAM-MEM-SENTINEL'
+    },
+    fetchImpl: async (_url, options) => {
+      capturedSystemPrompt = JSON.parse(options.body).messages.find(m => m.role === 'system').content;
+      return { ok: true, json: async () => ({ choices: [{ message: { content: 'hi from stream' } }] }) };
+    }
+  });
+
+  const agent = await context.createAgent();
+  await agent.chatStreaming({
+    messages: [{ role: 'user', content: 'hello' }],
+    onChunk: t => chunks.push(t),
+    onStatus: s => statuses.push(s),
+    onDone: () => { doneCalled = true; },
+    onError: (e) => { errorCalled = e; }
+  });
+
+  await new Promise(r => setTimeout(r, 30));
+
+  assert.strictEqual(errorCalled, null, 'no error should fire on happy path');
+  assert.strictEqual(doneCalled, true, 'onDone must fire');
+  assert.ok(chunks.length > 0, 'at least one chunk should have been streamed');
+  assert.ok(capturedSystemPrompt.includes('STREAM-MEM-SENTINEL'), 'memory must be in system prompt');
+  assert.deepStrictEqual(statuses, []);
+
+  await new Promise(r => setTimeout(r, 50));
+  const runs = stores.localStore.omnipilotTraces;
+  assert.ok(Array.isArray(runs) && runs.length >= 1, 'trace should have been persisted');
+  const run = runs[runs.length - 1];
+  assert.strictEqual(run.label, 'chat-streaming');
+  assert.strictEqual(run.status, 'ok');
+  const types = run.events.map(e => e.type);
+  assert.ok(types.includes('context.built'));
+  assert.ok(types.includes('provider.request'));
+}
+
 async function main() {
   await assertAgentConstantsLoadedFromAgentFolder();
   await assertContextAssemblerBasicRoundTrip();
@@ -4278,6 +4333,7 @@ async function main() {
   await assertTraceRecorderSwallowsPersistFailures();
   await assertAgentRecordsEndToEndTraceForChat();
   await assertObservabilityDisabledLeavesNoTraces();
+  await assertAgentChatStreamingUsesHarness();
   await assertMemoryPrimitiveRoundTripsLongTermAndDailyLogs();
   await assertMemoryPrunesLogsOlderThanRetentionWindow();
   await assertMemorySummaryOmitsEmptyBlockAndFormatsFilledBlock();

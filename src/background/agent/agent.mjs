@@ -104,6 +104,88 @@ async function createAgent(overrides = {}) {
     }
   }
 
+  async function chatStreaming({ messages, onChunk, onStatus, onDone, onError }) {
+    recorder.startRun('chat-streaming');
+    try {
+      const basePrompt = overrides.systemPrompt || CHAT_SYSTEM_PROMPT;
+      const built = assembleContext(basePrompt, messages);
+      recorder.event('context.built', {
+        tokens: built.systemPrompt.length,
+        dropped: built.dropped.map(d => d.name)
+      });
+
+      if (shouldAutoRouteA2a(config)) {
+        let a2aServers = [];
+        try {
+          a2aServers = await ensureEnabledA2aServersDiscovered();
+        } catch (error) {
+          console.warn(`OmniPilot A2A discovery failed; streaming without tools: ${error?.message || error}`);
+        }
+        if (a2aServers.length) {
+          const result = await withA2aDelegationTimeout(executeApiRequestWithA2aRouting({
+            config,
+            messages: built.messages,
+            systemPrompt: built.systemPrompt,
+            a2aServers,
+            toolSchemas: buildA2aToolSchemas(a2aServers),
+            onStatus,
+            onEvent: (type, data) => recorder.event(type, data)
+          }));
+          onChunk(result);
+          onDone();
+          await logCompletion({
+            action: 'chat-streaming',
+            userLen: String(messages[messages.length - 1]?.content || '').length,
+            assistantLen: String(result || '').length
+          });
+          await recorder.endRun('ok');
+          return;
+        }
+      }
+
+      let ended = false;
+      recorder.event('provider.request', {
+        requestUrl: buildStreamingApiRequest({ config, messages: built.messages, systemPrompt: built.systemPrompt, copilotToken }).requestUrl,
+        apiShape: config.apiShape || inferApiShape(config.endpoint),
+        model: config.model,
+        round: 0
+      });
+      const wrappedDone = () => {
+        if (ended) return;
+        ended = true;
+        recorder.event('provider.response', {
+          round: 0,
+          toolCallCount: 0,
+          textLen: 0
+        });
+        logCompletion({
+          action: 'chat-streaming',
+          userLen: String(messages[messages.length - 1]?.content || '').length,
+          assistantLen: 0
+        }).finally(() => recorder.endRun('ok').then(() => onDone()));
+      };
+      const wrappedError = (msg) => {
+        if (ended) return;
+        ended = true;
+        recorder.event('error', { message: msg });
+        recorder.endRun('error').then(() => onError(msg));
+      };
+      await executeApiRequestStreaming({
+        config,
+        messages: built.messages,
+        systemPrompt: built.systemPrompt,
+        onChunk,
+        onDone: wrappedDone,
+        onError: wrappedError
+      });
+    } catch (error) {
+      const msg = error?.message || String(error);
+      recorder.event('error', { message: msg });
+      await recorder.endRun('error');
+      onError(msg);
+    }
+  }
+
   async function action(actionName, text) {
     recorder.startRun('action');
     try {
@@ -147,7 +229,7 @@ async function createAgent(overrides = {}) {
     }
   }
 
-  return { chat, action, config, memory };
+  return { chat, action, chatStreaming, config, memory };
 }
 
 function formatRecentActivity(recent) {

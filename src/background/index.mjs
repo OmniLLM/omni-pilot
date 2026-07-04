@@ -1565,65 +1565,14 @@ async function handleAIChat(messages) {
 // keeping A2A tool routing: A2A delegation is non-streaming, so those paths
 // surface a 'delegating' status and a bounded await instead of a dead spinner.
 async function handleAIChatStreaming({ messages, onChunk, onStatus, onDone, onError }) {
-  let config;
+  let agent;
   try {
-    config = await loadConfig();
+    agent = await createAgent();
   } catch (error) {
     onError(error?.message || 'Unexpected extension error');
     return;
   }
-
-  // Auto-route: expose enabled A2A agents as tools. The model either answers
-  // directly (full text returned here) or picks a tool (delegated inside
-  // executeApiRequestWithA2aRouting, which emits the 'delegating' status).
-  //
-  // Note: loadConfig() normalizes a dedicated `a2a:` provider down to the custom
-  // provider, so config.providerType is never an a2a type here — auto-route tool
-  // selection is the only way chat reaches A2A delegation, matching handleAIChat.
-  if (shouldAutoRouteA2a(config)) {
-    let a2aServers = [];
-    try {
-      a2aServers = await ensureEnabledA2aServersDiscovered();
-    } catch (error) {
-      // Discovery is best-effort; never let it kill the chat. Fall through to
-      // plain streaming so the user still gets a normal answer.
-      console.warn(`OmniPilot A2A discovery failed; streaming without tools: ${error?.message || error}`);
-      a2aServers = [];
-    }
-    if (a2aServers.length) {
-      try {
-        const toolSchemas = buildA2aToolSchemas(a2aServers);
-        // Bound the whole LLM-routing + possible delegation round-trip so a hung
-        // agent surfaces a timeout error instead of a dead spinner. This is the
-        // server-side half of the defense; the chat client also runs a watchdog.
-        const a2aRouting = executeApiRequestWithA2aRouting({
-          config,
-          messages,
-          systemPrompt: CHAT_SYSTEM_PROMPT,
-          a2aServers,
-          toolSchemas,
-          onStatus
-        });
-        const result = await withA2aDelegationTimeout(a2aRouting);
-        onChunk(result);
-        onDone();
-      } catch (error) {
-        onError(error?.message || 'Unexpected extension error');
-      }
-      return;
-    }
-  }
-
-  // Plain chat: stream tokens as they arrive. executeApiRequestStreaming owns
-  // the onDone/onError lifecycle from here.
-  await executeApiRequestStreaming({
-    config,
-    messages,
-    systemPrompt: CHAT_SYSTEM_PROMPT,
-    onChunk,
-    onDone,
-    onError
-  });
+  await agent.chatStreaming({ messages, onChunk, onStatus, onDone, onError });
 }
 
 function withA2aStatusHeartbeat(promise, onStatus, ms = globalThis.A2A_STATUS_HEARTBEAT_MS || A2A_STATUS_HEARTBEAT_MS) {
