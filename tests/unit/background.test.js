@@ -368,6 +368,97 @@ async function assertMemoryEnabledDefaultsTrueAndPersists() {
   assert.strictEqual(config2.memoryEnabled, false, 'stored false is honored');
 }
 
+async function assertAgentInjectsMemoryIntoSystemPrompt() {
+  // Pre-seed memory so createAgent picks it up on first chat().
+  const seedLocalStore = {
+    omnipilotMemoryLongTerm: 'Prefers concise answers.',
+    omnipilotMemoryDailyLogs: {
+      '2026-07-03': ['09:00:00 action=chat user_len=3 assistant_len=42']
+    }
+  };
+
+  let capturedSystemPrompt = null;
+  const { context } = await createBackgroundContext({
+    storage: {
+      providerType: 'custom-provider',
+      endpoint: 'https://custom.example/v1',
+      apiKey: 'k',
+      model: 'm',
+      apiShape: 'openai-compatible',
+      a2aAutoRoute: false,
+      memoryEnabled: true,
+      ...seedLocalStore
+    },
+    fetchImpl: async (_url, options) => {
+      const body = JSON.parse(options.body);
+      capturedSystemPrompt = body.messages.find(m => m.role === 'system')?.content || '';
+      return { ok: true, json: async () => ({ choices: [{ message: { content: 'ok' } }] }) };
+    }
+  });
+
+  const agent = await context.createAgent();
+  await agent.chat([{ role: 'user', content: 'hi' }]);
+
+  assert.ok(capturedSystemPrompt.includes('## Memory'), 'system prompt should carry the Memory block');
+  assert.ok(capturedSystemPrompt.includes('Prefers concise answers.'));
+  assert.ok(capturedSystemPrompt.includes('2026-07-03'));
+}
+
+async function assertAgentSkipsMemoryWhenDisabled() {
+  let capturedSystemPrompt = null;
+  const { context } = await createBackgroundContext({
+    storage: {
+      providerType: 'custom-provider',
+      endpoint: 'https://custom.example/v1',
+      apiKey: 'k',
+      model: 'm',
+      apiShape: 'openai-compatible',
+      a2aAutoRoute: false,
+      memoryEnabled: false,
+      omnipilotMemoryLongTerm: 'Should not appear.'
+    },
+    fetchImpl: async (_url, options) => {
+      capturedSystemPrompt = JSON.parse(options.body).messages.find(m => m.role === 'system')?.content || '';
+      return { ok: true, json: async () => ({ choices: [{ message: { content: 'ok' } }] }) };
+    }
+  });
+
+  const agent = await context.createAgent();
+  await agent.chat([{ role: 'user', content: 'hi' }]);
+
+  assert.ok(!capturedSystemPrompt.includes('## Memory'), 'Memory block must NOT appear when disabled');
+  assert.ok(!capturedSystemPrompt.includes('Should not appear.'));
+}
+
+async function assertAgentAppendsDailyLogAfterSuccessfulChat() {
+  const { context, stores } = await createBackgroundContext({
+    storage: {
+      providerType: 'custom-provider',
+      endpoint: 'https://custom.example/v1',
+      apiKey: 'k',
+      model: 'm',
+      apiShape: 'openai-compatible',
+      a2aAutoRoute: false,
+      memoryEnabled: true
+    },
+    fetchImpl: async () => ({
+      ok: true,
+      json: async () => ({ choices: [{ message: { content: 'the reply' } }] })
+    })
+  });
+
+  const agent = await context.createAgent();
+  await agent.chat([{ role: 'user', content: 'hello' }]);
+
+  const logs = stores.localStore.omnipilotMemoryDailyLogs;
+  assert.ok(logs, 'daily-log storage should be populated after a chat');
+  const dates = Object.keys(logs);
+  assert.strictEqual(dates.length, 1, 'exactly one day should be logged');
+  const entries = logs[dates[0]];
+  assert.strictEqual(entries.length, 1, 'exactly one entry should be appended');
+  assert.ok(/action=chat/.test(entries[0]), 'entry should be tagged with the action');
+}
+
 async function assertA2aServerMetadataAndTokensUseSeparateStorageAreas() {
   const { context, stores } = await createBackgroundContext({
     storage: {
@@ -3770,6 +3861,9 @@ async function main() {
   await assertMemoryPrunesLogsOlderThanRetentionWindow();
   await assertMemorySummaryOmitsEmptyBlockAndFormatsFilledBlock();
   await assertMemoryEnabledDefaultsTrueAndPersists();
+  await assertAgentInjectsMemoryIntoSystemPrompt();
+  await assertAgentSkipsMemoryWhenDisabled();
+  await assertAgentAppendsDailyLogAfterSuccessfulChat();
   await assertA2aServerMetadataAndTokensUseSeparateStorageAreas();
   await assertLoadA2aServersReadsFromLocalStorage();
   await assertLoadA2aServersMigratesLegacySyncStorageToLocal();
