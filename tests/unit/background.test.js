@@ -194,7 +194,7 @@ async function createBackgroundContext({
   const makeArea = store => ({
     get(keys, cb) {
       if (Array.isArray(keys)) {
-        const result = Object.fromEntries(keys.map(key => [key, store[key]]));
+        const result = Object.fromEntries(keys.map(key => [key, store[key]]).filter(([, value]) => value !== undefined));
         cb(result);
         return;
       }
@@ -351,6 +351,18 @@ async function assertMemorySummaryOmitsEmptyBlockAndFormatsFilledBlock() {
   assert.ok(s.includes('Prefers concise answers.'));
   assert.ok(/Recent activity/i.test(s));
   assert.ok(s.includes('2026-07-04'));
+}
+
+async function assertMemoryEnabledDefaultsTrueAndPersists() {
+  const { context, stores } = await createBackgroundContext({ storage: {} });
+
+  const config = await context.loadConfig();
+  assert.strictEqual(config.memoryEnabled, true, 'memoryEnabled defaults to true');
+
+  // Persisting via the same helpers used elsewhere.
+  stores.syncStore.memoryEnabled = false;
+  const config2 = await context.loadConfig();
+  assert.strictEqual(config2.memoryEnabled, false, 'stored false is honored');
 }
 
 async function assertA2aServerMetadataAndTokensUseSeparateStorageAreas() {
@@ -3754,6 +3766,7 @@ async function main() {
   await assertMemoryPrimitiveRoundTripsLongTermAndDailyLogs();
   await assertMemoryPrunesLogsOlderThanRetentionWindow();
   await assertMemorySummaryOmitsEmptyBlockAndFormatsFilledBlock();
+  await assertMemoryEnabledDefaultsTrueAndPersists();
   await assertA2aServerMetadataAndTokensUseSeparateStorageAreas();
   await assertLoadA2aServersReadsFromLocalStorage();
   await assertLoadA2aServersMigratesLegacySyncStorageToLocal();

@@ -70,10 +70,11 @@ const DEFAULT_CONFIG = {
   apiShape: 'openai-compatible',
   providerType: PROVIDER_TYPES.CUSTOM,
   authMethod: AUTH_METHODS.API_KEY,
-  a2aAutoRoute: true
+  a2aAutoRoute: true,
+  memoryEnabled: true
 };
 
-const STORAGE_KEYS = ['endpoint', 'apiKey', 'model', 'models', 'apiShape', 'providerType', 'authMethod', 'providerConfigs', 'a2aServers', 'a2aAutoRoute'];
+const STORAGE_KEYS = ['endpoint', 'apiKey', 'model', 'models', 'apiShape', 'providerType', 'authMethod', 'providerConfigs', 'a2aServers', 'a2aAutoRoute', 'memoryEnabled'];
 const A2A_TOKEN_STORAGE_KEY = 'a2aServerTokens';
 const PROVIDER_CONFIG_FIELDS = ['endpoint', 'apiKey', 'model', 'models', 'apiShape'];
 // A2A constants live in src/background/agent/constants.mjs; they are
