@@ -194,6 +194,9 @@ async function createBackgroundContext({
   const makeArea = store => ({
     get(keys, cb) {
       if (Array.isArray(keys)) {
+        // chrome.storage.get([keys]) only returns keys that are actually set.
+        // Omitting undefined values preserves loadConfig() defaults when
+        // callers spread the storage result over DEFAULT_CONFIG.
         const result = Object.fromEntries(keys.map(key => [key, store[key]]).filter(([, value]) => value !== undefined));
         cb(result);
         return;
