@@ -4026,12 +4026,90 @@ async function assertContextAssemblerEstimateTokensIsCharDiv4() {
   assert.strictEqual(context.estimateTokens('a'.repeat(400)), 100);
 }
 
+async function assertGuardrailsDenyByDomain() {
+  const { context } = await createBackgroundContext({ storage: {} });
+
+  const servers = [
+    { id: 'good', endpoint: 'https://good.example/a2a' },
+    { id: 'bad', endpoint: 'https://bad.example/a2a' }
+  ];
+  const g = context.createGuardrails({ mode: 'deny-list', denyDomains: ['bad.example'], servers });
+
+  const goodTool = { name: 'a2a__good__x', meta: { serverId: 'good' } };
+  const badTool = { name: 'a2a__bad__x', meta: { serverId: 'bad' } };
+  const goodVerdict = g.classify(goodTool, { task: 'ok' });
+  const badVerdict = g.classify(badTool, { task: 'ok' });
+
+  assert.strictEqual(goodVerdict.allow, true);
+  assert.strictEqual(goodVerdict.tier, 'high');
+  assert.strictEqual(badVerdict.allow, false);
+  assert.strictEqual(badVerdict.tier, 'critical');
+  assert.ok(/deny|bad.example/i.test(badVerdict.reason));
+}
+
+async function assertGuardrailsDenyByDestructiveTag() {
+  const { context } = await createBackgroundContext({ storage: {} });
+  const g = context.createGuardrails({ mode: 'deny-list', denyDomains: [], servers: [] });
+
+  const tool = { name: 'a2a__srv__delete', meta: { serverId: 'srv', skillTags: ['destructive'] } };
+  const verdict = g.classify(tool, { task: 'nuke' });
+  assert.strictEqual(verdict.allow, false);
+  assert.strictEqual(verdict.tier, 'critical');
+}
+
+async function assertGuardrailsWrapEnforcesOnDispatch() {
+  const { context } = await createBackgroundContext({ storage: {} });
+
+  const registry = context.createToolRegistry();
+  registry.register(context.createTool({
+    name: 'a2a__bad__x',
+    description: 'x',
+    dispatch: async () => 'should never run',
+    meta: { serverId: 'bad', skillTags: [] }
+  }));
+
+  const g = context.createGuardrails({
+    mode: 'deny-list',
+    denyDomains: ['bad.example'],
+    servers: [{ id: 'bad', endpoint: 'https://bad.example/a2a' }]
+  });
+  g.wrap(registry);
+
+  await assert.rejects(() => registry.dispatch('a2a__bad__x', { task: 'go' }),
+    /guardrail|denied|bad.example/i);
+}
+
+async function assertGuardrailsOffModeIsNoop() {
+  const { context } = await createBackgroundContext({ storage: {} });
+  const registry = context.createToolRegistry();
+  registry.register(context.createTool({
+    name: 'a2a__bad__x',
+    description: 'x',
+    dispatch: async () => 'ran anyway',
+    meta: { serverId: 'bad' }
+  }));
+
+  const g = context.createGuardrails({
+    mode: 'off',
+    denyDomains: ['bad.example'],
+    servers: [{ id: 'bad', endpoint: 'https://bad.example/a2a' }]
+  });
+  g.wrap(registry);
+
+  const result = await registry.dispatch('a2a__bad__x', { task: 'go' });
+  assert.strictEqual(result, 'ran anyway');
+}
+
 async function main() {
   await assertAgentConstantsLoadedFromAgentFolder();
   await assertContextAssemblerBasicRoundTrip();
   await assertContextAssemblerDropsLowestPriorityOnOverflow();
   await assertContextAssemblerAlwaysKeepsPinnedLatestUserMessage();
   await assertContextAssemblerEstimateTokensIsCharDiv4();
+  await assertGuardrailsDenyByDomain();
+  await assertGuardrailsDenyByDestructiveTag();
+  await assertGuardrailsWrapEnforcesOnDispatch();
+  await assertGuardrailsOffModeIsNoop();
   await assertMemoryPrimitiveRoundTripsLongTermAndDailyLogs();
   await assertMemoryPrunesLogsOlderThanRetentionWindow();
   await assertMemorySummaryOmitsEmptyBlockAndFormatsFilledBlock();

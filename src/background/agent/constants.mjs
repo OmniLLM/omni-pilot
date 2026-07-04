@@ -29,3 +29,9 @@ const MEMORY_RETENTION_DAYS = 7;
 // Context assembly — default token budget for the assembled per-turn
 // context. Overridable via chrome.storage.sync `contextMaxTokens`.
 const CONTEXT_DEFAULT_MAX_TOKENS = 8000;
+
+// Guardrails — classification tiers and audit-log cap.
+const GUARDRAIL_TIERS = { LOW: 'low', MEDIUM: 'medium', HIGH: 'high', CRITICAL: 'critical' };
+const GUARDRAIL_AUDIT_KEY = 'omnipilotGuardrailsAudit';
+const GUARDRAIL_AUDIT_MAX_ENTRIES = 200;
+const GUARDRAIL_DESTRUCTIVE_TAGS = ['destructive', 'delete', 'admin', 'payments'];
