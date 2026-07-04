@@ -3539,6 +3539,41 @@ async function assertSessionAndStatePrimitivesExist() {
   assert.strictEqual(state.get('round'), 1);
 }
 
+async function assertA2aToolProviderRegistersOnePerSkill() {
+  const { context } = await createBackgroundContext({ storage: {} });
+
+  const servers = [
+    {
+      id: 'launcher', name: 'OmniLauncher',
+      endpoint: 'https://launcher.example/a2a', enabled: true,
+      agentCard: { name: 'OmniLauncher', skills: [
+        { id: 'disk', name: 'Disk usage' },
+        { id: 'ram', name: 'RAM usage' }
+      ] }
+    },
+    {
+      id: 'planner', name: 'Planner',
+      endpoint: 'https://planner.example/a2a', enabled: true,
+      agentCard: { name: 'Planner' }
+    }
+  ];
+
+  const registry = context.createToolRegistry();
+  context.registerA2aToolsInRegistry(registry, servers);
+
+  const names = JSON.parse(JSON.stringify(registry.list().map(t => t.name).sort()));
+  assert.deepStrictEqual(names, ['a2a__launcher__disk', 'a2a__launcher__ram', 'a2a__planner']);
+
+  const disk = registry.get('a2a__launcher__disk');
+  assert.strictEqual(disk.meta.serverId, 'launcher');
+  assert.strictEqual(disk.meta.skillId, 'disk');
+  assert.strictEqual(disk.meta.skillName, 'Disk usage');
+
+  const planner = registry.get('a2a__planner');
+  assert.strictEqual(planner.meta.serverId, 'planner');
+  assert.strictEqual(planner.meta.skillId, null);
+}
+
 async function main() {
   await assertAgentConstantsLoadedFromAgentFolder();
   await assertA2aServerMetadataAndTokensUseSeparateStorageAreas();
@@ -3625,6 +3660,7 @@ async function main() {
   await assertStreamChunkParsersHandleEdgeCases();
   await assertToolAndToolRegistryPrimitivesExist();
   await assertSessionAndStatePrimitivesExist();
+  await assertA2aToolProviderRegistersOnePerSkill();
   await assertContextMenuSetupCreatesExpectedMenuItems();
   await assertNewActionPromptsExist();
 }
