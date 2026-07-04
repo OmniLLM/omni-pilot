@@ -616,6 +616,15 @@ async function testOptionsHtmlContainsMemoryCardControls() {
   assert.match(htmlSource, /data-i18n=\"memory\"/, 'options.html should label the memory card');
 }
 
+async function assertOptionsDebugCardIsPresent() {
+  const fs = require('fs');
+  const html = fs.readFileSync('src/options/index.html', 'utf8');
+  assert.ok(html.includes('id="debugTracesView"'));
+  assert.ok(html.includes('id="refreshTraces"'));
+  assert.ok(html.includes('id="clearTraces"'));
+  assert.ok(html.includes('data-i18n="debug"'));
+}
+
 async function testGithubCopilotSlowDownKeepsPollingUiPending() {
   const { elements, domListeners } = createTestContext({
     storageGetImpl(keys, callback) {
@@ -1109,6 +1118,7 @@ async function main() {
   await testSaveClampsPopupInitialSize();
   await testOptionsHtmlContainsPopupInitialSizeControls();
   await testOptionsHtmlContainsMemoryCardControls();
+  await assertOptionsDebugCardIsPresent();
   await testGithubCopilotSlowDownKeepsPollingUiPending();
   await testGithubCopilotPendingFlowRestoresCodeOnLoad();
   await testGithubCopilotPollingUsesStoredInterval();

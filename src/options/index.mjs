@@ -527,6 +527,41 @@ async function initMemoryCard() {
   });
 }
 
+async function initDebugCard() {
+  const view = document.getElementById('debugTracesView');
+  const refreshBtn = document.getElementById('refreshTraces');
+  const clearBtn = document.getElementById('clearTraces');
+  if (!view || !refreshBtn || !clearBtn) return;
+
+  const traceStorageArea = chrome.storage.local || chrome.storage.sync;
+
+  async function renderTraces() {
+    const stored = await new Promise(resolve =>
+      traceStorageArea.get(['omnipilotTraces'], resolve));
+    const runs = Array.isArray(stored.omnipilotTraces) ? stored.omnipilotTraces : [];
+    if (runs.length === 0) {
+      view.textContent = t('debugNoRuns', currentLanguage);
+      return;
+    }
+    const summary = runs.slice().reverse().map(run => {
+      const events = Array.isArray(run.events)
+        ? run.events.map(e => `    ${(e.ts || '').slice(11, 19)} ${e.type} ${JSON.stringify(e.data || {})}`).join('\n')
+        : '';
+      return `[${run.label}] ${run.startedAt} → ${run.endedAt || '(running)'} status=${run.status}\n${events}`;
+    }).join('\n\n');
+    view.textContent = summary;
+  }
+
+  refreshBtn.addEventListener('click', renderTraces);
+  clearBtn.addEventListener('click', async () => {
+    await new Promise(resolve =>
+      traceStorageArea.set({ omnipilotTraces: [] }, resolve));
+    await renderTraces();
+  });
+
+  await renderTraces();
+}
+
 function showManualModelsEditor() {
   const modelSelect = document.getElementById('modelSelect');
   const modelInput = document.getElementById('model');
@@ -774,6 +809,7 @@ document.addEventListener('DOMContentLoaded', () => {
     };
     initA2aServers();
     initMemoryCard();
+    initDebugCard();
     getA2aTokens().then(tokens => {
       a2aServerTokens = tokens;
       renderA2aServers();

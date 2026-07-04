@@ -110,6 +110,11 @@
       translate: 'Translate',
       translating: 'Translating',
       delegating: 'Delegating',
+      debug: 'Debug',
+      debugRecentRuns: 'Recent runs',
+      debugRefresh: 'Refresh',
+      debugClearTraces: 'Clear traces',
+      debugNoRuns: '(no runs recorded yet)',
       typeToFilter: 'Type to filter…',
       unknownError: 'Unknown error'
     },
@@ -223,6 +228,11 @@
       translate: '翻译',
       translating: '翻译中',
       delegating: '委派中',
+      debug: '调试',
+      debugRecentRuns: '最近运行',
+      debugRefresh: '刷新',
+      debugClearTraces: '清除轨迹',
+      debugNoRuns: '（尚无记录）',
       typeToFilter: '输入以筛选…',
       unknownError: '未知错误'
     }
