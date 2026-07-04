@@ -678,7 +678,7 @@ function buildA2aRoutingSystemPrompt(systemPrompt) {
 
 You have access to registered A2A agent tools. Each registered tool is backed by an A2A agent card and may represent either the agent itself or one of its discovered skills. Tool descriptions include the registered agent name, skill name, description, capabilities, and tags.
 
-Before answering from your own knowledge, compare the latest user prompt against the registered A2A agents, skills, tool descriptions, capabilities, and tags. If the user prompt clearly matches one or more registered A2A skills or tools, call every matching A2A tool in the same turn — emit one tool call per matched skill and pass the user's full request as "task" in each call. When both a specific skill tool and its generic agent tool match, prefer the specific skill tool and do not also call the generic one. Do not answer locally when at least one registered A2A skill or tool clearly matches. If no registered A2A skill or tool is a clear match, answer normally without calling a tool.`;
+Before answering from your own knowledge, compare the latest user prompt against the registered A2A agents, skills, tool descriptions, capabilities, and tags. Treat the user prompt as potentially compound — if it mentions multiple distinct topics, subjects, providers, or services, and each maps to a different registered A2A skill or tool, you MUST call every matched tool in the same turn (parallel tool calls). Emit one tool call per matched skill. In the "task" argument of each call, pass the portion of the user's request that pertains to that specific skill; if the topic-per-skill split is unclear, pass the user's full request verbatim. Example: for "how many VMs in Alibaba and Azure" with both an alibaba tool and an azure tool registered, emit exactly two tool calls in the same turn — one to the alibaba tool with task "how many VMs in Alibaba" and one to the azure tool with task "how many VMs in Azure". When both a specific skill tool and its generic agent tool match, prefer the specific skill tool and do not also call the generic one. Do not answer locally when at least one registered A2A skill or tool clearly matches. If no registered A2A skill or tool is a clear match, answer normally without calling a tool.`;
 }
 
 function getA2aToolsForApiShape(toolSchemas, apiShape) {
@@ -742,12 +742,18 @@ function extractA2aToolCallsFromResponse(data, apiShape) {
 function applyA2aToolsToRequestBody(requestBody, apiShape, tools) {
   if (!tools.length) return requestBody;
   if (apiShape === API_SHAPES.ANTHROPIC_MESSAGES) {
-    return { ...requestBody, tools };
+    // Anthropic: disable_parallel_tool_use defaults to false, but set it
+    // explicitly so a compound user prompt like "how many VMs in Alibaba
+    // and Azure" is allowed to emit two tool_use blocks in one turn.
+    return { ...requestBody, tools, tool_choice: { type: 'auto', disable_parallel_tool_use: false } };
   }
   if (apiShape === API_SHAPES.OPENAI_RESPONSES) {
-    return { ...requestBody, tools, tool_choice: 'auto' };
+    // OpenAI Responses: parallel_tool_calls defaults to true on OpenAI's
+    // own endpoint but not every OpenAI-compatible provider honors that;
+    // pin it here so the model can emit multiple calls per turn.
+    return { ...requestBody, tools, tool_choice: 'auto', parallel_tool_calls: true };
   }
-  return { ...requestBody, tools, tool_choice: 'auto' };
+  return { ...requestBody, tools, tool_choice: 'auto', parallel_tool_calls: true };
 }
 
 function getProvider(config) {
@@ -906,7 +912,7 @@ function buildApiRequest({ config, messages, systemPrompt, copilotToken, tools }
           model: config.model,
           instructions: systemPrompt,
           input: messages,
-          ...(hasTools ? { tools, tool_choice: 'auto' } : {})
+          ...(hasTools ? { tools, tool_choice: 'auto', parallel_tool_calls: true } : {})
         },
         parseContent: parseOpenAIResponsesText
       };
@@ -920,7 +926,7 @@ function buildApiRequest({ config, messages, systemPrompt, copilotToken, tools }
         model: config.model,
         ...getOpenAIChatTokenLimitParams(config),
         messages: [{ role: 'system', content: systemPrompt }, ...messages],
-        ...(hasTools ? { tools, tool_choice: 'auto' } : {})
+        ...(hasTools ? { tools, tool_choice: 'auto', parallel_tool_calls: true } : {})
       },
       parseContent: parseOpenAIChatText
     };
@@ -940,7 +946,7 @@ function buildApiRequest({ config, messages, systemPrompt, copilotToken, tools }
         max_tokens: 1024,
         system: systemPrompt,
         messages,
-        ...(hasTools ? { tools } : {})
+        ...(hasTools ? { tools, tool_choice: { type: 'auto', disable_parallel_tool_use: false } } : {})
       },
       parseContent: parseAnthropicText
     };
@@ -955,7 +961,7 @@ function buildApiRequest({ config, messages, systemPrompt, copilotToken, tools }
         model: config.model,
         instructions: systemPrompt,
         input: messages,
-        ...(hasTools ? { tools, tool_choice: 'auto' } : {})
+        ...(hasTools ? { tools, tool_choice: 'auto', parallel_tool_calls: true } : {})
       },
       parseContent: parseOpenAIResponsesText
     };
@@ -969,7 +975,7 @@ function buildApiRequest({ config, messages, systemPrompt, copilotToken, tools }
       model: config.model,
       ...getOpenAIChatTokenLimitParams(config),
       messages: [{ role: 'system', content: systemPrompt }, ...messages],
-      ...(hasTools ? { tools, tool_choice: 'auto' } : {})
+      ...(hasTools ? { tools, tool_choice: 'auto', parallel_tool_calls: true } : {})
     },
     parseContent: parseOpenAIChatText
   };

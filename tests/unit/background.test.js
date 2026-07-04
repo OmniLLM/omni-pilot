@@ -2007,6 +2007,7 @@ async function assertAutoRouteSystemPromptInstructsToolUse() {
   assert.ok(/delegat|call|use/i.test(systemMessage.content), 'system prompt should instruct the model to call/delegate to a matching agent');
   assert.ok(/do not answer locally/i.test(systemMessage.content), 'system prompt should prefer delegation over local answers when there is a clear match');
   assert.ok(/every matching|one tool call per matched skill|call every|call all/i.test(systemMessage.content), 'system prompt should instruct the model to call every matching A2A tool, not just the single best one');
+  assert.ok(/parallel|distinct topics|compound|multiple|MUST/i.test(systemMessage.content), 'system prompt should push the model to decompose compound prompts and emit parallel tool calls');
 }
 
 async function assertA2aAutoRouteToolCallDelegatesOrdinaryFollowUp() {
@@ -2212,6 +2213,67 @@ async function assertA2aAutoRouteMultiToolIsolatesPerAgentFailures() {
   assert.ok(result.includes('good result'), 'good agent output should render');
   assert.ok(result.includes('### BadAgent / Bad skill'), 'bad agent section should still render');
   assert.ok(/A2A delegation failed/.test(result), 'bad agent section should surface the delegation error');
+}
+
+async function assertAutoRouteRequestEnablesParallelToolCalls() {
+  // OpenAI-compatible providers must receive parallel_tool_calls: true so the
+  // model is free to emit multiple tool calls for a compound prompt like
+  // "how many VMs in Alibaba and Azure".
+  const openAiCase = await createBackgroundContext({
+    storage: {
+      providerType: 'custom-provider',
+      endpoint: 'https://custom.example/v1',
+      apiKey: 'custom-key',
+      model: 'custom-model',
+      apiShape: 'openai-compatible',
+      a2aServers: [
+        {
+          id: 'launcher',
+          name: 'OmniLauncher',
+          endpoint: 'https://launcher.example/a2a',
+          enabled: true,
+          agentCard: { name: 'OmniLauncher', skills: [{ id: 'disk', name: 'Disk usage' }] }
+        }
+      ]
+    },
+    fetchImpl: async () => ({ ok: true, json: async () => RESPONSE_BY_SHAPE['openai-compatible'] })
+  });
+
+  await openAiCase.context.handleAIChat([{ role: 'user', content: 'anything' }]);
+  const openAiBody = JSON.parse(openAiCase.requests[0].options.body);
+  assert.equal(openAiBody.parallel_tool_calls, true, 'OpenAI-compatible request should set parallel_tool_calls: true when tools are attached');
+  assert.equal(openAiBody.tool_choice, 'auto', 'OpenAI-compatible request should keep tool_choice: auto');
+  assert.ok(Array.isArray(openAiBody.tools) && openAiBody.tools.length > 0, 'OpenAI-compatible request should attach tools');
+
+  // Anthropic providers must receive an explicit tool_choice object with
+  // disable_parallel_tool_use: false so the model is free to emit multiple
+  // tool_use blocks in a single response.
+  const anthropicCase = await createBackgroundContext({
+    storage: {
+      providerType: 'custom-provider',
+      endpoint: 'https://anthropic.example/v1',
+      apiKey: 'anthropic-key',
+      model: 'claude-sonnet-4-5',
+      apiShape: 'anthropic-messages',
+      a2aServers: [
+        {
+          id: 'launcher',
+          name: 'OmniLauncher',
+          endpoint: 'https://launcher.example/a2a',
+          enabled: true,
+          agentCard: { name: 'OmniLauncher', skills: [{ id: 'disk', name: 'Disk usage' }] }
+        }
+      ]
+    },
+    fetchImpl: async () => ({ ok: true, json: async () => RESPONSE_BY_SHAPE['anthropic-messages'] })
+  });
+
+  await anthropicCase.context.handleAIChat([{ role: 'user', content: 'anything' }]);
+  const anthropicBody = JSON.parse(anthropicCase.requests[0].options.body);
+  assert.ok(anthropicBody.tool_choice && typeof anthropicBody.tool_choice === 'object', 'Anthropic request should set tool_choice as an object');
+  assert.equal(anthropicBody.tool_choice.type, 'auto', 'Anthropic tool_choice.type should be "auto"');
+  assert.equal(anthropicBody.tool_choice.disable_parallel_tool_use, false, 'Anthropic tool_choice.disable_parallel_tool_use should be false');
+  assert.ok(Array.isArray(anthropicBody.tools) && anthropicBody.tools.length > 0, 'Anthropic request should attach tools');
 }
 
 async function assertA2aAutoRouteToolCallUsesCollisionSafeToolMapping() {
@@ -3214,6 +3276,7 @@ async function main() {
   await assertA2aAutoRouteToolCallDelegatesOrdinaryFollowUp();
   await assertA2aAutoRouteDelegatesToEveryMatchedTool();
   await assertA2aAutoRouteMultiToolIsolatesPerAgentFailures();
+  await assertAutoRouteRequestEnablesParallelToolCalls();
   await assertA2aAutoRouteToolCallUsesCollisionSafeToolMapping();
   await assertA2aAutoRouteRespectsDisableToggle();
   await assertProviderTypeCopilotModelListingUsesCachedToken();
