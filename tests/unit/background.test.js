@@ -409,9 +409,79 @@ async function assertAgentInjectsMemoryIntoSystemPrompt() {
   const agent = await context.createAgent();
   await agent.chat([{ role: 'user', content: 'hi' }]);
 
-  assert.ok(capturedSystemPrompt.includes('## Memory'), 'system prompt should carry the Memory block');
   assert.ok(capturedSystemPrompt.includes('Prefers concise answers.'));
   assert.ok(capturedSystemPrompt.includes('2026-07-03'));
+}
+
+async function assertAgentUsesContextAssemblerForChat() {
+  let capturedBody = null;
+  const { context } = await createBackgroundContext({
+    storage: {
+      providerType: 'custom-provider',
+      endpoint: 'https://custom.example/v1',
+      apiKey: 'k',
+      model: 'm',
+      apiShape: 'openai-compatible',
+      a2aAutoRoute: false,
+      memoryEnabled: true,
+      contextMaxTokens: 8000,
+      omnipilotMemoryLongTerm: 'MEM-LONG-TERM-SENTINEL',
+      omnipilotMemoryDailyLogs: {
+        '2026-07-03': ['RECENT-SENTINEL']
+      }
+    },
+    fetchImpl: async (_url, options) => {
+      capturedBody = JSON.parse(options.body);
+      return { ok: true, json: async () => ({ choices: [{ message: { content: 'ok' } }] }) };
+    }
+  });
+
+  const agent = await context.createAgent();
+  await agent.chat([
+    { role: 'user', content: 'first' },
+    { role: 'assistant', content: 'reply' },
+    { role: 'user', content: 'latest question' }
+  ]);
+
+  const sys = capturedBody.messages.find(m => m.role === 'system').content;
+  const idxLong = sys.indexOf('MEM-LONG-TERM-SENTINEL');
+  const idxRecent = sys.indexOf('RECENT-SENTINEL');
+  assert.ok(idxLong >= 0, 'long-term memory made it into the system prompt');
+  assert.ok(idxRecent >= 0, 'recent activity made it into the system prompt');
+  assert.ok(idxLong < idxRecent, 'long-term memory ranked before recent activity');
+
+  const nonSystem = capturedBody.messages.filter(m => m.role !== 'system');
+  assert.strictEqual(nonSystem[nonSystem.length - 1].content, 'latest question');
+}
+
+async function assertAgentDropsSectionsUnderTightTokenBudget() {
+  let capturedBody = null;
+  const { context } = await createBackgroundContext({
+    storage: {
+      providerType: 'custom-provider',
+      endpoint: 'https://custom.example/v1',
+      apiKey: 'k',
+      model: 'm',
+      apiShape: 'openai-compatible',
+      a2aAutoRoute: false,
+      memoryEnabled: true,
+      contextMaxTokens: 30,
+      omnipilotMemoryLongTerm: 'a'.repeat(200),
+      omnipilotMemoryDailyLogs: { '2026-07-03': ['x'.repeat(200)] }
+    },
+    fetchImpl: async (_url, options) => {
+      capturedBody = JSON.parse(options.body);
+      return { ok: true, json: async () => ({ choices: [{ message: { content: 'ok' } }] }) };
+    }
+  });
+
+  const agent = await context.createAgent();
+  await agent.chat([{ role: 'user', content: 'latest question' }]);
+
+  const sys = capturedBody.messages.find(m => m.role === 'system').content;
+  assert.ok(sys.length > 0);
+  assert.ok(!/a{50,}/.test(sys), 'long-term memory dropped under tight budget');
+  assert.ok(!/x{50,}/.test(sys), 'recent activity dropped under tight budget');
 }
 
 async function assertAgentSkipsMemoryWhenDisabled() {
@@ -3968,6 +4038,8 @@ async function main() {
   await assertMemoryEnabledDefaultsTrueAndPersists();
   await assertContextMaxTokensConfigDefaultsAndPersists();
   await assertAgentInjectsMemoryIntoSystemPrompt();
+  await assertAgentUsesContextAssemblerForChat();
+  await assertAgentDropsSectionsUnderTightTokenBudget();
   await assertAgentSkipsMemoryWhenDisabled();
   await assertAgentAppendsDailyLogAfterSuccessfulChat();
   await assertAgentSwallowsMemoryAppendFailures();

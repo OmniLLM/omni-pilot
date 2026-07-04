@@ -1,12 +1,9 @@
 // OmniPilot agent primitives — Agent.
 //
 // High-level entry point. Owns provider selection (loadConfig,
-// getCopilotAccessToken when applicable), assembles a ToolRegistry
-// from currently-enabled A2A servers when auto-routing is on, and
-// delegates the loop to createRunner. When memoryEnabled is on
-// (default), loads long-term + daily-log memory and prepends a
-// Memory block to the system prompt, then appends one log entry
-// per completed chat/action.
+// getCopilotAccessToken when applicable), assembles per-turn context
+// via createContextAssembler, and delegates to createRunner (via
+// executeApiRequestWithA2aRouting) or the plain executeApiRequestWithConfig.
 
 async function createAgent(overrides = {}) {
   const config = overrides.config || await loadConfig();
@@ -24,12 +21,9 @@ async function createAgent(overrides = {}) {
   }
 
   const memory = (config.memoryEnabled === false || !chrome.storage?.local?.set) ? null : createMemory();
-  const memoryPrefix = memory ? (await memory.summary()) : '';
-
-  function combinedSystemPrompt(base) {
-    if (!memoryPrefix) return base;
-    return `${memoryPrefix}\n\n${base}`;
-  }
+  const memoryLongTerm = memory ? await memory.getLongTerm() : '';
+  const memoryRecentSections = memory ? await memory.getRecent() : [];
+  const maxTokens = Number(config.contextMaxTokens) || CONTEXT_DEFAULT_MAX_TOKENS;
 
   async function logCompletion({ action, userLen, assistantLen }) {
     if (!memory) return;
@@ -40,16 +34,28 @@ async function createAgent(overrides = {}) {
     }
   }
 
+  function assembleContext(basePrompt, messages) {
+    const asm = createContextAssembler({ maxTokens });
+    asm.addSection(10, 'system-prompt', basePrompt);
+    if (memoryLongTerm) asm.addSection(20, 'memory-long-term', memoryLongTerm);
+    if (memoryRecentSections.length) {
+      const recentText = formatRecentActivity(memoryRecentSections);
+      asm.addSection(40, 'memory-recent-activity', recentText);
+    }
+    return asm.buildMessages(messages);
+  }
+
   async function chat(messages) {
-    const systemPrompt = combinedSystemPrompt(overrides.systemPrompt || CHAT_SYSTEM_PROMPT);
+    const basePrompt = overrides.systemPrompt || CHAT_SYSTEM_PROMPT;
+    const built = assembleContext(basePrompt, messages);
     let result;
     if (shouldAutoRouteA2a(config)) {
       const a2aServers = await ensureEnabledA2aServersDiscovered();
       if (a2aServers.length) {
         result = await executeApiRequestWithA2aRouting({
           config,
-          messages,
-          systemPrompt,
+          messages: built.messages,
+          systemPrompt: built.systemPrompt,
           a2aServers,
           toolSchemas: buildA2aToolSchemas(a2aServers),
           onStatus: overrides.onStatus
@@ -59,8 +65,8 @@ async function createAgent(overrides = {}) {
     if (result === undefined) {
       result = await executeApiRequestWithConfig({
         config,
-        messages,
-        systemPrompt,
+        messages: built.messages,
+        systemPrompt: built.systemPrompt,
         copilotToken,
         allowModelFallback: provider.usesCopilotAuth
       });
@@ -74,11 +80,12 @@ async function createAgent(overrides = {}) {
   async function action(actionName, text) {
     const basePrompt = ACTION_PROMPTS[actionName];
     if (!basePrompt) throw new Error(`Unknown action: ${actionName}`);
-    const systemPrompt = combinedSystemPrompt(basePrompt);
+    const messages = [{ role: 'user', content: text }];
+    const built = assembleContext(basePrompt, messages);
     const result = await executeApiRequestWithConfig({
       config,
-      messages: [{ role: 'user', content: text }],
-      systemPrompt,
+      messages: built.messages,
+      systemPrompt: built.systemPrompt,
       copilotToken,
       allowModelFallback: provider.usesCopilotAuth
     });
@@ -91,6 +98,15 @@ async function createAgent(overrides = {}) {
   }
 
   return { chat, action, config, memory };
+}
+
+function formatRecentActivity(recent) {
+  const parts = ['### Recent activity'];
+  for (const { date, entries } of recent) {
+    parts.push(`- ${date}`);
+    for (const entry of entries) parts.push(`  - ${entry}`);
+  }
+  return parts.join('\n');
 }
 
 function buildLogEntry({ action, userLen, assistantLen, now = new Date() }) {
