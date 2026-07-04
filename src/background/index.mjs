@@ -72,10 +72,12 @@ const DEFAULT_CONFIG = {
   authMethod: AUTH_METHODS.API_KEY,
   a2aAutoRoute: true,
   memoryEnabled: true,
-  contextMaxTokens: 8000
+  contextMaxTokens: 8000,
+  guardrailsMode: 'deny-list',
+  guardrailsDenyDomains: []
 };
 
-const STORAGE_KEYS = ['endpoint', 'apiKey', 'model', 'models', 'apiShape', 'providerType', 'authMethod', 'providerConfigs', 'a2aServers', 'a2aAutoRoute', 'memoryEnabled', 'contextMaxTokens'];
+const STORAGE_KEYS = ['endpoint', 'apiKey', 'model', 'models', 'apiShape', 'providerType', 'authMethod', 'providerConfigs', 'a2aServers', 'a2aAutoRoute', 'memoryEnabled', 'contextMaxTokens', 'guardrailsMode', 'guardrailsDenyDomains'];
 const A2A_TOKEN_STORAGE_KEY = 'a2aServerTokens';
 const PROVIDER_CONFIG_FIELDS = ['endpoint', 'apiKey', 'model', 'models', 'apiShape'];
 // A2A constants live in src/background/agent/constants.mjs; they are
@@ -1673,6 +1675,12 @@ async function executeApiRequestWithA2aRouting({ config, messages, systemPrompt,
   // contextText per run and ensure every dispatch sees the same text.
   const contextText = getA2aConversationContext(messages);
   registerA2aToolsInRegistry(registry, a2aServers, { getContextText: () => contextText });
+  const guardrails = createGuardrails({
+    mode: config.guardrailsMode,
+    denyDomains: Array.isArray(config.guardrailsDenyDomains) ? config.guardrailsDenyDomains : [],
+    servers: a2aServers
+  });
+  guardrails.wrap(registry);
 
   const runner = createRunner({
     config,

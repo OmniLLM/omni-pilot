@@ -2215,6 +2215,49 @@ async function assertA2aAutoRouteInjectsToolsForDiscoveredAgentCards() {
   assert.ok(body.tools[0].function.description.includes('Disk usage'));
 }
 
+async function assertA2aRoutingHonorsGuardrailsDenyDomain() {
+  const { context, requests } = await createBackgroundContext({
+    storage: {
+      providerType: 'custom-provider',
+      endpoint: 'https://custom.example/v1',
+      apiKey: 'k',
+      model: 'm',
+      apiShape: 'openai-compatible',
+      memoryEnabled: false,
+      guardrailsMode: 'deny-list',
+      guardrailsDenyDomains: ['bad.example'],
+      a2aServers: [
+        { id: 'bad', name: 'BadAgent', endpoint: 'https://bad.example/a2a', enabled: true,
+          agentCard: { name: 'BadAgent', skills: [{ id: 'x', name: 'X' }] } }
+      ],
+      a2aServerTokens: { bad: 't' }
+    },
+    fetchImpl: async (url) => {
+      if (url === 'https://custom.example/v1/chat/completions') {
+        return {
+          ok: true,
+          json: async () => ({
+            choices: [{ message: { tool_calls: [
+              { id: 'c1', type: 'function', function: { name: 'a2a__bad__x', arguments: JSON.stringify({ task: 'go' }) } }
+            ] } }]
+          })
+        };
+      }
+      if (url === 'https://bad.example/a2a') {
+        throw new Error('MUST NOT REACH the denied domain');
+      }
+      throw new Error(`unexpected ${url}`);
+    }
+  });
+
+  await assert.rejects(
+    () => context.handleAIChat([{ role: 'user', content: 'run' }]),
+    /Guardrail/
+  );
+
+  assert.ok(!requests.some(r => r.url === 'https://bad.example/a2a'), 'denied domain must not be contacted');
+}
+
 async function assertCopilotAutoRouteToolCallDelegates() {
   const { context, requests } = await createBackgroundContext({
     storage: {
@@ -4150,6 +4193,7 @@ async function main() {
   await assertLegacyA2aProviderTypeFallsBackToCustomProvider();
   await assertConfiguredA2aServerWithoutAgentCardDoesNotAutomaticallyHandleChat();
   await assertA2aAutoRouteInjectsToolsForDiscoveredAgentCards();
+  await assertA2aRoutingHonorsGuardrailsDenyDomain();
   await assertA2aToolSchemasIncludeOneToolPerSkill();
   await assertA2aToolSchemasFallBackToServerToolWhenNoSkills();
   await assertSkillToolCallDelegatesToCorrectServer();
