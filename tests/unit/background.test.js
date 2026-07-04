@@ -2011,6 +2011,7 @@ async function assertAutoRouteSystemPromptInstructsToolUse() {
 }
 
 async function assertA2aAutoRouteToolCallDelegatesOrdinaryFollowUp() {
+  let chatCallCount = 0;
   const { context, requests } = await createBackgroundContext({
     storage: {
       providerType: 'custom-provider',
@@ -2035,20 +2036,32 @@ async function assertA2aAutoRouteToolCallDelegatesOrdinaryFollowUp() {
     },
     fetchImpl: async (url, options) => {
       if (url === 'https://custom.example/v1/chat/completions') {
+        chatCallCount += 1;
+        // Round 0: emit a tool call so the router delegates to launcher.
+        if (chatCallCount === 1) {
+          return {
+            ok: true,
+            json: async () => ({
+              choices: [{
+                message: {
+                  tool_calls: [{
+                    id: 'call_1',
+                    type: 'function',
+                    function: {
+                      name: 'a2a__launcher__disk',
+                      arguments: JSON.stringify({ task: 'show me disk usage' })
+                    }
+                  }]
+                }
+              }]
+            })
+          };
+        }
+        // Round 1: after receiving the tool_result, produce the final answer.
         return {
           ok: true,
           json: async () => ({
-            choices: [{
-              message: {
-                tool_calls: [{
-                  type: 'function',
-                  function: {
-                    name: 'a2a__launcher__disk',
-                    arguments: JSON.stringify({ task: 'show me disk usage' })
-                  }
-                }]
-              }
-            }]
+            choices: [{ message: { content: 'Your disk usage is: Disk usage result' } }]
           })
         };
       }
@@ -2068,17 +2081,31 @@ async function assertA2aAutoRouteToolCallDelegatesOrdinaryFollowUp() {
     { role: 'user', content: 'please handle delegated task' }
   ]);
 
-  assert.strictEqual(result, 'Disk usage result');
-  assert.strictEqual(requests.length, 2);
+  // Agentic loop: two chat requests (initial + follow-up after tool_result)
+  // and one A2A delegation in between.
+  assert.strictEqual(result, 'Your disk usage is: Disk usage result');
+  assert.strictEqual(requests.length, 3);
   assert.strictEqual(requests[0].url, 'https://custom.example/v1/chat/completions');
   assert.strictEqual(requests[1].url, 'https://launcher.example/a2a');
+  assert.strictEqual(requests[2].url, 'https://custom.example/v1/chat/completions');
   const a2aText = JSON.parse(requests[1].options.body).params.message.parts[0].text;
   assert.ok(a2aText.includes('Task:\nshow me disk usage'));
   assert.ok(a2aText.includes('Popup user: Additional selected context'));
   assert.ok(a2aText.includes('Popup assistant: What would you like to check?'));
+  // Round 1 request must carry the assistant tool_call turn and a tool-role
+  // message with the delegated result, so the model can compose a final
+  // answer from the tool output.
+  const round1Body = JSON.parse(requests[2].options.body);
+  const toolMsg = round1Body.messages.find(m => m.role === 'tool');
+  assert.ok(toolMsg, 'follow-up request should include a tool-role message with the delegation result');
+  assert.strictEqual(toolMsg.tool_call_id, 'call_1');
+  assert.strictEqual(toolMsg.content, 'Disk usage result');
+  const assistantWithCall = round1Body.messages.find(m => m.role === 'assistant' && Array.isArray(m.tool_calls));
+  assert.ok(assistantWithCall, 'follow-up request should echo the assistant tool_call turn');
 }
 
 async function assertA2aAutoRouteDelegatesToEveryMatchedTool() {
+  let chatCallCount = 0;
   const { context, requests } = await createBackgroundContext({
     storage: {
       providerType: 'custom-provider',
@@ -2114,17 +2141,28 @@ async function assertA2aAutoRouteDelegatesToEveryMatchedTool() {
     },
     fetchImpl: async (url) => {
       if (url === 'https://custom.example/v1/chat/completions') {
+        chatCallCount += 1;
+        if (chatCallCount === 1) {
+          // Round 0: emit two parallel tool calls, one per matched skill.
+          return {
+            ok: true,
+            json: async () => ({
+              choices: [{
+                message: {
+                  tool_calls: [
+                    { id: 'call_disk', type: 'function', function: { name: 'a2a__launcher__disk', arguments: JSON.stringify({ task: 'show disk usage' }) } },
+                    { id: 'call_plan', type: 'function', function: { name: 'a2a__planner__today', arguments: JSON.stringify({ task: 'draft today plan' }) } }
+                  ]
+                }
+              }]
+            })
+          };
+        }
+        // Round 1: after tool_results, produce a summary that references both.
         return {
           ok: true,
           json: async () => ({
-            choices: [{
-              message: {
-                tool_calls: [
-                  { type: 'function', function: { name: 'a2a__launcher__disk', arguments: JSON.stringify({ task: 'show disk usage' }) } },
-                  { type: 'function', function: { name: 'a2a__planner__today', arguments: JSON.stringify({ task: 'draft today plan' }) } }
-                ]
-              }
-            }]
+            choices: [{ message: { content: 'Disk: 42% used. Plan: focus block, review, walk.' } }]
           })
         };
       }
@@ -2142,20 +2180,28 @@ async function assertA2aAutoRouteDelegatesToEveryMatchedTool() {
     { role: 'user', content: 'Show my disk usage and draft today plan' }
   ]);
 
-  // Both agents were delegated to (order-independent).
+  // Both agents were delegated to in round 0 (order-independent).
   const delegatedUrls = requests.map(r => r.url);
   assert.ok(delegatedUrls.includes('https://launcher.example/a2a'), 'should delegate to launcher');
   assert.ok(delegatedUrls.includes('https://planner.example/a2a'), 'should delegate to planner');
+  // Agentic loop: round 0 chat + 2 fanned-out A2A delegations + round 1 chat = 4 requests.
+  assert.strictEqual(requests.length, 4, 'expected 2 chat rounds and 2 parallel delegations');
 
-  // Response contains both labeled sections with each agent's result.
-  assert.ok(result.includes('### OmniLauncher / Disk usage'), 'expected labeled section for launcher/disk skill');
-  assert.ok(result.includes('Disk: 42% used'), 'expected launcher result text');
-  assert.ok(result.includes('### Planner / Today plan'), 'expected labeled section for planner/today skill');
-  assert.ok(result.includes('Plan: focus block, review, walk'), 'expected planner result text');
+  // Model composed a final answer from both tool_result messages.
+  assert.strictEqual(result, 'Disk: 42% used. Plan: focus block, review, walk.');
+
+  // Round 1 request must include both tool-role messages so the model has
+  // both delegation outputs when composing the summary.
+  const round1Body = JSON.parse(requests[3].options.body);
+  const toolMessages = round1Body.messages.filter(m => m.role === 'tool');
+  assert.strictEqual(toolMessages.length, 2, 'follow-up request should carry both tool_result messages');
+  const toolCallIds = toolMessages.map(m => m.tool_call_id).sort();
+  assert.deepStrictEqual(toolCallIds, ['call_disk', 'call_plan']);
 }
 
 async function assertA2aAutoRouteMultiToolIsolatesPerAgentFailures() {
-  const { context } = await createBackgroundContext({
+  let chatCallCount = 0;
+  const { context, requests } = await createBackgroundContext({
     storage: {
       providerType: 'custom-provider',
       endpoint: 'https://custom.example/v1',
@@ -2182,17 +2228,28 @@ async function assertA2aAutoRouteMultiToolIsolatesPerAgentFailures() {
     },
     fetchImpl: async (url) => {
       if (url === 'https://custom.example/v1/chat/completions') {
+        chatCallCount += 1;
+        if (chatCallCount === 1) {
+          return {
+            ok: true,
+            json: async () => ({
+              choices: [{
+                message: {
+                  tool_calls: [
+                    { id: 'call_good', type: 'function', function: { name: 'a2a__good__gs', arguments: JSON.stringify({ task: 'ok' }) } },
+                    { id: 'call_bad', type: 'function', function: { name: 'a2a__bad__bs', arguments: JSON.stringify({ task: 'boom' }) } }
+                  ]
+                }
+              }]
+            })
+          };
+        }
+        // Round 1: after tool_results (one success, one failure), produce a
+        // summary that surfaces both outcomes.
         return {
           ok: true,
           json: async () => ({
-            choices: [{
-              message: {
-                tool_calls: [
-                  { type: 'function', function: { name: 'a2a__good__gs', arguments: JSON.stringify({ task: 'ok' }) } },
-                  { type: 'function', function: { name: 'a2a__bad__bs', arguments: JSON.stringify({ task: 'boom' }) } }
-                ]
-              }
-            }]
+            choices: [{ message: { content: 'good result. BadAgent failed: A2A delegation failed (boom).' } }]
           })
         };
       }
@@ -2200,7 +2257,8 @@ async function assertA2aAutoRouteMultiToolIsolatesPerAgentFailures() {
         return { ok: true, json: async () => ({ result: { message: { parts: [{ type: 'text', text: 'good result' }] } } }) };
       }
       if (url === 'https://bad.example/a2a') {
-        // Simulate a failing A2A backend — 500 with a JSON-RPC error body.
+        // Simulate a failing A2A backend; the router must surface the error
+        // as a tool_result rather than aborting the whole request.
         return { ok: false, status: 500, text: async () => 'boom' };
       }
       throw new Error(`Unexpected fetch ${url}`);
@@ -2209,10 +2267,170 @@ async function assertA2aAutoRouteMultiToolIsolatesPerAgentFailures() {
 
   const result = await context.handleAIChat([{ role: 'user', content: 'run both' }]);
 
-  assert.ok(result.includes('### GoodAgent / Good skill'), 'good agent section should render');
-  assert.ok(result.includes('good result'), 'good agent output should render');
-  assert.ok(result.includes('### BadAgent / Bad skill'), 'bad agent section should still render');
-  assert.ok(/A2A delegation failed/.test(result), 'bad agent section should surface the delegation error');
+  // The model composed a final answer that mentions both agents' outputs
+  // (or their failure), proving neither failure sank the other's delegation.
+  assert.ok(result.includes('good result'), 'good agent output should survive to the final answer');
+  assert.ok(/BadAgent failed|A2A delegation failed/.test(result), 'bad agent failure should be surfaced to the model');
+
+  // Round 1 request must carry a tool_result for the failed delegation with
+  // the error message baked in, so the model can decide how to present it.
+  const round1Body = JSON.parse(requests.filter(r => r.url === 'https://custom.example/v1/chat/completions')[1].options.body);
+  const toolMessages = round1Body.messages.filter(m => m.role === 'tool');
+  assert.strictEqual(toolMessages.length, 2, 'follow-up should include both tool_results (success + failure)');
+  const badResult = toolMessages.find(m => m.tool_call_id === 'call_bad');
+  assert.ok(badResult && /A2A delegation failed/.test(badResult.content), 'failed delegation must surface as a tool_result with the error text');
+}
+
+async function assertA2aAutoRouteRunsAgenticLoopSequentially() {
+  // Simulates a provider whose model calls one tool per round instead of
+  // fanning out in parallel. The router must feed each tool_result back and
+  // keep iterating until the model produces final text (or hits the round cap).
+  let chatCallCount = 0;
+  const { context, requests } = await createBackgroundContext({
+    storage: {
+      providerType: 'custom-provider',
+      endpoint: 'https://custom.example/v1',
+      apiKey: 'custom-key',
+      model: 'custom-model',
+      apiShape: 'openai-compatible',
+      a2aServers: [
+        {
+          id: 'alibaba',
+          name: 'Alibaba',
+          endpoint: 'https://alibaba.example/a2a',
+          enabled: true,
+          agentCard: { name: 'Alibaba', skills: [{ id: 'vm', name: 'VM count' }] }
+        },
+        {
+          id: 'azure',
+          name: 'Azure',
+          endpoint: 'https://azure.example/a2a',
+          enabled: true,
+          agentCard: { name: 'Azure', skills: [{ id: 'vm', name: 'VM count' }] }
+        }
+      ],
+      a2aServerTokens: { alibaba: 't', azure: 't' }
+    },
+    fetchImpl: async (url) => {
+      if (url === 'https://custom.example/v1/chat/completions') {
+        chatCallCount += 1;
+        if (chatCallCount === 1) {
+          return {
+            ok: true,
+            json: async () => ({
+              choices: [{
+                message: {
+                  tool_calls: [
+                    { id: 'r0_alibaba', type: 'function', function: { name: 'a2a__alibaba__vm', arguments: JSON.stringify({ task: 'how many VMs in alibaba' }) } }
+                  ]
+                }
+              }]
+            })
+          };
+        }
+        if (chatCallCount === 2) {
+          return {
+            ok: true,
+            json: async () => ({
+              choices: [{
+                message: {
+                  tool_calls: [
+                    { id: 'r1_azure', type: 'function', function: { name: 'a2a__azure__vm', arguments: JSON.stringify({ task: 'how many VMs in Azure' }) } }
+                  ]
+                }
+              }]
+            })
+          };
+        }
+        return {
+          ok: true,
+          json: async () => ({
+            choices: [{ message: { content: 'Alibaba: 11,157 VMs. Azure: 7,842 VMs.' } }]
+          })
+        };
+      }
+      if (url === 'https://alibaba.example/a2a') {
+        return { ok: true, json: async () => ({ result: { message: { parts: [{ type: 'text', text: 'Alibaba: 11,157 VMs' }] } } }) };
+      }
+      if (url === 'https://azure.example/a2a') {
+        return { ok: true, json: async () => ({ result: { message: { parts: [{ type: 'text', text: 'Azure: 7,842 VMs' }] } } }) };
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    }
+  });
+
+  const result = await context.handleAIChat([{ role: 'user', content: 'how many VMs in alibaba and Azure' }]);
+
+  // Three chat rounds + one delegation per round for the first two = 5 requests.
+  assert.strictEqual(requests.length, 5);
+  const delegatedUrls = requests.map(r => r.url);
+  assert.ok(delegatedUrls.includes('https://alibaba.example/a2a'), 'alibaba must be delegated to in round 0');
+  assert.ok(delegatedUrls.includes('https://azure.example/a2a'), 'azure must be delegated to in round 1');
+  assert.strictEqual(result, 'Alibaba: 11,157 VMs. Azure: 7,842 VMs.');
+
+  // Round 1 request must carry the round-0 tool_result so the model can
+  // notice azure hasn't been called yet and emit that tool call next.
+  const round1Body = JSON.parse(requests[2].options.body);
+  const round1ToolMessages = round1Body.messages.filter(m => m.role === 'tool');
+  assert.strictEqual(round1ToolMessages.length, 1);
+  assert.strictEqual(round1ToolMessages[0].tool_call_id, 'r0_alibaba');
+  assert.strictEqual(round1ToolMessages[0].content, 'Alibaba: 11,157 VMs');
+}
+
+async function assertA2aAutoRouteAgenticLoopBoundsRoundsAndDedupes() {
+  // A misbehaving model that keeps re-emitting the same tool call must not
+  // cause an infinite loop. The router must dedupe across rounds and, if the
+  // model never produces final text, fall back to the fanned-out tool output.
+  const chatCalls = [];
+  const { context, requests } = await createBackgroundContext({
+    storage: {
+      providerType: 'custom-provider',
+      endpoint: 'https://custom.example/v1',
+      apiKey: 'custom-key',
+      model: 'custom-model',
+      apiShape: 'openai-compatible',
+      a2aServers: [
+        {
+          id: 'launcher',
+          name: 'OmniLauncher',
+          endpoint: 'https://launcher.example/a2a',
+          enabled: true,
+          agentCard: { name: 'OmniLauncher', skills: [{ id: 'disk', name: 'Disk usage' }] }
+        }
+      ],
+      a2aServerTokens: { launcher: 't' }
+    },
+    fetchImpl: async (url) => {
+      if (url === 'https://custom.example/v1/chat/completions') {
+        chatCalls.push(1);
+        return {
+          ok: true,
+          json: async () => ({
+            choices: [{
+              message: {
+                tool_calls: [
+                  { id: `call_${chatCalls.length}`, type: 'function', function: { name: 'a2a__launcher__disk', arguments: JSON.stringify({ task: 'show disk' }) } }
+                ]
+              }
+            }]
+          })
+        };
+      }
+      if (url === 'https://launcher.example/a2a') {
+        return { ok: true, json: async () => ({ result: { message: { parts: [{ type: 'text', text: 'Disk: 42% used' }] } } }) };
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    }
+  });
+
+  const result = await context.handleAIChat([{ role: 'user', content: 'show disk' }]);
+
+  // Model insists on calling the same tool every round. Dedup catches the
+  // repeat on round 1, so we only delegate ONCE across all rounds.
+  const delegations = requests.filter(r => r.url === 'https://launcher.example/a2a');
+  assert.strictEqual(delegations.length, 1, 'dedupe must prevent re-running the same (serverId, task)');
+  // Fall back: single-result plain-text path preserves the raw tool output.
+  assert.strictEqual(result, 'Disk: 42% used');
 }
 
 async function assertAutoRouteRequestEnablesParallelToolCalls() {
@@ -3276,6 +3494,8 @@ async function main() {
   await assertA2aAutoRouteToolCallDelegatesOrdinaryFollowUp();
   await assertA2aAutoRouteDelegatesToEveryMatchedTool();
   await assertA2aAutoRouteMultiToolIsolatesPerAgentFailures();
+  await assertA2aAutoRouteRunsAgenticLoopSequentially();
+  await assertA2aAutoRouteAgenticLoopBoundsRoundsAndDedupes();
   await assertAutoRouteRequestEnablesParallelToolCalls();
   await assertA2aAutoRouteToolCallUsesCollisionSafeToolMapping();
   await assertA2aAutoRouteRespectsDisableToggle();

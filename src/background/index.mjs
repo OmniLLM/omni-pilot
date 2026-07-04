@@ -80,6 +80,12 @@ const A2A_DELEGATION_TIMEOUT_MS = 330000;
 const A2A_TOOL_NAME_PREFIX = 'a2a__';
 const A2A_TOOL_NAME_MAX_LEN = 64;
 const A2A_TOOL_DESCRIPTION_MAX_LEN = 1024;
+// Cap on how many LLM→tools→LLM rounds a single auto-route request may run
+// through. Round 0 is the initial call; each subsequent round feeds prior
+// tool_result messages back and lets the model either summarize or emit
+// more tool calls. Keeps runaway loops bounded when a broken model keeps
+// re-calling the same tool.
+const A2A_MAX_ROUNDS = 3;
 
 const API_SHAPES = {
   OPENAI_COMPATIBLE: 'openai-compatible',
@@ -703,9 +709,11 @@ function extractA2aToolCallsFromOpenAIChat(data) {
   return toolCalls
     .filter(call => parseA2aToolName(call?.function?.name))
     .map(call => ({
+      id: call.id || '',
       toolName: call.function.name,
       serverId: parseA2aToolName(call.function.name),
-      task: String(parseA2aToolCallArguments(call.function.arguments).task || '').trim()
+      task: String(parseA2aToolCallArguments(call.function.arguments).task || '').trim(),
+      rawArguments: call.function.arguments
     }));
 }
 
@@ -715,9 +723,11 @@ function extractA2aToolCallsFromAnthropic(data) {
   return blocks
     .filter(block => block?.type === 'tool_use' && parseA2aToolName(block.name))
     .map(block => ({
+      id: block.id || '',
       toolName: block.name,
       serverId: parseA2aToolName(block.name),
-      task: String(parseA2aToolCallArguments(block.input).task || '').trim()
+      task: String(parseA2aToolCallArguments(block.input).task || '').trim(),
+      rawInput: block.input
     }));
 }
 
@@ -727,9 +737,11 @@ function extractA2aToolCallsFromResponses(data) {
   return output
     .filter(item => ['function_call', 'tool_call'].includes(item?.type) && parseA2aToolName(item.name))
     .map(item => ({
+      id: item.call_id || item.id || '',
       toolName: item.name,
       serverId: parseA2aToolName(item.name),
-      task: String(parseA2aToolCallArguments(item.arguments).task || '').trim()
+      task: String(parseA2aToolCallArguments(item.arguments).task || '').trim(),
+      rawArguments: item.arguments
     }));
 }
 
@@ -754,6 +766,60 @@ function applyA2aToolsToRequestBody(requestBody, apiShape, tools) {
     return { ...requestBody, tools, tool_choice: 'auto', parallel_tool_calls: true };
   }
   return { ...requestBody, tools, tool_choice: 'auto', parallel_tool_calls: true };
+}
+
+// Build the assistant + tool_result messages that must be appended to the
+// conversation before the next round of the agentic loop. `settled` is the
+// per-tool fanout result array (each entry has {call, server, tool, text,
+// error}). `data` is the raw provider response from the round that emitted
+// the tool calls, needed so we can echo the assistant turn back per shape.
+function buildA2aFollowUpMessages(apiShape, data, settled) {
+  if (apiShape === API_SHAPES.ANTHROPIC_MESSAGES) {
+    // Anthropic wants the assistant's full content array (including any
+    // preamble text blocks and the tool_use blocks) echoed back, followed
+    // by a user message whose content is a tool_result block per call.
+    const assistantContent = Array.isArray(data?.content) ? data.content : [];
+    const userContent = settled.map(({ call, text, error }) => ({
+      type: 'tool_result',
+      tool_use_id: call.id,
+      content: error ? `A2A delegation failed: ${error}` : (text || ''),
+      ...(error ? { is_error: true } : {})
+    }));
+    return [
+      { role: 'assistant', content: assistantContent },
+      { role: 'user', content: userContent }
+    ];
+  }
+
+  if (apiShape === API_SHAPES.OPENAI_RESPONSES) {
+    // OpenAI Responses uses a flat items list. Echo the assistant's original
+    // items (including function_call items) then append one function_call_output
+    // item per settled call.
+    const items = Array.isArray(data?.output) ? data.output : [];
+    const outputs = settled.map(({ call, text, error }) => ({
+      type: 'function_call_output',
+      call_id: call.id,
+      output: error ? `A2A delegation failed: ${error}` : (text || '')
+    }));
+    return [...items, ...outputs];
+  }
+
+  // OpenAI Chat / compatible: mirror the assistant message (with tool_calls)
+  // and append one tool-role message per settled call.
+  const assistantMessage = data?.choices?.[0]?.message || {};
+  const toolMessages = settled.map(({ call, text, error }) => ({
+    role: 'tool',
+    tool_call_id: call.id,
+    content: error ? `A2A delegation failed: ${error}` : (text || '')
+  }));
+  return [
+    {
+      role: 'assistant',
+      content: assistantMessage.content ?? null,
+      ...(Array.isArray(assistantMessage.tool_calls) ? { tool_calls: assistantMessage.tool_calls } : {})
+    },
+    ...toolMessages
+  ];
 }
 
 function getProvider(config) {
@@ -1681,69 +1747,101 @@ async function executeApiRequestWithA2aRouting({ config, messages, systemPrompt,
   }
 
   const routingPrompt = buildA2aRoutingSystemPrompt(systemPrompt);
+  // Conversation for the agentic loop: seeded with the caller's messages,
+  // grows by an assistant + tool_result turn each round that dispatches
+  // tools. The very first request uses this to hit the provider.
+  let conversation = messages;
+  // Track (serverId, task) triples already dispatched so a chatty model
+  // that re-emits the same call in a later round doesn't re-run it.
+  const dispatched = new Set();
+  // Last non-empty round's settled results, kept as the fallback answer
+  // if the loop hits A2A_MAX_ROUNDS before the model produces final text.
+  let lastSettled = null;
 
-  const builtRequest = buildApiRequest({ config, messages, systemPrompt: routingPrompt, copilotToken });
-  const apiShape = builtRequest.apiShape;
-  const tools = getA2aToolsForApiShape(toolSchemas, apiShape);
-  const requestBody = applyA2aToolsToRequestBody(builtRequest.requestBody, apiShape, tools);
+  for (let round = 0; round < A2A_MAX_ROUNDS; round += 1) {
+    const builtRequest = buildApiRequest({ config, messages: conversation, systemPrompt: routingPrompt, copilotToken });
+    const apiShape = builtRequest.apiShape;
+    const tools = getA2aToolsForApiShape(toolSchemas, apiShape);
+    const requestBody = applyA2aToolsToRequestBody(builtRequest.requestBody, apiShape, tools);
 
-  console.info('OmniPilot API request', JSON.stringify({
-    requestUrl: builtRequest.requestUrl,
-    apiFormat: apiShape,
-    model: config.model,
-    hasApiKey: Boolean(config.apiKey),
-    toolCount: tools.length,
-    requestHeaders: redactHeaders(builtRequest.requestHeaders)
-  }, null, 2));
+    console.info('OmniPilot API request', JSON.stringify({
+      requestUrl: builtRequest.requestUrl,
+      apiFormat: apiShape,
+      model: config.model,
+      hasApiKey: Boolean(config.apiKey),
+      toolCount: tools.length,
+      round,
+      requestHeaders: redactHeaders(builtRequest.requestHeaders)
+    }, null, 2));
 
-  const response = await fetch(builtRequest.requestUrl, {
-    method: 'POST',
-    headers: builtRequest.requestHeaders,
-    body: JSON.stringify(requestBody)
-  });
+    const response = await fetch(builtRequest.requestUrl, {
+      method: 'POST',
+      headers: builtRequest.requestHeaders,
+      body: JSON.stringify(requestBody)
+    });
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    if (isToolsUnsupportedError(response.status, errorText)) {
-      return executeApiRequest({ config, messages, systemPrompt });
+    if (!response.ok) {
+      const errorText = await response.text();
+      // Only retry the plain (no-tools) request on round 0; later rounds
+      // already have tool_result messages baked in that the plain path
+      // wouldn't know how to serialize.
+      if (round === 0 && isToolsUnsupportedError(response.status, errorText)) {
+        return executeApiRequest({ config, messages, systemPrompt });
+      }
+      throwApiResponseError(response, errorText, builtRequest.requestUrl, apiShape, config.model);
     }
-    throwApiResponseError(response, errorText, builtRequest.requestUrl, apiShape, config.model);
-  }
 
-  const data = await response.json();
-  const toolCalls = extractA2aToolCallsFromResponse(data, apiShape);
-  if (toolCalls.length) {
-    // De-dupe (serverId, toolName, task) triples in case the model emits the
-    // same call twice. Also drop calls whose serverId or task is unusable.
-    const seen = new Set();
+    const data = await response.json();
+    const toolCalls = extractA2aToolCallsFromResponse(data, apiShape);
+
+    if (!toolCalls.length) {
+      // Terminal state: the model produced a plain response. Return it.
+      const content = builtRequest.parseContent(data);
+      if (content) return content;
+      // Empty model response: fall back to prior tool results if any.
+      if (lastSettled) return renderA2aSettledSections(lastSettled);
+      console.error('OmniPilot unexpected API response', data);
+      throw new Error('The API returned an empty or unexpected response. Check that the endpoint and model match the selected API format.');
+    }
+
+    // De-dupe (serverId, task) triples across rounds so a model that
+    // keeps re-emitting the same call doesn't re-run it. Also filter
+    // out calls to unknown servers or with empty tasks.
+    const roundSeen = new Set();
     const runnable = [];
     for (const call of toolCalls) {
       const selectedTool = toolSchemas.find(tool => tool.name === call.toolName);
       const server = selectedTool && a2aServers.find(candidate => candidate.id === selectedTool.serverId);
       if (!server) continue;
       if (!call.task) continue;
-      const key = `${server.id} ${call.toolName} ${call.task}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      runnable.push({ call, server, tool: selectedTool });
+      const key = `${server.id} ${call.task}`;
+      if (roundSeen.has(key)) continue;
+      if (dispatched.has(key)) continue;
+      roundSeen.add(key);
+      runnable.push({ call, server, tool: selectedTool, key });
     }
 
     if (!runnable.length) {
-      // Model chose A2A tools but every one was unusable (unknown server or
-      // empty task). Preserve the pre-fanout error surface.
-      const first = toolCalls[0];
-      const selectedTool = toolSchemas.find(tool => tool.name === first.toolName);
-      const server = selectedTool && a2aServers.find(candidate => candidate.id === selectedTool.serverId);
-      if (!server) throw new Error('A2A tool selected an unknown server.');
-      throw new Error('A2A tool selected an empty task.');
+      if (round === 0) {
+        // Round 0 with only unusable calls: preserve the original error surface.
+        const first = toolCalls[0];
+        const selectedTool = toolSchemas.find(tool => tool.name === first.toolName);
+        const server = selectedTool && a2aServers.find(candidate => candidate.id === selectedTool.serverId);
+        if (!server) throw new Error('A2A tool selected an unknown server.');
+        if (!first.task) throw new Error('A2A tool selected an empty task.');
+      }
+      // Later rounds: model kept calling tools but every call duplicates a
+      // prior round. Break out and use the last accumulated results.
+      break;
     }
 
     onStatus?.('delegating');
-    const contextText = getA2aConversationContext(messages);
+    const contextText = getA2aConversationContext(conversation);
 
     // Fan out: every matched skill runs in parallel. One agent's failure must
-    // not sink the others — its section becomes an italicized error line.
-    const settled = await Promise.all(runnable.map(async ({ call, server, tool }) => {
+    // not sink the others; its section becomes an italicized error line.
+    const settled = await Promise.all(runnable.map(async ({ call, server, tool, key }) => {
+      dispatched.add(key);
       try {
         const delegation = delegateA2aTask({
           serverId: server.id,
@@ -1751,39 +1849,39 @@ async function executeApiRequestWithA2aRouting({ config, messages, systemPrompt,
           contextText
         });
         const text = await withA2aStatusHeartbeat(delegation, onStatus);
-        return { server, tool, text, error: null };
+        return { call, server, tool, text, error: null };
       } catch (error) {
-        return { server, tool, text: '', error: error?.message || String(error) };
+        return { call, server, tool, text: '', error: error?.message || String(error) };
       }
     }));
 
-    // Single-match: preserve today's plain-string behavior (no heading, no
-    // wrapping) so existing UIs / tests see an unchanged payload.
-    if (settled.length === 1) {
-      const only = settled[0];
-      if (only.error) throw new Error(only.error);
-      return only.text;
-    }
-
-    // Multi-match: concatenate labeled sections. Label uses agent name (from
-    // agent card or stored server name) and skill name when available.
-    const sections = settled.map(({ server, tool, text, error }) => {
-      const agentName = server.agentCard?.name || server.name || server.id;
-      const skillName = tool.skillName || '';
-      const heading = skillName ? `### ${agentName} / ${skillName}` : `### ${agentName}`;
-      const body = error ? `_A2A delegation failed: ${error}_` : text;
-      return `${heading}\n\n${body}`;
-    });
-    return sections.join('\n\n');
+    lastSettled = settled;
+    // Append assistant + tool_result turn to conversation for the next round.
+    conversation = [...conversation, ...buildA2aFollowUpMessages(apiShape, data, settled)];
   }
 
-  const content = builtRequest.parseContent(data);
-  if (!content) {
-    console.error('OmniPilot unexpected API response', data);
-    throw new Error('The API returned an empty or unexpected response. Check that the endpoint and model match the selected API format.');
-  }
+  // Loop hit A2A_MAX_ROUNDS without the model producing final text. Render
+  // the last round's tool outputs so the user still sees the results.
+  if (lastSettled) return renderA2aSettledSections(lastSettled);
+  throw new Error('A2A auto-routing exceeded the maximum number of rounds without producing a response.');
+}
 
-  return content;
+// Render an array of {call, server, tool, text, error} into either a plain
+// string (single result) or labeled markdown sections (multiple results).
+function renderA2aSettledSections(settled) {
+  if (settled.length === 1) {
+    const only = settled[0];
+    if (only.error) throw new Error(only.error);
+    return only.text;
+  }
+  const sections = settled.map(({ server, tool, text, error }) => {
+    const agentName = server.agentCard?.name || server.name || server.id;
+    const skillName = tool.skillName || '';
+    const heading = skillName ? `### ${agentName} / ${skillName}` : `### ${agentName}`;
+    const body = error ? `_A2A delegation failed: ${error}_` : text;
+    return `${heading}\n\n${body}`;
+  });
+  return sections.join('\n\n');
 }
 
 async function handleAIAction(action, text) {
