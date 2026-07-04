@@ -1776,7 +1776,12 @@ async function executeApiRequestRaw({ config, messages, systemPrompt, copilotTok
     const errorText = await response.text();
 
     if (sentTools && isToolsUnsupportedError(response.status, errorText)) {
-      throw new ToolsUnsupportedError(`Provider rejected tools: ${errorText.slice(0, 200)}`);
+      // Tagged plain Error rather than a subclass: no caller uses
+      // `instanceof` today, but the marker lets a caller distinguish
+      // this rejection from other errors via `error.toolsUnsupported`.
+      const err = new Error(`Provider rejected tools: ${errorText.slice(0, 200)}`);
+      err.toolsUnsupported = true;
+      throw err;
     }
 
     if (allowModelFallback && isModelNotSupportedError(response.status, errorText)) {
