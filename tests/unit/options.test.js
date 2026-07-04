@@ -612,6 +612,7 @@ async function testOptionsHtmlContainsMemoryCardControls() {
   for (const expectedId of ['memoryEnabled', 'memoryLongTerm', 'saveMemory', 'clearDailyLogs']) {
     assert.match(htmlSource, new RegExp(`id=\"${expectedId}\"`), `options.html should contain #${expectedId}`);
   }
+  assert.ok(htmlSource.includes('id="memoryStatus"'), 'HTML should contain the status area');
   assert.match(htmlSource, /data-i18n=\"memory\"/, 'options.html should label the memory card');
 }
 
