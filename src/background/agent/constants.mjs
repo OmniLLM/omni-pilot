@@ -25,3 +25,7 @@ const A2A_MAX_ROUNDS = 3;
 const MEMORY_LONG_TERM_KEY = 'omnipilotMemoryLongTerm';
 const MEMORY_DAILY_LOGS_KEY = 'omnipilotMemoryDailyLogs';
 const MEMORY_RETENTION_DAYS = 7;
+
+// Context assembly — default token budget for the assembled per-turn
+// context. Overridable via chrome.storage.sync `contextMaxTokens`.
+const CONTEXT_DEFAULT_MAX_TOKENS = 8000;

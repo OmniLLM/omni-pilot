@@ -3889,8 +3889,69 @@ async function assertA2aToolProviderUsesCollisionSafeNames() {
   assert.deepStrictEqual(names, ['a2a__launcher__disk', 'a2a__launcher__disk_2']);
 }
 
+async function assertContextAssemblerBasicRoundTrip() {
+  const { context } = await createBackgroundContext({ storage: {} });
+
+  const asm = context.createContextAssembler({ maxTokens: 1000 });
+  asm.addSection(10, 'system-prompt', 'You are helpful.');
+  asm.addSection(20, 'memory-long-term', 'Prefers concise answers.');
+  const built = asm.buildMessages([{ role: 'user', content: 'hello' }]);
+
+  assert.ok(built.systemPrompt.includes('You are helpful.'));
+  assert.ok(built.systemPrompt.includes('Prefers concise answers.'));
+  assert.ok(built.systemPrompt.indexOf('You are helpful.')
+        < built.systemPrompt.indexOf('Prefers concise answers.'),
+        'lower-priority-number section comes first');
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(built.messages)),
+    [{ role: 'user', content: 'hello' }]);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(built.dropped)), [], 'no drops when budget is generous');
+}
+
+async function assertContextAssemblerDropsLowestPriorityOnOverflow() {
+  const { context } = await createBackgroundContext({ storage: {} });
+
+  const asm = context.createContextAssembler({ maxTokens: 20 });
+  asm.addSection(10, 'system-prompt', 'a'.repeat(40));
+  asm.addSection(20, 'memory-long-term', 'b'.repeat(40));
+  asm.addSection(50, 'memory-recent', 'c'.repeat(40));
+  const built = asm.buildMessages([]);
+
+  assert.ok(built.systemPrompt.includes('aaa'));
+  assert.ok(built.systemPrompt.includes('bbb'));
+  assert.ok(!built.systemPrompt.includes('ccc'), 'lowest-priority section dropped');
+  assert.strictEqual(built.dropped.length, 1);
+  assert.strictEqual(built.dropped[0].name, 'memory-recent');
+}
+
+async function assertContextAssemblerAlwaysKeepsPinnedLatestUserMessage() {
+  const { context } = await createBackgroundContext({ storage: {} });
+
+  const asm = context.createContextAssembler({ maxTokens: 20 });
+  asm.addSection(10, 'system-prompt', 'x'.repeat(80));
+  const messages = [
+    { role: 'user', content: 'old' },
+    { role: 'assistant', content: 'old reply' },
+    { role: 'user', content: 'latest question' }
+  ];
+  const built = asm.buildMessages(messages);
+
+  assert.strictEqual(built.messages[built.messages.length - 1].content, 'latest question');
+}
+
+async function assertContextAssemblerEstimateTokensIsCharDiv4() {
+  const { context } = await createBackgroundContext({ storage: {} });
+  assert.strictEqual(context.estimateTokens(''), 0);
+  assert.strictEqual(context.estimateTokens('abcd'), 1);
+  assert.strictEqual(context.estimateTokens('abcde'), 2);
+  assert.strictEqual(context.estimateTokens('a'.repeat(400)), 100);
+}
+
 async function main() {
   await assertAgentConstantsLoadedFromAgentFolder();
+  await assertContextAssemblerBasicRoundTrip();
+  await assertContextAssemblerDropsLowestPriorityOnOverflow();
+  await assertContextAssemblerAlwaysKeepsPinnedLatestUserMessage();
+  await assertContextAssemblerEstimateTokensIsCharDiv4();
   await assertMemoryPrimitiveRoundTripsLongTermAndDailyLogs();
   await assertMemoryPrunesLogsOlderThanRetentionWindow();
   await assertMemorySummaryOmitsEmptyBlockAndFormatsFilledBlock();
