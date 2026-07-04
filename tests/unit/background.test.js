@@ -397,6 +397,7 @@ async function assertAgentInjectsMemoryIntoSystemPrompt() {
       apiShape: 'openai-compatible',
       a2aAutoRoute: false,
       memoryEnabled: true,
+      observabilityEnabled: false,
       ...seedLocalStore
     },
     fetchImpl: async (_url, options) => {
@@ -424,6 +425,7 @@ async function assertAgentUsesContextAssemblerForChat() {
       apiShape: 'openai-compatible',
       a2aAutoRoute: false,
       memoryEnabled: true,
+      observabilityEnabled: false,
       contextMaxTokens: 8000,
       omnipilotMemoryLongTerm: 'MEM-LONG-TERM-SENTINEL',
       omnipilotMemoryDailyLogs: {
@@ -549,7 +551,8 @@ async function assertAgentSwallowsMemoryAppendFailures() {
       model: 'm',
       apiShape: 'openai-compatible',
       a2aAutoRoute: false,
-      memoryEnabled: true
+      memoryEnabled: true,
+      observabilityEnabled: false
     },
     fetchImpl: async () => ({
       ok: true,
@@ -4205,6 +4208,60 @@ async function assertTraceRecorderSwallowsPersistFailures() {
   await rec.endRun('ok');
 }
 
+async function assertAgentRecordsEndToEndTraceForChat() {
+  const { context, stores } = await createBackgroundContext({
+    storage: {
+      providerType: 'custom-provider',
+      endpoint: 'https://custom.example/v1',
+      apiKey: 'k',
+      model: 'm',
+      apiShape: 'openai-compatible',
+      a2aAutoRoute: false,
+      memoryEnabled: false,
+      observabilityEnabled: true
+    },
+    fetchImpl: async () => ({
+      ok: true,
+      json: async () => ({ choices: [{ message: { content: 'hi' } }] })
+    })
+  });
+
+  const agent = await context.createAgent();
+  await agent.chat([{ role: 'user', content: 'hello' }]);
+
+  const runs = stores.localStore.omnipilotTraces;
+  assert.ok(Array.isArray(runs) && runs.length === 1);
+  const run = runs[0];
+  assert.strictEqual(run.label, 'chat');
+  assert.strictEqual(run.status, 'ok');
+  const types = run.events.map(e => e.type);
+  assert.ok(types.includes('provider.request'), 'expected a provider.request event');
+  assert.ok(types.includes('provider.response'), 'expected a provider.response event');
+}
+
+async function assertObservabilityDisabledLeavesNoTraces() {
+  const { context, stores } = await createBackgroundContext({
+    storage: {
+      providerType: 'custom-provider',
+      endpoint: 'https://custom.example/v1',
+      apiKey: 'k',
+      model: 'm',
+      apiShape: 'openai-compatible',
+      a2aAutoRoute: false,
+      memoryEnabled: false,
+      observabilityEnabled: false
+    },
+    fetchImpl: async () => ({
+      ok: true,
+      json: async () => ({ choices: [{ message: { content: 'hi' } }] })
+    })
+  });
+
+  const agent = await context.createAgent();
+  await agent.chat([{ role: 'user', content: 'hello' }]);
+  assert.strictEqual(stores.localStore.omnipilotTraces, undefined);
+}
+
 async function main() {
   await assertAgentConstantsLoadedFromAgentFolder();
   await assertContextAssemblerBasicRoundTrip();
@@ -4219,6 +4276,8 @@ async function main() {
   await assertTraceRecorderRingBuffersRuns();
   await assertTraceRecorderDropsOldestEventsBeyondCap();
   await assertTraceRecorderSwallowsPersistFailures();
+  await assertAgentRecordsEndToEndTraceForChat();
+  await assertObservabilityDisabledLeavesNoTraces();
   await assertMemoryPrimitiveRoundTripsLongTermAndDailyLogs();
   await assertMemoryPrunesLogsOlderThanRetentionWindow();
   await assertMemorySummaryOmitsEmptyBlockAndFormatsFilledBlock();

@@ -74,10 +74,11 @@ const DEFAULT_CONFIG = {
   memoryEnabled: true,
   contextMaxTokens: 8000,
   guardrailsMode: 'deny-list',
-  guardrailsDenyDomains: []
+  guardrailsDenyDomains: [],
+  observabilityEnabled: true
 };
 
-const STORAGE_KEYS = ['endpoint', 'apiKey', 'model', 'models', 'apiShape', 'providerType', 'authMethod', 'providerConfigs', 'a2aServers', 'a2aAutoRoute', 'memoryEnabled', 'contextMaxTokens', 'guardrailsMode', 'guardrailsDenyDomains'];
+const STORAGE_KEYS = ['endpoint', 'apiKey', 'model', 'models', 'apiShape', 'providerType', 'authMethod', 'providerConfigs', 'a2aServers', 'a2aAutoRoute', 'memoryEnabled', 'contextMaxTokens', 'guardrailsMode', 'guardrailsDenyDomains', 'observabilityEnabled'];
 const A2A_TOKEN_STORAGE_KEY = 'a2aServerTokens';
 const PROVIDER_CONFIG_FIELDS = ['endpoint', 'apiKey', 'model', 'models', 'apiShape'];
 // A2A constants live in src/background/agent/constants.mjs; they are
@@ -1653,7 +1654,7 @@ function shouldAutoRouteA2a(config) {
   return config.a2aAutoRoute !== false && !isA2aProviderType(config.providerType);
 }
 
-async function executeApiRequestWithA2aRouting({ config, messages, systemPrompt, a2aServers, toolSchemas, onStatus }) {
+async function executeApiRequestWithA2aRouting({ config, messages, systemPrompt, a2aServers, toolSchemas, onStatus, onEvent }) {
   const provider = getProvider(config);
   let copilotToken = '';
 
@@ -1680,7 +1681,7 @@ async function executeApiRequestWithA2aRouting({ config, messages, systemPrompt,
     denyDomains: Array.isArray(config.guardrailsDenyDomains) ? config.guardrailsDenyDomains : [],
     servers: a2aServers
   });
-  guardrails.wrap(registry);
+  guardrails.wrap(registry, onEvent);
 
   const runner = createRunner({
     config,
@@ -1689,6 +1690,7 @@ async function executeApiRequestWithA2aRouting({ config, messages, systemPrompt,
     toolRegistry: registry,
     session,
     onStatus,
+    onEvent,
     maxTurns: A2A_MAX_ROUNDS
   });
 

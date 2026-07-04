@@ -79,8 +79,9 @@ function createGuardrails({ mode = 'deny-list', denyDomains = [], servers = [] }
     }
   }
 
-  function wrap(registry) {
+  function wrap(registry, onEvent = () => {}) {
     if (mode === 'off') return registry; // no-op
+    function safeEmit(type, data) { try { onEvent(type, data); } catch {} }
     const originalDispatch = registry.dispatch;
     registry.dispatch = async function guardedDispatch(name, args) {
       const tool = registry.get(name);
@@ -97,8 +98,10 @@ function createGuardrails({ mode = 'deny-list', denyDomains = [], servers = [] }
         reason: verdict.reason
       });
       if (!verdict.allow) {
+        safeEmit('guardrail.denied', { toolName: name, reason: verdict.reason });
         throw new Error(`Guardrail denied: ${verdict.reason}`);
       }
+      safeEmit('guardrail.allowed', { toolName: name, tier: verdict.tier });
       return originalDispatch.call(registry, name, args);
     };
     return registry;

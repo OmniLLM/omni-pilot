@@ -20,8 +20,11 @@ function createRunner({
   toolRegistry,
   session,
   onStatus,
+  onEvent = () => {},
   maxTurns = A2A_MAX_ROUNDS
 }) {
+  function safeEmit(type, data) { try { onEvent(type, data); } catch {} }
+
   async function run() {
     let lastSettled = null;
     let apiShape = null;
@@ -39,6 +42,7 @@ function createRunner({
         ? applyA2aToolsToRequestBody(built.requestBody, apiShape, toolSchemas)
         : built.requestBody;
 
+      safeEmit('provider.request', { requestUrl: built.requestUrl, apiShape, model: config.model, round });
       const response = await fetch(built.requestUrl, {
         method: 'POST',
         headers: built.requestHeaders,
@@ -55,6 +59,7 @@ function createRunner({
 
       const data = await response.json();
       const toolCalls = extractA2aToolCallsFromResponse(data, apiShape);
+      safeEmit('provider.response', { round, toolCallCount: toolCalls.length, textLen: (built.parseContent(data) || '').length });
 
       if (!toolCalls.length) {
         const content = built.parseContent(data);
@@ -114,14 +119,19 @@ function createRunner({
 
       const settled = await Promise.all(runnable.map(async ({ call, tool, key }) => {
         session.markDispatched(key);
+        safeEmit('tool.dispatch', { toolName: call.toolName, serverId: tool.meta.serverId });
         try {
           const text = await withA2aStatusHeartbeat(
             toolRegistry.dispatch(call.toolName, { task: call.task }),
             onStatus
           );
-          return buildSettledEntry(call, tool, text, null);
+          const entry = buildSettledEntry(call, tool, text, null);
+          safeEmit('tool.result', { toolName: call.toolName, ok: true, textLen: (entry.text || '').length, error: entry.error });
+          return entry;
         } catch (error) {
-          return buildSettledEntry(call, tool, '', error?.message || String(error));
+          const entry = buildSettledEntry(call, tool, '', error?.message || String(error));
+          safeEmit('tool.result', { toolName: call.toolName, ok: false, textLen: (entry.text || '').length, error: entry.error });
+          return entry;
         }
       }));
 

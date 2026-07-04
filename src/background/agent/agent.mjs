@@ -23,13 +23,16 @@ async function createAgent(overrides = {}) {
   const memory = (config.memoryEnabled === false || !chrome.storage?.local?.set) ? null : createMemory();
   const memoryLongTerm = memory ? await memory.getLongTerm() : '';
   const memoryRecentSections = memory ? await memory.getRecent() : [];
+  const recorder = config.observabilityEnabled === false ? createNoopTraceRecorder() : createTraceRecorder();
   const maxTokens = Number(config.contextMaxTokens) || CONTEXT_DEFAULT_MAX_TOKENS;
 
   async function logCompletion({ action, userLen, assistantLen }) {
     if (!memory) return;
     try {
       await memory.appendDailyLog(buildLogEntry({ action, userLen, assistantLen }));
+      recorder.event('memory.append', { ok: true });
     } catch (error) {
+      recorder.event('memory.append', { ok: false });
       console.warn('OmniPilot: failed to append daily log', error?.message || error);
     }
   }
@@ -46,55 +49,102 @@ async function createAgent(overrides = {}) {
   }
 
   async function chat(messages) {
-    const basePrompt = overrides.systemPrompt || CHAT_SYSTEM_PROMPT;
-    const built = assembleContext(basePrompt, messages);
-    let result;
-    if (shouldAutoRouteA2a(config)) {
-      const a2aServers = await ensureEnabledA2aServersDiscovered();
-      if (a2aServers.length) {
-        result = await executeApiRequestWithA2aRouting({
+    recorder.startRun('chat');
+    try {
+      const basePrompt = overrides.systemPrompt || CHAT_SYSTEM_PROMPT;
+      const built = assembleContext(basePrompt, messages);
+      recorder.event('context.built', {
+        tokens: built.systemPrompt.length,
+        dropped: built.dropped.map(d => d.name)
+      });
+      let result;
+      if (shouldAutoRouteA2a(config)) {
+        const a2aServers = await ensureEnabledA2aServersDiscovered();
+        if (a2aServers.length) {
+          result = await executeApiRequestWithA2aRouting({
+            config,
+            messages: built.messages,
+            systemPrompt: built.systemPrompt,
+            a2aServers,
+            toolSchemas: buildA2aToolSchemas(a2aServers),
+            onStatus: overrides.onStatus,
+            onEvent: (type, data) => recorder.event(type, data)
+          });
+        }
+      }
+      if (result === undefined) {
+        result = await executeApiRequestWithConfig({
           config,
           messages: built.messages,
           systemPrompt: built.systemPrompt,
-          a2aServers,
-          toolSchemas: buildA2aToolSchemas(a2aServers),
-          onStatus: overrides.onStatus
+          copilotToken,
+          allowModelFallback: provider.usesCopilotAuth
+        });
+        recorder.event('provider.request', {
+          requestUrl: buildApiRequest({ config, messages: built.messages, systemPrompt: built.systemPrompt, copilotToken, tools: [] }).requestUrl,
+          apiShape: config.apiShape || inferApiShape(config.endpoint),
+          model: config.model,
+          round: 0
+        });
+        recorder.event('provider.response', {
+          round: 0,
+          toolCallCount: 0,
+          textLen: String(result || '').length
         });
       }
+      const userLen = String(messages[messages.length - 1]?.content || '').length;
+      const assistantLen = String(result || '').length;
+      await logCompletion({ action: 'chat', userLen, assistantLen });
+      await recorder.endRun('ok');
+      return result;
+    } catch (error) {
+      recorder.event('error', { message: error?.message || String(error) });
+      await recorder.endRun('error');
+      throw error;
     }
-    if (result === undefined) {
-      result = await executeApiRequestWithConfig({
+  }
+
+  async function action(actionName, text) {
+    recorder.startRun('action');
+    try {
+      const basePrompt = ACTION_PROMPTS[actionName];
+      if (!basePrompt) throw new Error(`Unknown action: ${actionName}`);
+      const messages = [{ role: 'user', content: text }];
+      const built = assembleContext(basePrompt, messages);
+      recorder.event('context.built', {
+        tokens: built.systemPrompt.length,
+        dropped: built.dropped.map(d => d.name)
+      });
+      const result = await executeApiRequestWithConfig({
         config,
         messages: built.messages,
         systemPrompt: built.systemPrompt,
         copilotToken,
         allowModelFallback: provider.usesCopilotAuth
       });
+      recorder.event('provider.request', {
+        requestUrl: buildApiRequest({ config, messages: built.messages, systemPrompt: built.systemPrompt, copilotToken, tools: [] }).requestUrl,
+        apiShape: config.apiShape || inferApiShape(config.endpoint),
+        model: config.model,
+        round: 0
+      });
+      recorder.event('provider.response', {
+        round: 0,
+        toolCallCount: 0,
+        textLen: String(result || '').length
+      });
+      await logCompletion({
+        action: actionName,
+        userLen: String(text || '').length,
+        assistantLen: String(result || '').length
+      });
+      await recorder.endRun('ok');
+      return result;
+    } catch (error) {
+      recorder.event('error', { message: error?.message || String(error) });
+      await recorder.endRun('error');
+      throw error;
     }
-    const userLen = String(messages[messages.length - 1]?.content || '').length;
-    const assistantLen = String(result || '').length;
-    await logCompletion({ action: 'chat', userLen, assistantLen });
-    return result;
-  }
-
-  async function action(actionName, text) {
-    const basePrompt = ACTION_PROMPTS[actionName];
-    if (!basePrompt) throw new Error(`Unknown action: ${actionName}`);
-    const messages = [{ role: 'user', content: text }];
-    const built = assembleContext(basePrompt, messages);
-    const result = await executeApiRequestWithConfig({
-      config,
-      messages: built.messages,
-      systemPrompt: built.systemPrompt,
-      copilotToken,
-      allowModelFallback: provider.usesCopilotAuth
-    });
-    await logCompletion({
-      action: actionName,
-      userLen: String(text || '').length,
-      assistantLen: String(result || '').length
-    });
-    return result;
   }
 
   return { chat, action, config, memory };
