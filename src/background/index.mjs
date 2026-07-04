@@ -70,22 +70,9 @@ const DEFAULT_CONFIG = {
 const STORAGE_KEYS = ['endpoint', 'apiKey', 'model', 'models', 'apiShape', 'providerType', 'authMethod', 'providerConfigs', 'a2aServers', 'a2aAutoRoute'];
 const A2A_TOKEN_STORAGE_KEY = 'a2aServerTokens';
 const PROVIDER_CONFIG_FIELDS = ['endpoint', 'apiKey', 'model', 'models', 'apiShape'];
-const A2A_POLL_INTERVAL_MS = 500;
-const A2A_MAX_POLL_ATTEMPTS = 600;
-const A2A_STATUS_HEARTBEAT_MS = 10000;
-// Upper bound for a single non-streaming A2A delegation before we surface a
-// timeout error to the chat UI. Long-running A2A agents can perform many model
-// rounds after a tool result, so this must exceed the polling window.
-const A2A_DELEGATION_TIMEOUT_MS = 330000;
-const A2A_TOOL_NAME_PREFIX = 'a2a__';
-const A2A_TOOL_NAME_MAX_LEN = 64;
-const A2A_TOOL_DESCRIPTION_MAX_LEN = 1024;
-// Cap on how many LLM→tools→LLM rounds a single auto-route request may run
-// through. Round 0 is the initial call; each subsequent round feeds prior
-// tool_result messages back and lets the model either summarize or emit
-// more tool calls. Keeps runaway loops bounded when a broken model keeps
-// re-calling the same tool.
-const A2A_MAX_ROUNDS = 3;
+// A2A constants live in src/background/agent/constants.mjs; they are
+// concatenated into this bundle by build.mjs and available as top-level
+// bindings here.
 
 const API_SHAPES = {
   OPENAI_COMPATIBLE: 'openai-compatible',

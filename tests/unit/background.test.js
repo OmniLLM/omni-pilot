@@ -270,6 +270,15 @@ async function createBackgroundContext({
   };
 }
 
+async function assertAgentConstantsLoadedFromAgentFolder() {
+  const { context } = await createBackgroundContext({ storage: {} });
+  // Constants that used to live in index.mjs must survive the extraction.
+  assert.strictEqual(vm.runInContext('A2A_MAX_ROUNDS', context), 3);
+  assert.strictEqual(vm.runInContext('A2A_TOOL_NAME_PREFIX', context), 'a2a__');
+  assert.strictEqual(vm.runInContext('A2A_MAX_POLL_ATTEMPTS', context), 600);
+  assert.strictEqual(vm.runInContext('A2A_POLL_INTERVAL_MS', context), 500);
+}
+
 async function assertA2aServerMetadataAndTokensUseSeparateStorageAreas() {
   const { context, stores } = await createBackgroundContext({
     storage: {
@@ -3454,6 +3463,7 @@ async function assertStreamChunkParsersHandleEdgeCases() {
 }
 
 async function main() {
+  await assertAgentConstantsLoadedFromAgentFolder();
   await assertA2aServerMetadataAndTokensUseSeparateStorageAreas();
   await assertLoadA2aServersReadsFromLocalStorage();
   await assertLoadA2aServersMigratesLegacySyncStorageToLocal();

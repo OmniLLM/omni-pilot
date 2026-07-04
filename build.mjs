@@ -9,40 +9,66 @@
 //
 // Run with: npm run build
 import fs from 'fs'
+import path from 'path'
 
 const outdir = 'dist'
 
 fs.rmSync(outdir, { recursive: true, force: true })
 fs.mkdirSync(outdir, { recursive: true })
 
-// Read the shared i18n module and strip its `export { ... };` block so its
-// bindings survive as top-level declarations when inlined into another script.
 const i18nRaw = fs.readFileSync('src/utils/i18n.mjs', 'utf8')
 const i18nInlined = i18nRaw.replace(/^export\s*\{[\s\S]*?\};?\s*$/m, '').trimEnd() + '\n'
 
-// Strip `import { ... } from '.../i18n.mjs';` lines from an entry file.
 function stripI18nImports(src) {
   return src.replace(/^import\s+\{[^}]+\}\s+from\s+['"][^'"]*i18n\.mjs['"];?\s*\n/gm, '')
 }
 
+// Strip `export { ... };` / `export default ...;` blocks so declarations
+// land at top level when concatenated into a single script.
+function stripExports(src) {
+  return src
+    .replace(/^export\s*\{[\s\S]*?\};?\s*$/gm, '')
+    .replace(/^export\s+default\s+/gm, '')
+    .replace(/^export\s+(async\s+)?function\s+/gm, '$1function ')
+    .replace(/^export\s+const\s+/gm, 'const ')
+}
+
+// Concatenate all `.mjs` files in `src/background/agent/`, sorted for
+// determinism, so they land in the bundle BEFORE the entry file. Each
+// file's declarations become top-level in the resulting script.
+function concatAgentPrimitives() {
+  const dir = 'src/background/agent'
+  if (!fs.existsSync(dir)) return ''
+  const files = fs.readdirSync(dir).filter(f => f.endsWith('.mjs')).sort()
+  return files.map(f => {
+    const raw = fs.readFileSync(path.join(dir, f), 'utf8')
+    return `// ── agent/${f} ─────────────────────────────────────────────\n${stripExports(raw)}`
+  }).join('\n\n') + '\n'
+}
+
 const entries = [
-  { name: 'background', src: 'src/background/index.mjs', needsI18n: false },
-  { name: 'content',    src: 'src/content-script/index.mjs', needsI18n: true  },
-  { name: 'popup',      src: 'src/popup/index.mjs', needsI18n: true  },
-  { name: 'options',    src: 'src/options/index.mjs', needsI18n: true  },
-  { name: 'sidepanel',  src: 'src/sidepanel/index.mjs', needsI18n: false },
+  { name: 'background', src: 'src/background/index.mjs', needsI18n: false, needsAgent: true  },
+  { name: 'content',    src: 'src/content-script/index.mjs', needsI18n: true,  needsAgent: false },
+  { name: 'popup',      src: 'src/popup/index.mjs', needsI18n: true,  needsAgent: false },
+  { name: 'options',    src: 'src/options/index.mjs', needsI18n: true,  needsAgent: false },
+  { name: 'sidepanel',  src: 'src/sidepanel/index.mjs', needsI18n: false, needsAgent: false },
 ]
 
-for (const { name, src, needsI18n } of entries) {
+const agentPrimitives = concatAgentPrimitives()
+
+for (const { name, src, needsI18n, needsAgent } of entries) {
   const raw = fs.readFileSync(src, 'utf8')
   const stripped = stripI18nImports(raw)
-  const bundled = needsI18n ? `${i18nInlined}\n${stripped}` : stripped
+  const parts = []
+  if (needsI18n) parts.push(i18nInlined)
+  if (needsAgent) parts.push(agentPrimitives)
+  parts.push(stripped)
+  const bundled = parts.join('\n')
   fs.writeFileSync(`${outdir}/${name}.js`, bundled)
   const sizeKb = (Buffer.byteLength(bundled) / 1024).toFixed(1)
   console.log(`  dist/${name}.js  ${sizeKb}kb`)
 }
 
-// Copy HTML + CSS assets that the manifest / HTML files reference by name.
 fs.copyFileSync('src/popup/index.html',        `${outdir}/popup.html`)
 fs.copyFileSync('src/options/index.html',      `${outdir}/options.html`)
 fs.copyFileSync('src/sidepanel/index.html',    `${outdir}/sidepanel.html`)
