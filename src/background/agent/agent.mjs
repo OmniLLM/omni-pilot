@@ -31,6 +31,15 @@ async function createAgent(overrides = {}) {
     return `${memoryPrefix}\n\n${base}`;
   }
 
+  async function logCompletion({ action, userLen, assistantLen }) {
+    if (!memory) return;
+    try {
+      await memory.appendDailyLog(buildLogEntry({ action, userLen, assistantLen }));
+    } catch (error) {
+      console.warn('OmniPilot: failed to append daily log', error?.message || error);
+    }
+  }
+
   async function chat(messages) {
     const systemPrompt = combinedSystemPrompt(overrides.systemPrompt || CHAT_SYSTEM_PROMPT);
     let result;
@@ -56,11 +65,9 @@ async function createAgent(overrides = {}) {
         allowModelFallback: provider.usesCopilotAuth
       });
     }
-    if (memory) {
-      const userLen = String(messages[messages.length - 1]?.content || '').length;
-      const assistantLen = String(result || '').length;
-      await memory.appendDailyLog(buildLogEntry({ action: 'chat', userLen, assistantLen }));
-    }
+    const userLen = String(messages[messages.length - 1]?.content || '').length;
+    const assistantLen = String(result || '').length;
+    await logCompletion({ action: 'chat', userLen, assistantLen });
     return result;
   }
 
@@ -75,13 +82,11 @@ async function createAgent(overrides = {}) {
       copilotToken,
       allowModelFallback: provider.usesCopilotAuth
     });
-    if (memory) {
-      await memory.appendDailyLog(buildLogEntry({
-        action: actionName,
-        userLen: String(text || '').length,
-        assistantLen: String(result || '').length
-      }));
-    }
+    await logCompletion({
+      action: actionName,
+      userLen: String(text || '').length,
+      assistantLen: String(result || '').length
+    });
     return result;
   }
 

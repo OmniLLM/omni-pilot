@@ -459,6 +459,40 @@ async function assertAgentAppendsDailyLogAfterSuccessfulChat() {
   assert.ok(/action=chat/.test(entries[0]), 'entry should be tagged with the action');
 }
 
+async function assertAgentSwallowsMemoryAppendFailures() {
+  const warns = [];
+  const { context } = await createBackgroundContext({
+    storage: {
+      providerType: 'custom-provider',
+      endpoint: 'https://x/v1',
+      apiKey: 'k',
+      model: 'm',
+      apiShape: 'openai-compatible',
+      a2aAutoRoute: false,
+      memoryEnabled: true
+    },
+    fetchImpl: async () => ({
+      ok: true,
+      json: async () => ({ choices: [{ message: { content: 'happy answer' } }] })
+    })
+  });
+
+  context.console.warn = (...args) => warns.push(args);
+  const origSet = context.chrome.storage.local.set;
+  context.chrome.storage.local.set = () => { throw new Error('storage kaboom'); };
+
+  try {
+    const agent = await context.createAgent();
+    const result = await agent.chat([{ role: 'user', content: 'hi' }]);
+    assert.strictEqual(result, 'happy answer');
+    assert.strictEqual(warns.length, 1, 'append failures should be logged once');
+    assert.strictEqual(warns[0][0], 'OmniPilot: failed to append daily log');
+    assert.strictEqual(warns[0][1], 'storage kaboom');
+  } finally {
+    context.chrome.storage.local.set = origSet;
+  }
+}
+
 async function assertA2aServerMetadataAndTokensUseSeparateStorageAreas() {
   const { context, stores } = await createBackgroundContext({
     storage: {
@@ -3864,6 +3898,7 @@ async function main() {
   await assertAgentInjectsMemoryIntoSystemPrompt();
   await assertAgentSkipsMemoryWhenDisabled();
   await assertAgentAppendsDailyLogAfterSuccessfulChat();
+  await assertAgentSwallowsMemoryAppendFailures();
   await assertA2aServerMetadataAndTokensUseSeparateStorageAreas();
   await assertLoadA2aServersReadsFromLocalStorage();
   await assertLoadA2aServersMigratesLegacySyncStorageToLocal();
