@@ -3462,6 +3462,49 @@ async function assertStreamChunkParsersHandleEdgeCases() {
   assert.strictEqual(context.parseStreamChunkOpenAIResponses({ type: 'response.done' }), '');
 }
 
+
+async function assertToolAndToolRegistryPrimitivesExist() {
+  const { context } = await createBackgroundContext({ storage: {} });
+
+  // createTool: factory that returns a plain shape (not a class instance).
+  const echo = context.createTool({
+    name: 'echo',
+    description: 'Return the input verbatim',
+    parameters: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
+    dispatch: async ({ text }) => text
+  });
+  assert.strictEqual(echo.name, 'echo');
+  assert.strictEqual(typeof echo.dispatch, 'function');
+  assert.strictEqual(await echo.dispatch({ text: 'hi' }), 'hi');
+
+  // createToolRegistry: register, get, list, schemasFor(apiShape).
+  const registry = context.createToolRegistry();
+  registry.register(echo);
+  assert.strictEqual(registry.get('echo'), echo);
+  assert.strictEqual(registry.list().length, 1);
+  assert.strictEqual(registry.list()[0].name, 'echo');
+
+  // Dispatch through the registry.
+  assert.strictEqual(await registry.dispatch('echo', { text: 'hi' }), 'hi');
+
+  // schemasFor returns OpenAI-Chat / Anthropic / OpenAI-Responses shapes.
+  const openai = registry.schemasFor('openai-compatible');
+  assert.strictEqual(openai[0].type, 'function');
+  assert.strictEqual(openai[0].function.name, 'echo');
+  const anthropic = registry.schemasFor('anthropic-messages');
+  assert.strictEqual(anthropic[0].name, 'echo');
+  assert.ok(anthropic[0].input_schema);
+  const responses = registry.schemasFor('openai-responses');
+  assert.strictEqual(responses[0].type, 'function');
+  assert.strictEqual(responses[0].name, 'echo');
+
+  // Registering a duplicate name throws.
+  assert.throws(() => registry.register(echo), /already registered/i);
+
+  // Dispatching an unknown tool throws with the tool name in the message.
+  await assert.rejects(() => registry.dispatch('nope', {}), /nope/);
+}
+
 async function main() {
   await assertAgentConstantsLoadedFromAgentFolder();
   await assertA2aServerMetadataAndTokensUseSeparateStorageAreas();
@@ -3546,6 +3589,7 @@ async function main() {
   await assertStreamingReportsErrorWhenNoApiKey();
   await assertStreamChunkParsersWorkForAllShapes();
   await assertStreamChunkParsersHandleEdgeCases();
+  await assertToolAndToolRegistryPrimitivesExist();
   await assertContextMenuSetupCreatesExpectedMenuItems();
   await assertNewActionPromptsExist();
 }
