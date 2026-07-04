@@ -3505,6 +3505,40 @@ async function assertToolAndToolRegistryPrimitivesExist() {
   await assert.rejects(() => registry.dispatch('nope', {}), /nope/);
 }
 
+async function assertSessionAndStatePrimitivesExist() {
+  const { context } = await createBackgroundContext({ storage: {} });
+
+  const session = context.createSession({ messages: [{ role: 'user', content: 'hi' }] });
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(session.messages)), [{ role: 'user', content: 'hi' }]);
+
+  // Dispatch tracking — dedupe key is caller-supplied so callers pick the
+  // policy (currently `${serverId} ${task}` for A2A).
+  assert.strictEqual(session.hasDispatched('a2a launcher show disk'), false);
+  session.markDispatched('a2a launcher show disk');
+  assert.strictEqual(session.hasDispatched('a2a launcher show disk'), true);
+
+  // appendFollowUp: takes the assistant turn's raw response, per-call
+  // settled results, and an apiShape; returns nothing and grows messages.
+  const before = session.messages.length;
+  session.appendFollowUp('openai-compatible',
+    { choices: [{ message: { tool_calls: [{ id: 'x', function: { name: 'a2a__srv__k', arguments: '{}' } }] } }] },
+    [{ call: { id: 'x' }, server: { id: 'srv' }, tool: { name: 'a2a__srv__k' }, text: 'ok', error: null }]
+  );
+  assert.strictEqual(session.messages.length, before + 2, 'follow-up should add assistant + tool messages');
+  assert.strictEqual(session.messages[before].role, 'assistant');
+  assert.strictEqual(session.messages[before + 1].role, 'tool');
+  assert.strictEqual(session.messages[before + 1].tool_call_id, 'x');
+  assert.strictEqual(session.messages[before + 1].content, 'ok');
+
+  // State: opaque scratch bag with get/set/incr for a single run.
+  const state = context.createState();
+  assert.strictEqual(state.get('round'), undefined);
+  state.set('round', 0);
+  assert.strictEqual(state.get('round'), 0);
+  assert.strictEqual(state.incr('round'), 1);
+  assert.strictEqual(state.get('round'), 1);
+}
+
 async function main() {
   await assertAgentConstantsLoadedFromAgentFolder();
   await assertA2aServerMetadataAndTokensUseSeparateStorageAreas();
@@ -3590,6 +3624,7 @@ async function main() {
   await assertStreamChunkParsersWorkForAllShapes();
   await assertStreamChunkParsersHandleEdgeCases();
   await assertToolAndToolRegistryPrimitivesExist();
+  await assertSessionAndStatePrimitivesExist();
   await assertContextMenuSetupCreatesExpectedMenuItems();
   await assertNewActionPromptsExist();
 }
