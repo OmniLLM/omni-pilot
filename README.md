@@ -65,6 +65,14 @@ Every chat/action turn's system prompt is packed by `src/background/agent/contex
 
 Every tool dispatch in the A2A auto-route path is checked by `src/background/agent/guardrails.mjs` before it runs. The default `deny-list` mode blocks A2A endpoints on any domain in `guardrailsDenyDomains` and tools whose skill tags mark them as destructive/admin/payments-related. Denied calls surface to the model as `tool_result` errors instead of being executed, and each classification lands in a rolling 200-entry audit log at `chrome.storage.local["omnipilotGuardrailsAudit"]`.
 
+### Observability
+
+Every Agent chat/action call is wrapped in a run recorded by `src/background/agent/observability.mjs`. Provider requests/responses, tool dispatches and results, guardrail decisions, memory appends, and context-assembler drops all emit structured events into a ring-buffered per-run log persisted at `chrome.storage.local["omnipilotTraces"]` (20-run ring; 200 events per run). The options page has a Debug card that renders the last runs with a Refresh / Clear button pair. Set `observabilityEnabled: false` to disable via `chrome.storage.sync`.
+
+---
+
+Phase 5 completes the 5-phase harness build-out (agent primitives → memory → context assembly → guardrails → observability). The extension is now a proper harness in the sense defined by [harness-guide.com](https://harness-guide.com/guide/what-is-harness/): agentic loop, tool registry, memory/context/session split, guardrails, and per-run observability all present.
+
 The agent primitives are inspired by [Google's Agent Development Kit](https://adk.dev/get-started/) and the harness patterns from the [Harness Guide](https://harness-guide.com/guide/what-is-harness/) (agentic loop, tool registry, session/context/memory separation). Memory has since been added (see below); later phases add priority-based context assembly, guardrails, and observability on top of these primitives.
 
 ---
