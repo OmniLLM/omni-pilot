@@ -678,7 +678,7 @@ function buildA2aRoutingSystemPrompt(systemPrompt) {
 
 You have access to registered A2A agent tools. Each registered tool is backed by an A2A agent card and may represent either the agent itself or one of its discovered skills. Tool descriptions include the registered agent name, skill name, description, capabilities, and tags.
 
-Before answering from your own knowledge, compare the latest user prompt against the registered A2A agents, skills, tool descriptions, capabilities, and tags. If the user prompt clearly matches a registered A2A skill or tool, call the single best matching A2A tool and pass the user's full request as "task". Prefer calling the most specific registered skill tool over a generic agent tool when both match. Do not answer locally when a matching registered A2A skill or tool is available. If no registered A2A skill or tool is a clear match, answer normally without calling a tool.`;
+Before answering from your own knowledge, compare the latest user prompt against the registered A2A agents, skills, tool descriptions, capabilities, and tags. If the user prompt clearly matches one or more registered A2A skills or tools, call every matching A2A tool in the same turn — emit one tool call per matched skill and pass the user's full request as "task" in each call. When both a specific skill tool and its generic agent tool match, prefer the specific skill tool and do not also call the generic one. Do not answer locally when at least one registered A2A skill or tool clearly matches. If no registered A2A skill or tool is a clear match, answer normally without calling a tool.`;
 }
 
 function getA2aToolsForApiShape(toolSchemas, apiShape) {
@@ -697,40 +697,46 @@ function parseA2aToolCallArguments(rawArgs) {
   }
 }
 
-function extractA2aToolCallFromOpenAIChat(data) {
-  const toolCall = data?.choices?.[0]?.message?.tool_calls?.find(call => parseA2aToolName(call?.function?.name));
-  if (!toolCall) return null;
-  return {
-    toolName: toolCall.function.name,
-    serverId: parseA2aToolName(toolCall.function.name),
-    task: String(parseA2aToolCallArguments(toolCall.function.arguments).task || '').trim()
-  };
+function extractA2aToolCallsFromOpenAIChat(data) {
+  const toolCalls = data?.choices?.[0]?.message?.tool_calls;
+  if (!Array.isArray(toolCalls)) return [];
+  return toolCalls
+    .filter(call => parseA2aToolName(call?.function?.name))
+    .map(call => ({
+      toolName: call.function.name,
+      serverId: parseA2aToolName(call.function.name),
+      task: String(parseA2aToolCallArguments(call.function.arguments).task || '').trim()
+    }));
 }
 
-function extractA2aToolCallFromAnthropic(data) {
-  const toolUse = data?.content?.find?.(block => block?.type === 'tool_use' && parseA2aToolName(block.name));
-  if (!toolUse) return null;
-  return {
-    toolName: toolUse.name,
-    serverId: parseA2aToolName(toolUse.name),
-    task: String(parseA2aToolCallArguments(toolUse.input).task || '').trim()
-  };
+function extractA2aToolCallsFromAnthropic(data) {
+  const blocks = data?.content;
+  if (!Array.isArray(blocks)) return [];
+  return blocks
+    .filter(block => block?.type === 'tool_use' && parseA2aToolName(block.name))
+    .map(block => ({
+      toolName: block.name,
+      serverId: parseA2aToolName(block.name),
+      task: String(parseA2aToolCallArguments(block.input).task || '').trim()
+    }));
 }
 
-function extractA2aToolCallFromResponses(data) {
-  const toolCall = data?.output?.find?.(item => ['function_call', 'tool_call'].includes(item?.type) && parseA2aToolName(item.name));
-  if (!toolCall) return null;
-  return {
-    toolName: toolCall.name,
-    serverId: parseA2aToolName(toolCall.name),
-    task: String(parseA2aToolCallArguments(toolCall.arguments).task || '').trim()
-  };
+function extractA2aToolCallsFromResponses(data) {
+  const output = data?.output;
+  if (!Array.isArray(output)) return [];
+  return output
+    .filter(item => ['function_call', 'tool_call'].includes(item?.type) && parseA2aToolName(item.name))
+    .map(item => ({
+      toolName: item.name,
+      serverId: parseA2aToolName(item.name),
+      task: String(parseA2aToolCallArguments(item.arguments).task || '').trim()
+    }));
 }
 
-function extractA2aToolCallFromResponse(data, apiShape) {
-  if (apiShape === API_SHAPES.ANTHROPIC_MESSAGES) return extractA2aToolCallFromAnthropic(data);
-  if (apiShape === API_SHAPES.OPENAI_RESPONSES) return extractA2aToolCallFromResponses(data);
-  return extractA2aToolCallFromOpenAIChat(data);
+function extractA2aToolCallsFromResponse(data, apiShape) {
+  if (apiShape === API_SHAPES.ANTHROPIC_MESSAGES) return extractA2aToolCallsFromAnthropic(data);
+  if (apiShape === API_SHAPES.OPENAI_RESPONSES) return extractA2aToolCallsFromResponses(data);
+  return extractA2aToolCallsFromOpenAIChat(data);
 }
 
 function applyA2aToolsToRequestBody(requestBody, apiShape, tools) {
@@ -1699,19 +1705,70 @@ async function executeApiRequestWithA2aRouting({ config, messages, systemPrompt,
   }
 
   const data = await response.json();
-  const toolCall = extractA2aToolCallFromResponse(data, apiShape);
-  if (toolCall) {
-    const selectedTool = toolSchemas.find(tool => tool.name === toolCall.toolName);
-    const server = selectedTool && a2aServers.find(candidate => candidate.id === selectedTool.serverId);
-    if (!server) throw new Error('A2A tool selected an unknown server.');
-    if (!toolCall.task) throw new Error('A2A tool selected an empty task.');
+  const toolCalls = extractA2aToolCallsFromResponse(data, apiShape);
+  if (toolCalls.length) {
+    // De-dupe (serverId, toolName, task) triples in case the model emits the
+    // same call twice. Also drop calls whose serverId or task is unusable.
+    const seen = new Set();
+    const runnable = [];
+    for (const call of toolCalls) {
+      const selectedTool = toolSchemas.find(tool => tool.name === call.toolName);
+      const server = selectedTool && a2aServers.find(candidate => candidate.id === selectedTool.serverId);
+      if (!server) continue;
+      if (!call.task) continue;
+      const key = `${server.id} ${call.toolName} ${call.task}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      runnable.push({ call, server, tool: selectedTool });
+    }
+
+    if (!runnable.length) {
+      // Model chose A2A tools but every one was unusable (unknown server or
+      // empty task). Preserve the pre-fanout error surface.
+      const first = toolCalls[0];
+      const selectedTool = toolSchemas.find(tool => tool.name === first.toolName);
+      const server = selectedTool && a2aServers.find(candidate => candidate.id === selectedTool.serverId);
+      if (!server) throw new Error('A2A tool selected an unknown server.');
+      throw new Error('A2A tool selected an empty task.');
+    }
+
     onStatus?.('delegating');
-    const delegation = delegateA2aTask({
-      serverId: server.id,
-      task: toolCall.task,
-      contextText: getA2aConversationContext(messages)
+    const contextText = getA2aConversationContext(messages);
+
+    // Fan out: every matched skill runs in parallel. One agent's failure must
+    // not sink the others — its section becomes an italicized error line.
+    const settled = await Promise.all(runnable.map(async ({ call, server, tool }) => {
+      try {
+        const delegation = delegateA2aTask({
+          serverId: server.id,
+          task: call.task,
+          contextText
+        });
+        const text = await withA2aStatusHeartbeat(delegation, onStatus);
+        return { server, tool, text, error: null };
+      } catch (error) {
+        return { server, tool, text: '', error: error?.message || String(error) };
+      }
+    }));
+
+    // Single-match: preserve today's plain-string behavior (no heading, no
+    // wrapping) so existing UIs / tests see an unchanged payload.
+    if (settled.length === 1) {
+      const only = settled[0];
+      if (only.error) throw new Error(only.error);
+      return only.text;
+    }
+
+    // Multi-match: concatenate labeled sections. Label uses agent name (from
+    // agent card or stored server name) and skill name when available.
+    const sections = settled.map(({ server, tool, text, error }) => {
+      const agentName = server.agentCard?.name || server.name || server.id;
+      const skillName = tool.skillName || '';
+      const heading = skillName ? `### ${agentName} / ${skillName}` : `### ${agentName}`;
+      const body = error ? `_A2A delegation failed: ${error}_` : text;
+      return `${heading}\n\n${body}`;
     });
-    return withA2aStatusHeartbeat(delegation, onStatus);
+    return sections.join('\n\n');
   }
 
   const content = builtRequest.parseContent(data);

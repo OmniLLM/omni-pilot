@@ -2006,6 +2006,7 @@ async function assertAutoRouteSystemPromptInstructsToolUse() {
   assert.ok(/latest user prompt|user prompt|user request/i.test(systemMessage.content), 'system prompt should instruct matching against the user prompt');
   assert.ok(/delegat|call|use/i.test(systemMessage.content), 'system prompt should instruct the model to call/delegate to a matching agent');
   assert.ok(/do not answer locally/i.test(systemMessage.content), 'system prompt should prefer delegation over local answers when there is a clear match');
+  assert.ok(/every matching|one tool call per matched skill|call every|call all/i.test(systemMessage.content), 'system prompt should instruct the model to call every matching A2A tool, not just the single best one');
 }
 
 async function assertA2aAutoRouteToolCallDelegatesOrdinaryFollowUp() {
@@ -2074,6 +2075,143 @@ async function assertA2aAutoRouteToolCallDelegatesOrdinaryFollowUp() {
   assert.ok(a2aText.includes('Task:\nshow me disk usage'));
   assert.ok(a2aText.includes('Popup user: Additional selected context'));
   assert.ok(a2aText.includes('Popup assistant: What would you like to check?'));
+}
+
+async function assertA2aAutoRouteDelegatesToEveryMatchedTool() {
+  const { context, requests } = await createBackgroundContext({
+    storage: {
+      providerType: 'custom-provider',
+      endpoint: 'https://custom.example/v1',
+      apiKey: 'custom-key',
+      model: 'custom-model',
+      apiShape: 'openai-compatible',
+      a2aServers: [
+        {
+          id: 'launcher',
+          name: 'OmniLauncher',
+          endpoint: 'https://launcher.example/a2a',
+          enabled: true,
+          agentCard: {
+            name: 'OmniLauncher',
+            description: 'Runs local machine diagnostics.',
+            skills: [{ id: 'disk', name: 'Disk usage', description: 'Show disk usage.' }]
+          }
+        },
+        {
+          id: 'planner',
+          name: 'Planner',
+          endpoint: 'https://planner.example/a2a',
+          enabled: true,
+          agentCard: {
+            name: 'Planner',
+            description: 'Plans daily work.',
+            skills: [{ id: 'today', name: 'Today plan', description: 'Draft today\'s plan.' }]
+          }
+        }
+      ],
+      a2aServerTokens: { launcher: 'server-token', planner: 'server-token' }
+    },
+    fetchImpl: async (url) => {
+      if (url === 'https://custom.example/v1/chat/completions') {
+        return {
+          ok: true,
+          json: async () => ({
+            choices: [{
+              message: {
+                tool_calls: [
+                  { type: 'function', function: { name: 'a2a__launcher__disk', arguments: JSON.stringify({ task: 'show disk usage' }) } },
+                  { type: 'function', function: { name: 'a2a__planner__today', arguments: JSON.stringify({ task: 'draft today plan' }) } }
+                ]
+              }
+            }]
+          })
+        };
+      }
+      if (url === 'https://launcher.example/a2a') {
+        return { ok: true, json: async () => ({ result: { message: { parts: [{ type: 'text', text: 'Disk: 42% used' }] } } }) };
+      }
+      if (url === 'https://planner.example/a2a') {
+        return { ok: true, json: async () => ({ result: { message: { parts: [{ type: 'text', text: 'Plan: focus block, review, walk' }] } } }) };
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    }
+  });
+
+  const result = await context.handleAIChat([
+    { role: 'user', content: 'Show my disk usage and draft today plan' }
+  ]);
+
+  // Both agents were delegated to (order-independent).
+  const delegatedUrls = requests.map(r => r.url);
+  assert.ok(delegatedUrls.includes('https://launcher.example/a2a'), 'should delegate to launcher');
+  assert.ok(delegatedUrls.includes('https://planner.example/a2a'), 'should delegate to planner');
+
+  // Response contains both labeled sections with each agent's result.
+  assert.ok(result.includes('### OmniLauncher / Disk usage'), 'expected labeled section for launcher/disk skill');
+  assert.ok(result.includes('Disk: 42% used'), 'expected launcher result text');
+  assert.ok(result.includes('### Planner / Today plan'), 'expected labeled section for planner/today skill');
+  assert.ok(result.includes('Plan: focus block, review, walk'), 'expected planner result text');
+}
+
+async function assertA2aAutoRouteMultiToolIsolatesPerAgentFailures() {
+  const { context } = await createBackgroundContext({
+    storage: {
+      providerType: 'custom-provider',
+      endpoint: 'https://custom.example/v1',
+      apiKey: 'custom-key',
+      model: 'custom-model',
+      apiShape: 'openai-compatible',
+      a2aServers: [
+        {
+          id: 'good',
+          name: 'GoodAgent',
+          endpoint: 'https://good.example/a2a',
+          enabled: true,
+          agentCard: { name: 'GoodAgent', skills: [{ id: 'gs', name: 'Good skill' }] }
+        },
+        {
+          id: 'bad',
+          name: 'BadAgent',
+          endpoint: 'https://bad.example/a2a',
+          enabled: true,
+          agentCard: { name: 'BadAgent', skills: [{ id: 'bs', name: 'Bad skill' }] }
+        }
+      ],
+      a2aServerTokens: { good: 't', bad: 't' }
+    },
+    fetchImpl: async (url) => {
+      if (url === 'https://custom.example/v1/chat/completions') {
+        return {
+          ok: true,
+          json: async () => ({
+            choices: [{
+              message: {
+                tool_calls: [
+                  { type: 'function', function: { name: 'a2a__good__gs', arguments: JSON.stringify({ task: 'ok' }) } },
+                  { type: 'function', function: { name: 'a2a__bad__bs', arguments: JSON.stringify({ task: 'boom' }) } }
+                ]
+              }
+            }]
+          })
+        };
+      }
+      if (url === 'https://good.example/a2a') {
+        return { ok: true, json: async () => ({ result: { message: { parts: [{ type: 'text', text: 'good result' }] } } }) };
+      }
+      if (url === 'https://bad.example/a2a') {
+        // Simulate a failing A2A backend — 500 with a JSON-RPC error body.
+        return { ok: false, status: 500, text: async () => 'boom' };
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    }
+  });
+
+  const result = await context.handleAIChat([{ role: 'user', content: 'run both' }]);
+
+  assert.ok(result.includes('### GoodAgent / Good skill'), 'good agent section should render');
+  assert.ok(result.includes('good result'), 'good agent output should render');
+  assert.ok(result.includes('### BadAgent / Bad skill'), 'bad agent section should still render');
+  assert.ok(/A2A delegation failed/.test(result), 'bad agent section should surface the delegation error');
 }
 
 async function assertA2aAutoRouteToolCallUsesCollisionSafeToolMapping() {
@@ -3074,6 +3212,8 @@ async function main() {
   await assertCopilotAutoRouteToolCallDelegates();
   await assertAutoRouteSystemPromptInstructsToolUse();
   await assertA2aAutoRouteToolCallDelegatesOrdinaryFollowUp();
+  await assertA2aAutoRouteDelegatesToEveryMatchedTool();
+  await assertA2aAutoRouteMultiToolIsolatesPerAgentFailures();
   await assertA2aAutoRouteToolCallUsesCollisionSafeToolMapping();
   await assertA2aAutoRouteRespectsDisableToggle();
   await assertProviderTypeCopilotModelListingUsesCachedToken();
