@@ -755,59 +755,7 @@ function applyA2aToolsToRequestBody(requestBody, apiShape, tools) {
   return { ...requestBody, tools, tool_choice: 'auto', parallel_tool_calls: true };
 }
 
-// Build the assistant + tool_result messages that must be appended to the
-// conversation before the next round of the agentic loop. `settled` is the
-// per-tool fanout result array (each entry has {call, server, tool, text,
-// error}). `data` is the raw provider response from the round that emitted
-// the tool calls, needed so we can echo the assistant turn back per shape.
-function buildA2aFollowUpMessages(apiShape, data, settled) {
-  if (apiShape === API_SHAPES.ANTHROPIC_MESSAGES) {
-    // Anthropic wants the assistant's full content array (including any
-    // preamble text blocks and the tool_use blocks) echoed back, followed
-    // by a user message whose content is a tool_result block per call.
-    const assistantContent = Array.isArray(data?.content) ? data.content : [];
-    const userContent = settled.map(({ call, text, error }) => ({
-      type: 'tool_result',
-      tool_use_id: call.id,
-      content: error ? `A2A delegation failed: ${error}` : (text || ''),
-      ...(error ? { is_error: true } : {})
-    }));
-    return [
-      { role: 'assistant', content: assistantContent },
-      { role: 'user', content: userContent }
-    ];
-  }
-
-  if (apiShape === API_SHAPES.OPENAI_RESPONSES) {
-    // OpenAI Responses uses a flat items list. Echo the assistant's original
-    // items (including function_call items) then append one function_call_output
-    // item per settled call.
-    const items = Array.isArray(data?.output) ? data.output : [];
-    const outputs = settled.map(({ call, text, error }) => ({
-      type: 'function_call_output',
-      call_id: call.id,
-      output: error ? `A2A delegation failed: ${error}` : (text || '')
-    }));
-    return [...items, ...outputs];
-  }
-
-  // OpenAI Chat / compatible: mirror the assistant message (with tool_calls)
-  // and append one tool-role message per settled call.
-  const assistantMessage = data?.choices?.[0]?.message || {};
-  const toolMessages = settled.map(({ call, text, error }) => ({
-    role: 'tool',
-    tool_call_id: call.id,
-    content: error ? `A2A delegation failed: ${error}` : (text || '')
-  }));
-  return [
-    {
-      role: 'assistant',
-      content: assistantMessage.content ?? null,
-      ...(Array.isArray(assistantMessage.tool_calls) ? { tool_calls: assistantMessage.tool_calls } : {})
-    },
-    ...toolMessages
-  ];
-}
+// buildA2aFollowUpMessages moved to src/background/agent/follow-up.mjs.
 
 function getProvider(config) {
   const providerType = normalizeProviderType(config.providerType, config.authMethod);
