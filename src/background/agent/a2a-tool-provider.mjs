@@ -25,6 +25,7 @@ function registerA2aToolsInRegistry(registry, servers, options = {}) {
           parameters: buildA2aToolParameters(),
           dispatch: async ({ task }) => delegateA2aTask({
             serverId: server.id,
+            skillId,
             task: String(task || '').trim(),
             contextText: getContextText ? getContextText() : ''
           }),

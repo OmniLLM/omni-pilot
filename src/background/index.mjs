@@ -1129,8 +1129,8 @@ function createA2aRpcRequest(method, params) {
   };
 }
 
-function createA2aMessageParams(task, contextText) {
-  return {
+function createA2aMessageParams(task, contextText, skillId) {
+  const params = {
     message: {
       role: 'user',
       parts: [
@@ -1141,6 +1141,8 @@ function createA2aMessageParams(task, contextText) {
       ]
     }
   };
+  if (skillId) params.skillId = String(skillId);
+  return params;
 }
 
 function extractA2aTextFromParts(parts) {
@@ -1201,20 +1203,21 @@ function joinA2aPath(endpoint, path) {
   return `${String(endpoint || '').replace(/\/$/, '')}${path}`;
 }
 
-function createA2aRestMessageRequest(task, contextText) {
-  return {
-    messages: [createA2aMessageParams(task, contextText).message]
-  };
+function createA2aRestMessageRequest(task, contextText, skillId) {
+  const params = createA2aMessageParams(task, contextText, skillId);
+  const body = { messages: [params.message] };
+  if (params.skillId) body.skillId = params.skillId;
+  return body;
 }
 
-async function postA2aRestMessage(server, task, contextText) {
+async function postA2aRestMessage(server, task, contextText, skillId) {
   const headers = { 'Content-Type': 'application/json', Accept: 'application/json' };
   if (server.token) headers.Authorization = `Bearer ${server.token}`;
 
   const response = await fetch(joinA2aPath(server.endpoint, '/message:send'), {
     method: 'POST',
     headers,
-    body: JSON.stringify(createA2aRestMessageRequest(task, contextText))
+    body: JSON.stringify(createA2aRestMessageRequest(task, contextText, skillId))
   });
 
   if (!response.ok) {
@@ -1287,11 +1290,11 @@ function shouldFallbackToA2aRest(error) {
     || (error?.status === 400 && /missing field [`"]?messages[`"]?/i.test(error.message || ''));
 }
 
-async function sendInitialA2aTask(server, task, contextText) {
+async function sendInitialA2aTask(server, task, contextText, skillId) {
   try {
     return {
       server,
-      task: assertA2aTaskNotFailed(await postA2aRpc(server, 'message/send', createA2aMessageParams(task, contextText)))
+      task: assertA2aTaskNotFailed(await postA2aRpc(server, 'message/send', createA2aMessageParams(task, contextText, skillId)))
     };
   } catch (error) {
     if (!shouldFallbackToA2aRest(error)) throw error;
@@ -1299,7 +1302,7 @@ async function sendInitialA2aTask(server, task, contextText) {
     try {
       return {
         server: { ...server, protocol: 'rest' },
-        task: assertA2aTaskNotFailed(await postA2aRestMessage(server, task, contextText))
+        task: assertA2aTaskNotFailed(await postA2aRestMessage(server, task, contextText, skillId))
       };
     } catch (restError) {
       if (restError.status !== 404) throw restError;
@@ -1311,19 +1314,19 @@ async function sendInitialA2aTask(server, task, contextText) {
     if (getA2aRpcEndpoint(discoveredServer) === getA2aRpcEndpoint(server)) throw error;
     return {
       server: discoveredServer,
-      task: assertA2aTaskNotFailed(await postA2aRpc(discoveredServer, 'message/send', createA2aMessageParams(task, contextText)))
+      task: assertA2aTaskNotFailed(await postA2aRpc(discoveredServer, 'message/send', createA2aMessageParams(task, contextText, skillId)))
     };
   }
 }
 
-async function delegateA2aTask({ serverId, task, contextText }) {
+async function delegateA2aTask({ serverId, skillId, task, contextText }) {
   const server = await getA2aServerWithToken(serverId);
 
   if (!server?.endpoint) {
     throw new Error(`A2A server not configured: ${serverId}`);
   }
 
-  const initial = await sendInitialA2aTask(server, task, contextText);
+  const initial = await sendInitialA2aTask(server, task, contextText, skillId);
   const initialTask = initial.task;
   const immediateText = extractA2aText(initialTask);
   if (immediateText) return immediateText;

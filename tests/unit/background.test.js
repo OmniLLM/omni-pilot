@@ -3114,6 +3114,11 @@ async function assertSkillToolCallDelegatesToCorrectServer() {
   assert.ok(llmBody.tools.some(tool => tool.function.name === 'a2a__cloudbot__aws'));
   assert.ok(llmBody.tools.some(tool => tool.function.name === 'a2a__cloudbot__gcp'));
   assert.ok(requests.some(r => r.url === 'https://cloudbot.example/a2a'), 'delegated to the A2A server');
+
+  const a2aRequest = requests.find(r => r.url === 'https://cloudbot.example/a2a');
+  const a2aRpc = JSON.parse(a2aRequest.options.body);
+  assert.strictEqual(a2aRpc.method, 'message/send');
+  assert.strictEqual(a2aRpc.params.skillId, 'aws', 'skillId should be forwarded in JSON-RPC params');
 }
 
 async function assertQuestionMatchingA2aSkillUsesLlmToolCallRouting() {
