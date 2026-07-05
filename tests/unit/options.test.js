@@ -625,6 +625,18 @@ async function assertOptionsDebugCardIsPresent() {
   assert.ok(html.includes('data-i18n="debug"'));
 }
 
+async function testAdvancedSectionContainsAllAdvancedCards() {
+  const fs = require('fs');
+  const html = fs.readFileSync('src/options/index.html', 'utf8');
+  const advancedSectionMatch = html.match(/<div class="advanced-section" id="advancedSection">([\s\S]*?)<\/div><!-- end \.advanced-section -->/);
+  assert.ok(advancedSectionMatch, 'advanced section should exist');
+  const advancedHtml = advancedSectionMatch[1];
+  assert.ok(html.includes('data-i18n="advancedSettings">AdvancedSettings</span>'), 'advanced toggle label should be AdvancedSettings');
+  assert.ok(advancedHtml.includes('id="a2aCard"'), 'advanced section should contain A2A card');
+  assert.ok(advancedHtml.includes('id="memoryEnabled"'), 'advanced section should contain memory controls');
+  assert.ok(advancedHtml.includes('id="debugTracesView"'), 'advanced section should contain debug controls');
+}
+
 async function testGithubCopilotSlowDownKeepsPollingUiPending() {
   const { elements, domListeners } = createTestContext({
     storageGetImpl(keys, callback) {
@@ -1119,6 +1131,7 @@ async function main() {
   await testOptionsHtmlContainsPopupInitialSizeControls();
   await testOptionsHtmlContainsMemoryCardControls();
   await assertOptionsDebugCardIsPresent();
+  await testAdvancedSectionContainsAllAdvancedCards();
   await testGithubCopilotSlowDownKeepsPollingUiPending();
   await testGithubCopilotPendingFlowRestoresCodeOnLoad();
   await testGithubCopilotPollingUsesStoredInterval();
