@@ -343,6 +343,35 @@
       font-size: 12px;
       font-weight: 600;
       color: var(--ink);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .a2a-health-dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      background: var(--ink2);
+      opacity: 0.4;
+    }
+    .a2a-health-dot.checking {
+      background: var(--ink2);
+      opacity: 0.5;
+      animation: pulse 1s ease-in-out infinite;
+    }
+    .a2a-health-dot.healthy {
+      background: #22c55e;
+      opacity: 1;
+    }
+    .a2a-health-dot.unhealthy {
+      background: #ef4444;
+      opacity: 1;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 0.3; }
+      50% { opacity: 0.8; }
     }
     .a2a-server-endpoint {
       margin-top: 3px;

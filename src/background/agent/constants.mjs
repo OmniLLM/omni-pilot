@@ -40,3 +40,16 @@ const GUARDRAIL_DESTRUCTIVE_TAGS = ['destructive', 'delete', 'admin', 'payments'
 const TRACES_KEY = 'omnipilotTraces';
 const TRACES_MAX_RUNS = 20;
 const TRACES_MAX_EVENTS_PER_RUN = 200;
+
+// Omni Agent Hub — JSON-RPC error codes.
+// See client-integration-guide.md §10.
+const A2A_RPC_ERROR_TASK_NOT_FOUND = -32001;
+const A2A_RPC_ERROR_UPSTREAM_HTTP = -32002;
+const A2A_RPC_ERROR_UPSTREAM_INVALID = -32003;
+const A2A_RPC_ERROR_UPSTREAM_UNAVAILABLE = -32010;
+const A2A_RPC_ERROR_NO_ROUTE = -32011;
+
+// Retry policy for -32010 (circuit breaker open): back off and retry
+// up to this many times before surfacing the error to the user.
+const A2A_RPC_BREAKER_MAX_RETRIES = 2;
+const A2A_RPC_BREAKER_BACKOFF_MS = 3000;

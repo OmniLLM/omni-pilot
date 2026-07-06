@@ -154,11 +154,17 @@ async function preflight() {
 
   let agentCard;
   try {
-    const resp = await fetch(`${cfg.a2aEndpoint}/.well-known/agent.json`, {
+    // Try hub-style agent-card.json first, fall back to agent.json
+    let resp = await fetch(`${cfg.a2aEndpoint}/.well-known/agent-card.json`, {
       headers: { Authorization: `Bearer ${cfg.a2aToken}` }
     });
+    if (!resp.ok) {
+      resp = await fetch(`${cfg.a2aEndpoint}/.well-known/agent.json`, {
+        headers: { Authorization: `Bearer ${cfg.a2aToken}` }
+      });
+    }
     agentCard = await resp.json();
-    console.info(`  ✓ A2A server: UP (${agentCard.skills.length} skills)`);
+    console.info(`  ✓ A2A server: UP (${agentCard.skills?.length || 0} skills)`);
   } catch {
     console.error('  ✗ A2A server not responding');
     process.exit(1);

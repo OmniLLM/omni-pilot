@@ -319,6 +319,22 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       .catch(err => sendResponse({ success: false, error: err.message || 'Unexpected extension error' }));
     return true;
   }
+  if (request.type === 'A2A_CANCEL_TASK') {
+    (async () => {
+      const server = await getA2aServerWithToken(request.serverId);
+      if (!server) throw new Error('A2A server not found.');
+      return cancelA2aTask(server, request.taskId);
+    })()
+      .then(result => sendResponse({ success: true, result }))
+      .catch(err => sendResponse({ success: false, error: err.message || 'Unexpected extension error' }));
+    return true;
+  }
+  if (request.type === 'A2A_HEALTH_CHECK') {
+    checkA2aHealth(request.endpoint)
+      .then(health => sendResponse({ success: true, health }))
+      .catch(err => sendResponse({ success: false, error: err.message || 'Unexpected extension error' }));
+    return true;
+  }
 });
 
 function getConfigStorageArea() {
@@ -841,12 +857,21 @@ function getA2aDiscoveryUrls(endpoint) {
     return [];
   }
 
-  const originDiscoveryUrl = new URL('/.well-known/agent.json', endpointUrl.origin).toString();
-  const endpointDiscoveryUrl = new URL('.well-known/agent.json', `${normalizedEndpoint}/`).toString();
+  // Omni Agent Hub serves its composite card at /.well-known/agent-card.json;
+  // standalone A2A agents typically use /.well-known/agent.json. Try both
+  // filenames at the origin and, when the configured endpoint has a subpath,
+  // also under that subpath.
+  const originCardUrl = new URL('/.well-known/agent-card.json', endpointUrl.origin).toString();
+  const originAgentUrl = new URL('/.well-known/agent.json', endpointUrl.origin).toString();
+  const endpointCardUrl = new URL('.well-known/agent-card.json', `${normalizedEndpoint}/`).toString();
+  const endpointAgentUrl = new URL('.well-known/agent.json', `${normalizedEndpoint}/`).toString();
 
-  return endpointDiscoveryUrl === originDiscoveryUrl
-    ? [originDiscoveryUrl]
-    : [originDiscoveryUrl, endpointDiscoveryUrl];
+  const seen = new Set();
+  const urls = [];
+  for (const url of [originCardUrl, originAgentUrl, endpointCardUrl, endpointAgentUrl]) {
+    if (!seen.has(url)) { seen.add(url); urls.push(url); }
+  }
+  return urls;
 }
 
 async function discoverA2aServer(serverId) {
@@ -1129,7 +1154,7 @@ function createA2aRpcRequest(method, params) {
   };
 }
 
-function createA2aMessageParams(task, contextText, skillId) {
+function createA2aMessageParams(task, contextText, skillId, contextId) {
   const params = {
     message: {
       role: 'user',
@@ -1142,6 +1167,9 @@ function createA2aMessageParams(task, contextText, skillId) {
     }
   };
   if (skillId) params.skillId = String(skillId);
+  // Hub contextId enables multi-turn routing: follow-up messages with the
+  // same contextId are automatically routed to the same upstream agent.
+  if (contextId) params.contextId = String(contextId);
   return params;
 }
 
@@ -1203,21 +1231,22 @@ function joinA2aPath(endpoint, path) {
   return `${String(endpoint || '').replace(/\/$/, '')}${path}`;
 }
 
-function createA2aRestMessageRequest(task, contextText, skillId) {
-  const params = createA2aMessageParams(task, contextText, skillId);
+function createA2aRestMessageRequest(task, contextText, skillId, contextId) {
+  const params = createA2aMessageParams(task, contextText, skillId, contextId);
   const body = { messages: [params.message] };
   if (params.skillId) body.skillId = params.skillId;
+  if (params.contextId) body.contextId = params.contextId;
   return body;
 }
 
-async function postA2aRestMessage(server, task, contextText, skillId) {
+async function postA2aRestMessage(server, task, contextText, skillId, contextId) {
   const headers = { 'Content-Type': 'application/json', Accept: 'application/json' };
   if (server.token) headers.Authorization = `Bearer ${server.token}`;
 
   const response = await fetch(joinA2aPath(server.endpoint, '/message:send'), {
     method: 'POST',
     headers,
-    body: JSON.stringify(createA2aRestMessageRequest(task, contextText, skillId))
+    body: JSON.stringify(createA2aRestMessageRequest(task, contextText, skillId, contextId))
   });
 
   if (!response.ok) {
@@ -1243,6 +1272,30 @@ async function getA2aRestTask(server, taskId) {
   return response.json();
 }
 
+function createA2aRpcError(code, message, data) {
+  const error = new Error(message || 'A2A request failed.');
+  error.code = code;
+  if (data !== undefined) error.data = data;
+  return error;
+}
+
+function classifyA2aRpcError(rpcError) {
+  const code = rpcError?.code;
+  if (code === A2A_RPC_ERROR_UPSTREAM_UNAVAILABLE) {
+    return { retryable: true, userMessage: 'A2A upstream is temporarily unavailable (circuit breaker open). Retrying…' };
+  }
+  if (code === A2A_RPC_ERROR_NO_ROUTE) {
+    return { retryable: false, userMessage: `No A2A upstream handles this request. ${rpcError.message || ''}`.trim() };
+  }
+  if (code === A2A_RPC_ERROR_TASK_NOT_FOUND) {
+    return { retryable: false, userMessage: 'A2A task not found. It may have expired.' };
+  }
+  if (code === A2A_RPC_ERROR_UPSTREAM_HTTP || code === A2A_RPC_ERROR_UPSTREAM_INVALID) {
+    return { retryable: false, userMessage: `A2A upstream error: ${rpcError.message || 'unexpected response'}` };
+  }
+  return { retryable: false, userMessage: rpcError.message || 'A2A request failed.' };
+}
+
 async function postA2aRpc(server, method, params) {
   const headers = { 'Content-Type': 'application/json' };
   if (server.token) headers.Authorization = `Bearer ${server.token}`;
@@ -1259,7 +1312,11 @@ async function postA2aRpc(server, method, params) {
 
   const payload = await response.json();
   if (payload.error) {
-    throw new Error(payload.error.message || 'A2A request failed.');
+    throw createA2aRpcError(
+      payload.error.code,
+      payload.error.message || 'A2A request failed.',
+      payload.error.data
+    );
   }
 
   return payload.result;
@@ -1279,6 +1336,29 @@ async function pollA2aTask(server, taskId) {
   throw new Error('A2A task polling timed out.');
 }
 
+// ── Hub tasks/cancel ─────────────────────────────────────────────────────────
+// Cancel a running task using the hub task ID (the one returned in result.id,
+// NOT the upstream's internal ID). Sends a JSON-RPC `tasks/cancel` request.
+
+async function cancelA2aTask(server, taskId) {
+  return postA2aRpc(server, 'tasks/cancel', { id: taskId });
+}
+
+// ── Hub health check ─────────────────────────────────────────────────────────
+// GET /health returns { status: "ok", upstreams: { total, healthy } }.
+// No auth required. Returns the parsed JSON or null on failure.
+
+async function checkA2aHealth(endpoint) {
+  const healthUrl = joinA2aPath(normalizeA2aEndpoint(endpoint), '/health');
+  try {
+    const response = await fetch(healthUrl, { headers: { Accept: 'application/json' } });
+    if (!response.ok) return null;
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
 async function discoverA2aRpcEndpoint(server) {
   const agentCard = await discoverA2aServer(server.id);
   const endpoint = getA2aRpcEndpoint({ ...server, agentCard });
@@ -1290,43 +1370,62 @@ function shouldFallbackToA2aRest(error) {
     || (error?.status === 400 && /missing field [`"]?messages[`"]?/i.test(error.message || ''));
 }
 
-async function sendInitialA2aTask(server, task, contextText, skillId) {
-  try {
-    return {
-      server,
-      task: assertA2aTaskNotFailed(await postA2aRpc(server, 'message/send', createA2aMessageParams(task, contextText, skillId)))
-    };
-  } catch (error) {
-    if (!shouldFallbackToA2aRest(error)) throw error;
-
-    try {
-      return {
-        server: { ...server, protocol: 'rest' },
-        task: assertA2aTaskNotFailed(await postA2aRestMessage(server, task, contextText, skillId))
-      };
-    } catch (restError) {
-      if (restError.status !== 404) throw restError;
-    }
-
-    if (server.agentCard) throw error;
-
-    const discoveredServer = await discoverA2aRpcEndpoint(server);
-    if (getA2aRpcEndpoint(discoveredServer) === getA2aRpcEndpoint(server)) throw error;
-    return {
-      server: discoveredServer,
-      task: assertA2aTaskNotFailed(await postA2aRpc(discoveredServer, 'message/send', createA2aMessageParams(task, contextText, skillId)))
-    };
-  }
+function isA2aBreakerOpenError(error) {
+  return error?.code === A2A_RPC_ERROR_UPSTREAM_UNAVAILABLE;
 }
 
-async function delegateA2aTask({ serverId, skillId, task, contextText }) {
+async function sendInitialA2aTask(server, task, contextText, skillId, contextId) {
+  // Retry loop for hub circuit-breaker (-32010): the upstream had 3+
+  // consecutive failures. Back off briefly and try again before surfacing
+  // the error to the user.
+  for (let attempt = 0; attempt <= A2A_RPC_BREAKER_MAX_RETRIES; attempt += 1) {
+    try {
+      return {
+        server,
+        task: assertA2aTaskNotFailed(await postA2aRpc(server, 'message/send', createA2aMessageParams(task, contextText, skillId, contextId)))
+      };
+    } catch (error) {
+      if (isA2aBreakerOpenError(error) && attempt < A2A_RPC_BREAKER_MAX_RETRIES) {
+        await globalThis.wait(A2A_RPC_BREAKER_BACKOFF_MS);
+        continue;
+      }
+      // Surface hub-specific error classification as-is for -32011 etc.
+      if (error?.code && !shouldFallbackToA2aRest(error)) {
+        const classified = classifyA2aRpcError(error);
+        throw new Error(classified.userMessage);
+      }
+      if (!shouldFallbackToA2aRest(error)) throw error;
+
+      try {
+        return {
+          server: { ...server, protocol: 'rest' },
+          task: assertA2aTaskNotFailed(await postA2aRestMessage(server, task, contextText, skillId, contextId))
+        };
+      } catch (restError) {
+        if (restError.status !== 404) throw restError;
+      }
+
+      if (server.agentCard) throw error;
+
+      const discoveredServer = await discoverA2aRpcEndpoint(server);
+      if (getA2aRpcEndpoint(discoveredServer) === getA2aRpcEndpoint(server)) throw error;
+      return {
+        server: discoveredServer,
+        task: assertA2aTaskNotFailed(await postA2aRpc(discoveredServer, 'message/send', createA2aMessageParams(task, contextText, skillId, contextId)))
+      };
+    }
+  }
+  throw new Error('A2A upstream is temporarily unavailable. Please try again later.');
+}
+
+async function delegateA2aTask({ serverId, skillId, task, contextText, contextId }) {
   const server = await getA2aServerWithToken(serverId);
 
   if (!server?.endpoint) {
     throw new Error(`A2A server not configured: ${serverId}`);
   }
 
-  const initial = await sendInitialA2aTask(server, task, contextText, skillId);
+  const initial = await sendInitialA2aTask(server, task, contextText, skillId, contextId);
   const initialTask = initial.task;
   const immediateText = extractA2aText(initialTask);
   if (immediateText) return immediateText;
@@ -1343,6 +1442,130 @@ async function delegateA2aTask({ serverId, skillId, task, contextText }) {
   }
 
   return completedText;
+}
+
+// ── A2A SSE streaming via message/sendSubscribe ──────────────────────────────
+//
+// The Omni Agent Hub supports Server-Sent Events for real-time task progress.
+// This function sends a message/sendSubscribe JSON-RPC request and reads the
+// SSE stream, calling onChunk for each intermediate text and onDone/onError
+// at the terminal event (final=true or state=completed|failed|canceled).
+// Falls back to unary delegateA2aTask when the hub doesn't support streaming
+// (404 or non-SSE content-type).
+
+function isA2aSseContentType(contentType) {
+  return /text\/event-stream/i.test(String(contentType || ''));
+}
+
+function parseA2aSseTaskEvent(jsonStr) {
+  try {
+    return JSON.parse(jsonStr);
+  } catch {
+    return null;
+  }
+}
+
+function isA2aSseTerminalState(state) {
+  return ['completed', 'failed', 'canceled'].includes(state);
+}
+
+async function delegateA2aTaskStreaming({ serverId, skillId, task, contextText, contextId, onChunk, onDone, onError }) {
+  const server = await getA2aServerWithToken(serverId);
+  if (!server?.endpoint) {
+    throw new Error(`A2A server not configured: ${serverId}`);
+  }
+
+  const rpcEndpoint = getA2aRpcEndpoint(server);
+  const headers = { 'Content-Type': 'application/json' };
+  if (server.token) headers.Authorization = `Bearer ${server.token}`;
+
+  const params = createA2aMessageParams(task, contextText, skillId, contextId);
+
+  let response;
+  try {
+    response = await fetch(rpcEndpoint, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(createA2aRpcRequest('message/sendSubscribe', params))
+    });
+  } catch (err) {
+    // Network error — fall back to unary
+    const result = await delegateA2aTask({ serverId, skillId, task, contextText, contextId });
+    onChunk(result);
+    onDone();
+    return;
+  }
+
+  // Fall back to unary delegation when streaming is not supported
+  if (!response.ok || !isA2aSseContentType(response.headers.get('content-type'))) {
+    const result = await delegateA2aTask({ serverId, skillId, task, contextText, contextId });
+    onChunk(result);
+    onDone();
+    return;
+  }
+
+  if (!response.body) {
+    // Non-streaming response despite correct content-type — parse as JSON
+    try {
+      const data = await response.json();
+      const text = extractA2aText(data?.result || data);
+      if (text) onChunk(text);
+      onDone();
+    } catch {
+      onError('Failed to parse A2A streaming response.');
+    }
+    return;
+  }
+
+  // Read SSE events
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let lastText = '';
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop();
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith(':')) continue;
+        if (!trimmed.startsWith('data: ')) continue;
+
+        const event = parseA2aSseTaskEvent(trimmed.slice(6));
+        if (!event) continue;
+
+        const state = event.status?.state || event.state || '';
+
+        // Extract intermediate text from status.message or artifacts
+        const eventText = extractA2aText(event);
+        if (eventText && eventText !== lastText) {
+          onChunk(eventText);
+          lastText = eventText;
+        }
+
+        if (state === 'failed') {
+          const errorMsg = extractA2aText(event.status) || 'A2A task failed.';
+          onError(errorMsg);
+          return;
+        }
+
+        if (event.final === true || isA2aSseTerminalState(state)) {
+          onDone();
+          return;
+        }
+      }
+    }
+    // Stream ended without terminal event
+    onDone();
+  } catch (err) {
+    onError(err?.message || 'A2A stream interrupted.');
+  }
 }
 
 function validateCopilotDeviceFlowResponse(data) {
@@ -1963,8 +2186,14 @@ Object.assign(globalThis, {
   getA2aServerIdFromProviderType,
   buildA2aToolSchemas,
   delegateA2aTask,
+  delegateA2aTaskStreaming,
   discoverA2aServer,
   removeA2aServer,
+  cancelA2aTask,
+  checkA2aHealth,
+  // A2A RPC error classification
+  createA2aRpcError,
+  classifyA2aRpcError,
   // Copilot auth
   clearCopilotAuth,
   getCopilotAccessToken,

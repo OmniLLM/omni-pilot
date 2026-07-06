@@ -1488,7 +1488,8 @@ async function assertA2aDiscoveryFetchesAgentCardWithBearerToken() {
       a2aServerTokens: { planner: 'secret-token' }
     },
     fetchImpl: async (url, options) => {
-      if (url === 'https://planner.example/.well-known/agent.json') {
+      // agent-card.json is tried first (Omni Agent Hub convention)
+      if (url === 'https://planner.example/.well-known/agent-card.json') {
         return {
           ok: true,
           json: async () => ({
@@ -1497,6 +1498,10 @@ async function assertA2aDiscoveryFetchesAgentCardWithBearerToken() {
             url: 'https://planner.example/a2a'
           })
         };
+      }
+      // Other discovery URLs should not be tried when agent-card.json succeeds
+      if (url.includes('.well-known/')) {
+        return { ok: false, status: 404, json: async () => ({}) };
       }
       throw new Error(`Unexpected fetch ${url}`);
     }
@@ -1510,7 +1515,7 @@ async function assertA2aDiscoveryFetchesAgentCardWithBearerToken() {
     url: 'https://planner.example/a2a'
   });
   assert.strictEqual(requests.length, 1);
-  assert.strictEqual(requests[0].url, 'https://planner.example/.well-known/agent.json');
+  assert.strictEqual(requests[0].url, 'https://planner.example/.well-known/agent-card.json');
   assert.strictEqual(requests[0].options.headers.Authorization, 'Bearer secret-token');
 }
 
@@ -1523,13 +1528,16 @@ async function assertA2aDiscoveryFallsBackToEndpointAgentCard() {
       a2aServerTokens: { planner: 'secret-token' }
     },
     fetchImpl: async (url, options) => {
-      if (url === 'https://planner.example/.well-known/agent.json') {
-        return {
-          ok: false,
-          status: 404,
-          json: async () => ({})
-        };
+      // Origin-level URLs (agent-card.json and agent.json) fail
+      if (url === 'https://planner.example/.well-known/agent-card.json'
+        || url === 'https://planner.example/.well-known/agent.json') {
+        return { ok: false, status: 404, json: async () => ({}) };
       }
+      // Endpoint-level agent-card.json also fails
+      if (url === 'https://planner.example/a2a/.well-known/agent-card.json') {
+        return { ok: false, status: 404, json: async () => ({}) };
+      }
+      // Endpoint-level agent.json succeeds (last resort)
       if (url === 'https://planner.example/a2a/.well-known/agent.json') {
         return {
           ok: true,
@@ -1551,12 +1559,17 @@ async function assertA2aDiscoveryFallsBackToEndpointAgentCard() {
     description: 'Fallback card',
     url: 'https://planner.example/a2a'
   });
+  // Now tries agent-card.json at origin, agent.json at origin, agent-card.json at endpoint, agent.json at endpoint
   assert.deepStrictEqual(requests.map(request => request.url), [
+    'https://planner.example/.well-known/agent-card.json',
     'https://planner.example/.well-known/agent.json',
+    'https://planner.example/a2a/.well-known/agent-card.json',
     'https://planner.example/a2a/.well-known/agent.json'
   ]);
-  assert.strictEqual(requests[0].options.headers.Authorization, 'Bearer secret-token');
-  assert.strictEqual(requests[1].options.headers.Authorization, 'Bearer secret-token');
+  // All attempts carry the bearer token
+  for (const req of requests) {
+    assert.strictEqual(req.options.headers.Authorization, 'Bearer secret-token');
+  }
 }
 
 async function assertRemoveA2aServerRemovesLocalTokenOnlyForThatServer() {
@@ -1883,7 +1896,7 @@ async function assertA2aDelegateTaskDiscoversRpcUrlAfterBaseEndpoint404() {
       if (url === 'https://planner.example/message:send') {
         return { ok: false, status: 404, text: async () => 'not found' };
       }
-      if (url === 'https://planner.example/.well-known/agent.json') {
+      if (url === 'https://planner.example/.well-known/agent-card.json') {
         return {
           ok: true,
           json: async () => ({ name: 'Planner Agent', url: 'https://planner.example/a2a' })
@@ -1910,6 +1923,10 @@ async function assertA2aDelegateTaskDiscoversRpcUrlAfterBaseEndpoint404() {
           };
         }
       }
+      // Other well-known URLs return 404
+      if (url.includes('.well-known/')) {
+        return { ok: false, status: 404, json: async () => ({}) };
+      }
       throw new Error(`Unexpected fetch ${url}`);
     }
   });
@@ -1925,7 +1942,7 @@ async function assertA2aDelegateTaskDiscoversRpcUrlAfterBaseEndpoint404() {
   assert.deepStrictEqual(requests.map(request => request.url), [
     'https://planner.example',
     'https://planner.example/message:send',
-    'https://planner.example/.well-known/agent.json',
+    'https://planner.example/.well-known/agent-card.json',
     'https://planner.example/a2a',
     'https://planner.example/a2a'
   ]);
@@ -3194,18 +3211,23 @@ async function assertAutoRouteRefreshesSparseCachedAgentCard() {
       a2aServerTokens: { cloudbot: 'server-token' }
     },
     fetchImpl: async (url) => {
-      if (url === 'https://cloudbot.example/a2a/.well-known/agent.json'
-        || url === 'https://cloudbot.example/.well-known/agent.json') {
-        return {
-          ok: true,
-          json: async () => ({
-            name: 'CloudBot',
-            description: 'Cloud operations agent.',
-            skills: [
-              { id: 'alibaba', name: 'Alibaba Cloud', description: 'Query Alibaba Cloud ECS instances and VMs.', tags: ['alibaba', 'ecs', 'vm'] }
-            ]
-          })
-        };
+      if (url.includes('.well-known/')) {
+        if (url === 'https://cloudbot.example/.well-known/agent-card.json'
+          || url === 'https://cloudbot.example/a2a/.well-known/agent-card.json'
+          || url === 'https://cloudbot.example/a2a/.well-known/agent.json'
+          || url === 'https://cloudbot.example/.well-known/agent.json') {
+          return {
+            ok: true,
+            json: async () => ({
+              name: 'CloudBot',
+              description: 'Cloud operations agent.',
+              skills: [
+                { id: 'alibaba', name: 'Alibaba Cloud', description: 'Query Alibaba Cloud ECS instances and VMs.', tags: ['alibaba', 'ecs', 'vm'] }
+              ]
+            })
+          };
+        }
+        return { ok: false, status: 404, json: async () => ({}) };
       }
       if (url === 'https://cloudbot.example/a2a') {
         return { ok: true, json: async () => ({ result: { message: { parts: [{ type: 'text', text: '11053 Alibaba VMs' }] } } }) };
@@ -3232,7 +3254,7 @@ async function assertAutoRouteRefreshesSparseCachedAgentCard() {
   const result = await context.handleAIChat([{ role: 'user', content: 'how many VMs in Alibaba' }]);
 
   assert.strictEqual(result, '11053 Alibaba VMs');
-  assert.ok(requests.some(r => /\.well-known\/agent\.json/.test(r.url)), 'should refresh sparse cached agent cards');
+  assert.ok(requests.some(r => /\.well-known\/agent(-card)?\.json/.test(r.url)), 'should refresh sparse cached agent cards');
   assert.ok(requests.some(r => r.url === 'https://custom.example/v1/chat/completions'), 'should let the model choose from refreshed A2A tools');
   assert.ok(requests.some(r => r.url === 'https://cloudbot.example/a2a'), 'should delegate after the model selects a refreshed skill tool');
 }
@@ -3251,16 +3273,21 @@ async function assertAutoRouteDiscoversAgentCardOnDemand() {
       a2aServerTokens: { cloudbot: 'server-token' }
     },
     fetchImpl: async (url) => {
-      if (url === 'https://cloudbot.example/a2a/.well-known/agent.json'
-        || url === 'https://cloudbot.example/.well-known/agent.json') {
-        return {
-          ok: true,
-          json: async () => ({
-            name: 'CloudBot',
-            description: 'Cloud operations agent.',
-            skills: [{ id: 'aws', name: 'AWS', description: 'Query AWS resources.' }]
-          })
-        };
+      if (url.includes('.well-known/')) {
+        if (url === 'https://cloudbot.example/.well-known/agent-card.json'
+          || url === 'https://cloudbot.example/a2a/.well-known/agent-card.json'
+          || url === 'https://cloudbot.example/a2a/.well-known/agent.json'
+          || url === 'https://cloudbot.example/.well-known/agent.json') {
+          return {
+            ok: true,
+            json: async () => ({
+              name: 'CloudBot',
+              description: 'Cloud operations agent.',
+              skills: [{ id: 'aws', name: 'AWS', description: 'Query AWS resources.' }]
+            })
+          };
+        }
+        return { ok: false, status: 404, json: async () => ({}) };
       }
       if (url === 'https://custom.example/v1/chat/completions') {
         return { ok: true, json: async () => RESPONSE_BY_SHAPE['openai-compatible'] };
@@ -3275,7 +3302,7 @@ async function assertAutoRouteDiscoversAgentCardOnDemand() {
   assert.ok(llmRequest, 'should still reach the LLM');
   const body = JSON.parse(llmRequest.options.body);
   assert.ok(Array.isArray(body.tools) && body.tools.length >= 1, 'auto-discovery should inject tools even without a cached agent card');
-  assert.ok(requests.some(r => /\.well-known\/agent\.json/.test(r.url)), 'should have fetched the agent card on demand');
+  assert.ok(requests.some(r => /\.well-known\/agent(-card)?\.json/.test(r.url)), 'should have fetched the agent card on demand');
 }
 
 async function assertSummarizePageActionPromptExists() {

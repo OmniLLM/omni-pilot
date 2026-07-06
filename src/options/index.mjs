@@ -367,15 +367,56 @@ function renderA2aServers(serverList = a2aServers) {
   list.innerHTML = normalizedList.map(server => `
     <div class="a2a-server-item" data-server-id="${escapeHtml(server.id)}">
       <div class="a2a-server-meta">
-        <div class="a2a-server-name">${escapeHtml(server.name)}</div>
+        <div class="a2a-server-name">
+          <span class="a2a-health-dot" data-health-for="${escapeHtml(server.id)}" title="Checking…"></span>
+          ${escapeHtml(server.name)}
+        </div>
         <div class="a2a-server-endpoint">${escapeHtml(server.endpoint)}</div>
       </div>
       <div class="a2a-server-actions">
+        <button type="button" class="secondary-btn" data-action="health" data-server-id="${escapeHtml(server.id)}" data-endpoint="${escapeHtml(server.endpoint)}">Health</button>
         <button type="button" class="secondary-btn" data-action="discover" data-server-id="${escapeHtml(server.id)}">${escapeHtml(label('discover'))}</button>
         <button type="button" class="secondary-btn" data-action="remove" data-server-id="${escapeHtml(server.id)}">${escapeHtml(label('remove'))}</button>
       </div>
     </div>
   `).join('');
+  // Auto-check health for all listed servers (fire-and-forget, no render block)
+  for (const server of normalizedList) {
+    checkA2aServerHealth(server.id, server.endpoint).catch(() => {});
+  }
+}
+
+async function checkA2aServerHealth(serverId, endpoint) {
+  if (typeof document?.querySelector !== 'function') return;
+  const dot = document.querySelector(`.a2a-health-dot[data-health-for="${serverId}"]`);
+  if (!dot) return;
+  dot.className = 'a2a-health-dot checking';
+  dot.title = 'Checking…';
+
+  try {
+    const response = await new Promise((resolve, reject) => {
+      try {
+        chrome.runtime.sendMessage({ type: 'A2A_HEALTH_CHECK', endpoint }, result => {
+          if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
+          else resolve(result);
+        });
+      } catch (err) {
+        reject(err);
+      }
+    });
+
+    if (response?.success && response.health?.status === 'ok') {
+      const upstreams = response.health.upstreams || {};
+      dot.className = 'a2a-health-dot healthy';
+      dot.title = `Healthy — ${upstreams.healthy || 0}/${upstreams.total || 0} upstreams`;
+    } else {
+      dot.className = 'a2a-health-dot unhealthy';
+      dot.title = 'Unhealthy or unreachable';
+    }
+  } catch {
+    dot.className = 'a2a-health-dot unhealthy';
+    dot.title = 'Health check failed';
+  }
 }
 
 async function addA2aServerFromForm() {
@@ -874,6 +915,9 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     } else if (button.getAttribute('data-action') === 'remove') {
       removeA2aServer(serverId);
+    } else if (button.getAttribute('data-action') === 'health') {
+      const endpoint = button.getAttribute('data-endpoint');
+      checkA2aServerHealth(serverId, endpoint);
     }
   });
   document.getElementById('languageSelect').addEventListener('change', () => {
@@ -952,6 +996,7 @@ Object.assign(globalThis, {
   startCopilotAuth,
   addA2aServerFromForm,
   renderA2aServers,
-  discoverAndSaveA2aServer
+  discoverAndSaveA2aServer,
+  checkA2aServerHealth
 });
 
