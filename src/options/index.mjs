@@ -282,10 +282,74 @@ function normalizeA2aServers(servers) {
         id: String(server.id || '').trim() || createA2aServerId(),
         name,
         endpoint,
-        enabled: server.enabled !== false
+        enabled: server.enabled !== false,
+        disabledSkillIds: Array.from(new Set(
+          Array.isArray(server.disabledSkillIds)
+            ? server.disabledSkillIds.map(v => String(v || '').trim()).filter(Boolean)
+            : []
+        ))
       };
     })
     .filter(Boolean);
+}
+
+// ── Per-skill enable/disable helpers ──
+
+/** Ephemeral set tracking which server skill panels are expanded in the UI. */
+const expandedA2aSkillPanels = new Set();
+
+/** Return all valid skills from an A2A server's discovered agent card. */
+function getA2aServerSkills(server) {
+  return Array.isArray(server?.agentCard?.skills)
+    ? server.agentCard.skills.filter(skill => skill && typeof skill === 'object' && (skill.id || skill.name))
+    : [];
+}
+
+/** Check whether a specific skill is enabled for a server. */
+function isA2aSkillEnabled(server, skillId) {
+  const disabled = new Set(server.disabledSkillIds || []);
+  return !disabled.has(String(skillId || ''));
+}
+
+/** Toggle a single skill's enabled state and persist immediately. */
+async function setA2aSkillEnabled(serverId, skillId, enabled) {
+  let changed = false;
+  a2aServers = a2aServers.map(server => {
+    if (server.id !== serverId) return server;
+    const disabled = new Set(server.disabledSkillIds || []);
+    const wasEnabled = !disabled.has(skillId);
+    if (wasEnabled === enabled) return server;
+    changed = true;
+    if (enabled) disabled.delete(skillId);
+    else disabled.add(skillId);
+    return { ...server, disabledSkillIds: [...disabled] };
+  });
+  if (!changed) return;
+  await saveA2aServers();
+  renderA2aServers();
+}
+
+/** Enable or disable all skills for a server at once. */
+async function setAllA2aSkillsEnabled(serverId, enabled) {
+  let changed = false;
+  a2aServers = a2aServers.map(server => {
+    if (server.id !== serverId) return server;
+    const skills = getA2aServerSkills(server);
+    if (!skills.length) return server;
+    if (enabled) {
+      if (!server.disabledSkillIds?.length) return server;
+      changed = true;
+      return { ...server, disabledSkillIds: [] };
+    }
+    const allIds = skills.map(s => String(s.id || s.name));
+    const disabled = new Set(server.disabledSkillIds || []);
+    if (allIds.every(id => disabled.has(id))) return server;
+    changed = true;
+    return { ...server, disabledSkillIds: allIds };
+  });
+  if (!changed) return;
+  await saveA2aServers();
+  renderA2aServers();
 }
 
 function escapeHtml(value) {
@@ -368,6 +432,52 @@ function renderA2aServers(serverList = a2aServers) {
     const disabled = server.enabled === false;
     const toggleAction = disabled ? 'enable' : 'disable';
     const toggleLabel = disabled ? label('enable') : label('disable');
+
+    // Build skill controls section
+    const skills = getA2aServerSkills(server);
+    const panelExpanded = expandedA2aSkillPanels.has(server.id);
+    let skillControlsHtml = '';
+    if (server.agentCard && skills.length > 0) {
+      const disabledSet = new Set(server.disabledSkillIds || []);
+      const enabledCount = skills.filter(s => !disabledSet.has(String(s.id || s.name))).length;
+      const toggleBtnLabel = panelExpanded ? 'Hide' : 'Show';
+      const skillRows = skills.map(skill => {
+        const sid = String(skill.id || skill.name);
+        const checked = !disabledSet.has(sid);
+        const displayName = escapeHtml(skill.name || skill.id || '');
+        const showId = skill.name && skill.id && skill.name !== skill.id;
+        const desc = skill.description ? escapeHtml(skill.description.slice(0, 120)) : '';
+        return `
+          <label class="a2a-skill-row">
+            <input type="checkbox" ${checked ? 'checked' : ''} data-skill-toggle data-server-id="${escapeHtml(server.id)}" data-skill-id="${escapeHtml(sid)}">
+            <span class="a2a-skill-meta">
+              <span class="a2a-skill-name">${displayName}</span>
+              ${showId ? `<span class="a2a-skill-id">${escapeHtml(skill.id)}</span>` : ''}
+              ${desc ? `<span class="a2a-skill-desc">${desc}</span>` : ''}
+            </span>
+          </label>`;
+      }).join('');
+
+      skillControlsHtml = `
+      <div class="a2a-skill-controls">
+        <div class="a2a-skill-summary-row">
+          <span class="a2a-skill-summary">Skills: ${enabledCount} of ${skills.length} enabled</span>
+          <button type="button" class="a2a-skill-toggle-btn" data-action="toggle-skills-panel" data-server-id="${escapeHtml(server.id)}">${toggleBtnLabel}</button>
+        </div>
+        ${panelExpanded ? `
+        <div class="a2a-skill-panel">
+          <div class="a2a-skill-list">${skillRows}</div>
+          <div class="a2a-skill-actions">
+            <button type="button" class="a2a-skill-toggle-btn" data-action="enable-all-skills" data-server-id="${escapeHtml(server.id)}">Enable all</button>
+            <button type="button" class="a2a-skill-toggle-btn" data-action="disable-all-skills" data-server-id="${escapeHtml(server.id)}">Disable all</button>
+          </div>
+          ${enabledCount === 0 ? '<div class="a2a-skill-hint">No skills enabled — this agent will not expose any tools.</div>' : ''}
+        </div>` : ''}
+      </div>`;
+    } else if (server.agentCard && skills.length === 0) {
+      skillControlsHtml = `<div class="a2a-skill-controls"><span class="a2a-skill-summary">No skills discovered</span></div>`;
+    }
+
     return `
     <div class="a2a-server-item${disabled ? ' disabled' : ''}" data-server-id="${escapeHtml(server.id)}">
       <div class="a2a-server-meta">
@@ -385,6 +495,7 @@ function renderA2aServers(serverList = a2aServers) {
         <button type="button" class="secondary-btn" data-action="discover" data-server-id="${escapeHtml(server.id)}">${escapeHtml(label('discover'))}</button>
         <button type="button" class="secondary-btn" data-action="remove" data-server-id="${escapeHtml(server.id)}">${escapeHtml(label('remove'))}</button>
       </div>
+      ${skillControlsHtml}
     </div>
   `;
   }).join('');
@@ -504,13 +615,24 @@ async function discoverAndSaveA2aServer(serverOrId) {
     throw new Error('A2A discovery returned an invalid agent card.');
   }
 
-  a2aServers = a2aServers.map(existing => existing.id === server.id ? {
-    ...existing,
-    name: agentCard.name || existing.name,
-    endpoint: normalizeA2aEndpoint(agentCard.endpoint || agentCard.url || existing.endpoint),
-    agentCard,
-    lastDiscoveredAt: new Date().toISOString()
-  } : existing);
+  a2aServers = a2aServers.map(existing => {
+    if (existing.id !== server.id) return existing;
+    // Reconcile disabledSkillIds: keep only IDs still present in the new card
+    const newSkillIds = new Set(
+      Array.isArray(agentCard.skills)
+        ? agentCard.skills.filter(s => s && typeof s === 'object').map(s => String(s.id || s.name || '')).filter(Boolean)
+        : []
+    );
+    const reconciledDisabled = (existing.disabledSkillIds || []).filter(id => newSkillIds.has(id));
+    return {
+      ...existing,
+      name: agentCard.name || existing.name,
+      endpoint: normalizeA2aEndpoint(agentCard.endpoint || agentCard.url || existing.endpoint),
+      agentCard,
+      disabledSkillIds: reconciledDisabled,
+      lastDiscoveredAt: new Date().toISOString()
+    };
+  });
   await saveA2aServers();
   renderA2aServers();
   return a2aServers.find(existing => existing.id === server.id);
@@ -1016,7 +1138,28 @@ document.addEventListener('DOMContentLoaded', () => {
       setA2aServerEnabled(serverId, true);
     } else if (button.getAttribute('data-action') === 'disable') {
       setA2aServerEnabled(serverId, false);
+    } else if (button.getAttribute('data-action') === 'toggle-skills-panel') {
+      if (expandedA2aSkillPanels.has(serverId)) {
+        expandedA2aSkillPanels.delete(serverId);
+      } else {
+        expandedA2aSkillPanels.add(serverId);
+      }
+      renderA2aServers();
+    } else if (button.getAttribute('data-action') === 'enable-all-skills') {
+      setAllA2aSkillsEnabled(serverId, true);
+    } else if (button.getAttribute('data-action') === 'disable-all-skills') {
+      setAllA2aSkillsEnabled(serverId, false);
     }
+  });
+  // Skill checkbox toggle (change event delegation)
+  document.getElementById('a2aServerList')?.addEventListener('change', event => {
+    const checkbox = event.target?.closest?.('[data-skill-toggle][data-server-id][data-skill-id]');
+    if (!checkbox) return;
+    setA2aSkillEnabled(
+      checkbox.getAttribute('data-server-id'),
+      checkbox.getAttribute('data-skill-id'),
+      Boolean(checkbox.checked)
+    );
   });
   document.getElementById('languageSelect').addEventListener('change', () => {
     const languagePreference = normalizeLanguage(document.getElementById('languageSelect').value);

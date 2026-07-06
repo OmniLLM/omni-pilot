@@ -659,6 +659,19 @@ function isHubCompositeCard(agentCard) {
   return namespaced > skills.length / 2;
 }
 
+// Return only enabled skills from an A2A server's agent card, filtering out
+// skills whose IDs appear in the server's disabledSkillIds array.
+function getEnabledA2aSkills(server) {
+  const disabled = new Set(Array.isArray(server?.disabledSkillIds) ? server.disabledSkillIds : []);
+  const skills = Array.isArray(server?.agentCard?.skills) ? server.agentCard.skills : [];
+  return skills.filter(skill =>
+    skill &&
+    typeof skill === 'object' &&
+    (skill.id || skill.name) &&
+    !disabled.has(String(skill.id || ''))
+  );
+}
+
 // Per agent-integration-guide.md §2, partition hub skills by flavour:
 //   - plugin:tool:* → individual typed tools (fast, structured)
 //   - skill:*, plugin:query:*, launcher:* → one meta-tool (slow/conversational)
@@ -756,9 +769,7 @@ function buildA2aToolSchemas(servers) {
 
   const schemas = [];
   for (const server of servers) {
-    const skills = Array.isArray(server.agentCard?.skills)
-      ? server.agentCard.skills.filter(skill => skill && typeof skill === 'object' && (skill.id || skill.name))
-      : [];
+    const skills = getEnabledA2aSkills(server);
 
     // Hub composite card: partition by flavour per agent-integration-guide.md §2
     if (skills.length && isHubCompositeCard(server.agentCard)) {

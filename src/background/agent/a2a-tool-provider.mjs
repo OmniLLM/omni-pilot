@@ -10,9 +10,7 @@ function registerA2aToolsInRegistry(registry, servers, options = {}) {
   const { getContextText } = options;
 
   for (const server of servers) {
-    const skills = Array.isArray(server.agentCard?.skills)
-      ? server.agentCard.skills.filter(skill => skill && typeof skill === 'object' && (skill.id || skill.name))
-      : [];
+    const skills = getEnabledA2aSkills(server);
 
     // Hub composite card: partition by flavour
     if (skills.length && isHubCompositeCard(server.agentCard)) {
