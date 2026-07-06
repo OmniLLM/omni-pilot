@@ -52,7 +52,20 @@ function createRunner({
       if (!response.ok) {
         const errorText = await response.text();
         if (round === 0 && isToolsUnsupportedError(response.status, errorText)) {
-          return executeApiRequest({ config, messages: session.messages, systemPrompt });
+          // Tools rejected by provider — retry without tools so the model
+          // can at least produce a text response. It won't be able to call
+          // the hub, but the user gets *some* answer instead of a 400.
+          safeEmit('provider.tools_unsupported', { status: response.status, body: errorText.slice(0, 200) });
+          try {
+            return await executeApiRequest({ config, messages: session.messages, systemPrompt });
+          } catch (fallbackErr) {
+            // Both attempts failed — surface a helpful error explaining that
+            // the current model/provider can't handle tool-augmented requests.
+            throw new Error(
+              `Provider rejected tools (${response.status}) and no-tools fallback also failed: ${fallbackErr?.message || fallbackErr}. `
+              + 'Try switching to a different model, or disable A2A auto-routing in settings.'
+            );
+          }
         }
         throwApiResponseError(response, errorText, built.requestUrl, apiShape, config.model);
       }
@@ -121,8 +134,11 @@ function createRunner({
         session.markDispatched(key);
         safeEmit('tool.dispatch', { toolName: call.toolName, serverId: tool.meta.serverId });
         try {
+          // Pass all parsed arguments — meta-tools (hub invoke_skill) need
+          // skill_id in addition to task; standard tools ignore extra fields.
+          const dispatchArgs = call.parsedArgs || { task: call.task };
           const text = await withA2aStatusHeartbeat(
-            toolRegistry.dispatch(call.toolName, { task: call.task }),
+            toolRegistry.dispatch(call.toolName, dispatchArgs),
             onStatus
           );
           const entry = buildSettledEntry(call, tool, text, null);

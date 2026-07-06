@@ -648,6 +648,98 @@ function buildA2aToolSchema({ serverId, skillId, skillName, skillDescription, sk
   };
 }
 
+// Detect whether an agent card is a hub-style composite card. A composite
+// card has skills whose IDs are namespaced (`upstream.capability`), which
+// distinguishes them from standalone A2A agents whose skills are un-namespaced.
+function isHubCompositeCard(agentCard) {
+  const skills = agentCard?.skills;
+  if (!Array.isArray(skills) || skills.length < 2) return false;
+  // A card is composite if a majority of its skills have namespaced IDs
+  const namespaced = skills.filter(s => String(s?.id || '').includes('.')).length;
+  return namespaced > skills.length / 2;
+}
+
+// Per agent-integration-guide.md §2, partition hub skills by flavour:
+//   - plugin:tool:* → individual typed tools (fast, structured)
+//   - skill:*, plugin:query:*, launcher:* → one meta-tool (slow/conversational)
+//
+// However, even plugin:tool:* can have dozens of entries. To keep the tool
+// count minimal (browser-extension-friendly, works across all Copilot
+// models), we register only the highest-value plugin:tools individually.
+// Everything else rolls into the meta-tool.
+const HUB_INDIVIDUAL_PLUGIN_TOOLS = new Set([
+  'calculator',
+  'web_search',
+  'web_fetch'
+]);
+
+function partitionHubSkills(skills) {
+  const pluginTools = [];
+  const metaSkills = [];
+  for (const skill of skills) {
+    if (!skill || typeof skill !== 'object') continue;
+    const id = String(skill.id || skill.name || '');
+    const cap = id.split('.').slice(1).join('.');
+    if (cap.startsWith('plugin:tool:')) {
+      // Only register high-value tools individually; rest go to meta
+      const toolSuffix = cap.replace('plugin:tool:', '');
+      if (HUB_INDIVIDUAL_PLUGIN_TOOLS.has(toolSuffix)) {
+        pluginTools.push(skill);
+      } else {
+        metaSkills.push(skill);
+      }
+    } else {
+      metaSkills.push(skill);
+    }
+  }
+  return { pluginTools, metaSkills };
+}
+
+function buildHubMetaToolParameters(metaSkills) {
+  const skillEnum = metaSkills.map(s => String(s.id || s.name)).filter(Boolean);
+  // Truncate skill descriptions aggressively to keep the total parameter
+  // description under ~2KB. Some LLM providers (e.g. Copilot with claude
+  // haiku) 400 on huge tool schemas without any useful error message.
+  const skillDescriptions = metaSkills
+    .map(s => `- ${s.id || s.name}: ${(s.description || '').slice(0, 80)}`)
+    .join('\n')
+    .slice(0, 2000);
+  return {
+    type: 'object',
+    properties: {
+      skill_id: {
+        type: 'string',
+        description: `Full skill id from the hub agent card. Examples:\n${skillDescriptions}`,
+        enum: skillEnum.length <= 40 ? skillEnum : undefined
+      },
+      task: {
+        type: 'string',
+        description: 'Natural-language description of what you want the skill to do.'
+      }
+    },
+    required: ['skill_id', 'task'],
+    additionalProperties: false
+  };
+}
+
+function buildHubMetaToolDescription(server, metaSkills) {
+  const card = server.agentCard || {};
+  const agentName = card.name || server.name || server.id;
+  const lines = [
+    `Delegate a task to a named skill on the "${agentName}" hub.`,
+    'Use for domain-specific workflows (cloud queries, formatting, external service lookups, translations, web searches).',
+    'The skill may respond with a clarifying question — treat that as needing more info from the user before you follow up.',
+    `Available categories: ${[...new Set(metaSkills.map(s => {
+      const cap = String(s.id || '').split('.').slice(1).join('.');
+      if (cap.startsWith('skill:')) return 'skill';
+      if (cap.startsWith('plugin:query:')) return 'query-plugin';
+      if (cap.startsWith('launcher:')) return 'launcher';
+      return 'other';
+    }))].join(', ')}.`
+  ];
+  return lines.filter(Boolean).join('\n').slice(0, A2A_TOOL_DESCRIPTION_MAX_LEN);
+}
+
 function buildA2aToolSchemas(servers) {
   const usedNames = new Set();
 
@@ -668,6 +760,58 @@ function buildA2aToolSchemas(servers) {
       ? server.agentCard.skills.filter(skill => skill && typeof skill === 'object' && (skill.id || skill.name))
       : [];
 
+    // Hub composite card: partition by flavour per agent-integration-guide.md §2
+    if (skills.length && isHubCompositeCard(server.agentCard)) {
+      const { pluginTools, metaSkills } = partitionHubSkills(skills);
+
+      // Register each plugin:tool:* as its own typed tool
+      for (const skill of pluginTools) {
+        const skillId = String(skill.id || skill.name);
+        schemas.push(buildA2aToolSchema({
+          serverId: server.id,
+          skillId,
+          skillName: skill.name || skill.id || '',
+          skillDescription: skill.description || '',
+          skillTags: Array.isArray(skill.tags) ? skill.tags : [],
+          name: uniqueName(buildA2aToolName(server.id, skillId)),
+          description: buildA2aSkillToolDescription(server, skill)
+        }));
+      }
+
+      // Register all skill:*/plugin:query:*/launcher:* as ONE meta-tool
+      if (metaSkills.length) {
+        const metaName = uniqueName(buildA2aToolName(server.id, 'invoke_skill'));
+        const metaParams = buildHubMetaToolParameters(metaSkills);
+        schemas.push({
+          serverId: server.id,
+          skillId: null,
+          skillName: '',
+          skillDescription: '',
+          skillTags: [],
+          name: metaName,
+          isHubMetaTool: true,
+          hubMetaSkills: metaSkills,
+          openAIChat: {
+            type: 'function',
+            function: { name: metaName, description: buildHubMetaToolDescription(server, metaSkills), parameters: metaParams }
+          },
+          anthropic: {
+            name: metaName,
+            description: buildHubMetaToolDescription(server, metaSkills),
+            input_schema: metaParams
+          },
+          openAIResponses: {
+            type: 'function',
+            name: metaName,
+            description: buildHubMetaToolDescription(server, metaSkills),
+            parameters: metaParams
+          }
+        });
+      }
+      continue;
+    }
+
+    // Standalone A2A agent: one tool per skill (existing behavior)
     if (skills.length) {
       for (const skill of skills) {
         const skillId = String(skill.id || skill.name);
@@ -696,9 +840,23 @@ function buildA2aToolSchemas(servers) {
 function buildA2aRoutingSystemPrompt(systemPrompt) {
   return `${systemPrompt}
 
-You have access to registered A2A agent tools. Each registered tool is backed by an A2A agent card and may represent either the agent itself or one of its discovered skills. Tool descriptions include the registered agent name, skill name, description, capabilities, and tags.
+TOOL ROUTING (MANDATORY):
 
-Before answering from your own knowledge, compare the latest user prompt against the registered A2A agents, skills, tool descriptions, capabilities, and tags. Treat the user prompt as potentially compound — if it mentions multiple distinct topics, subjects, providers, or services, and each maps to a different registered A2A skill or tool, you MUST call every matched tool in the same turn (parallel tool calls). Emit one tool call per matched skill. In the "task" argument of each call, pass the portion of the user's request that pertains to that specific skill; if the topic-per-skill split is unclear, pass the user's full request verbatim. Example: for "how many VMs in Alibaba and Azure" with both an alibaba tool and an azure tool registered, emit exactly two tool calls in the same turn — one to the alibaba tool with task "how many VMs in Alibaba" and one to the azure tool with task "how many VMs in Azure". When both a specific skill tool and its generic agent tool match, prefer the specific skill tool and do not also call the generic one. Do not answer locally when at least one registered A2A skill or tool clearly matches. If no registered A2A skill or tool is a clear match, answer normally without calling a tool.`;
+You have registered A2A tools available. Some tools are direct (one per skill). One special tool named "invoke_skill" is a meta-tool: it routes to any of many named skills on a hub. The invoke_skill tool's skill_id parameter enumerates every available skill_id — check that list before answering.
+
+RULES:
+1. For questions about cloud resources (aws, gcp, azure, alibaba, openstack, cloud VMs, buckets, functions, databases) → CALL invoke_skill with the matching skill_id (e.g. skill_id="omnilauncher.skill:gcp"). Do NOT say "let me search for a tool" — the tools are already registered and visible to you. Do NOT answer from your own knowledge.
+2. For directory/inventory queries (ldap, netbox, inventory, jira, tapestry) → CALL invoke_skill with the matching skill_id.
+3. For file, shell, or system operations → look for a direct tool first (calculator, web_search, web_fetch), otherwise CALL invoke_skill.
+4. When you call invoke_skill, you MUST supply BOTH: skill_id (exact ID from the enum in the parameter description) AND task (natural-language description of the request).
+5. Compound prompts ("VMs in aws AND azure") → emit multiple parallel tool calls, one per skill.
+6. Only answer without calling tools when no registered skill matches (e.g. general chat, definitions, opinions).
+
+EXAMPLE:
+- User: "how many VMs in gcp"
+- CORRECT: call invoke_skill with { skill_id: "omnilauncher.skill:gcp", task: "how many VMs in gcp" }
+- WRONG: "Let me search for a tool to query GCP" — you already HAVE the tool.
+- WRONG: "You have X VMs" — you don't know without calling the tool.`;
 }
 
 function getA2aToolsForApiShape(toolSchemas, apiShape) {
@@ -722,13 +880,17 @@ function extractA2aToolCallsFromOpenAIChat(data) {
   if (!Array.isArray(toolCalls)) return [];
   return toolCalls
     .filter(call => parseA2aToolName(call?.function?.name))
-    .map(call => ({
-      id: call.id || '',
-      toolName: call.function.name,
-      serverId: parseA2aToolName(call.function.name),
-      task: String(parseA2aToolCallArguments(call.function.arguments).task || '').trim(),
-      rawArguments: call.function.arguments
-    }));
+    .map(call => {
+      const parsedArgs = parseA2aToolCallArguments(call.function.arguments);
+      return {
+        id: call.id || '',
+        toolName: call.function.name,
+        serverId: parseA2aToolName(call.function.name),
+        task: String(parsedArgs.task || '').trim(),
+        parsedArgs,
+        rawArguments: call.function.arguments
+      };
+    });
 }
 
 function extractA2aToolCallsFromAnthropic(data) {
@@ -736,13 +898,17 @@ function extractA2aToolCallsFromAnthropic(data) {
   if (!Array.isArray(blocks)) return [];
   return blocks
     .filter(block => block?.type === 'tool_use' && parseA2aToolName(block.name))
-    .map(block => ({
-      id: block.id || '',
-      toolName: block.name,
-      serverId: parseA2aToolName(block.name),
-      task: String(parseA2aToolCallArguments(block.input).task || '').trim(),
-      rawInput: block.input
-    }));
+    .map(block => {
+      const parsedArgs = parseA2aToolCallArguments(block.input);
+      return {
+        id: block.id || '',
+        toolName: block.name,
+        serverId: parseA2aToolName(block.name),
+        task: String(parsedArgs.task || '').trim(),
+        parsedArgs,
+        rawInput: block.input
+      };
+    });
 }
 
 function extractA2aToolCallsFromResponses(data) {
@@ -750,13 +916,17 @@ function extractA2aToolCallsFromResponses(data) {
   if (!Array.isArray(output)) return [];
   return output
     .filter(item => ['function_call', 'tool_call'].includes(item?.type) && parseA2aToolName(item.name))
-    .map(item => ({
-      id: item.call_id || item.id || '',
-      toolName: item.name,
-      serverId: parseA2aToolName(item.name),
-      task: String(parseA2aToolCallArguments(item.arguments).task || '').trim(),
-      rawArguments: item.arguments
-    }));
+    .map(item => {
+      const parsedArgs = parseA2aToolCallArguments(item.arguments);
+      return {
+        id: item.call_id || item.id || '',
+        toolName: item.name,
+        serverId: parseA2aToolName(item.name),
+        task: String(parsedArgs.task || '').trim(),
+        parsedArgs,
+        rawArguments: item.arguments
+      };
+    });
 }
 
 function extractA2aToolCallsFromResponse(data, apiShape) {
@@ -1054,7 +1224,15 @@ function isModelNotSupportedError(status, errorText) {
 
 function isToolsUnsupportedError(status, errorText) {
   if (![400, 422].includes(status)) return false;
-  return /\btools?\b|tool_choice|function_call/i.test(String(errorText || ''));
+  // Explicit tool-related keywords in the error body
+  if (/\btools?\b|tool_choice|function_call/i.test(String(errorText || ''))) return true;
+  // Some providers (e.g. Copilot) return a bare "Bad Request" with no detail
+  // when they don't support the tools payload. If the body is generic/empty
+  // and the status is 400, treat it as a tools rejection so the runner can
+  // retry without tools.
+  const trimmed = String(errorText || '').trim();
+  if (status === 400 && (!trimmed || /^bad request\.?$/i.test(trimmed))) return true;
+  return false;
 }
 
 function throwApiResponseError(response, errorText, requestUrl, apiShape, model) {
@@ -1211,12 +1389,24 @@ function getA2aTaskId(task) {
 }
 
 function assertA2aTaskNotFailed(task) {
-  if (getA2aTaskState(task) !== 'failed') return task;
-  throw new Error(extractA2aText(task.status) || extractA2aText(task) || 'A2A task failed.');
+  const state = getA2aTaskState(task);
+  if (state === 'failed') {
+    throw new Error(extractA2aText(task.status) || extractA2aText(task) || 'A2A task failed.');
+  }
+  if (state === 'canceled') {
+    throw new Error('A2A task was canceled.');
+  }
+  return task;
 }
 
+function isA2aTaskTerminal(task) {
+  const state = getA2aTaskState(task);
+  return ['completed', 'input-required', 'canceled'].includes(state);
+}
+
+// Kept for backwards compatibility.
 function isA2aTaskComplete(task) {
-  return getA2aTaskState(task) === 'completed';
+  return isA2aTaskTerminal(task);
 }
 
 function createA2aHttpError(status, body = '') {
@@ -1427,6 +1617,16 @@ async function delegateA2aTask({ serverId, skillId, task, contextText, contextId
 
   const initial = await sendInitialA2aTask(server, task, contextText, skillId, contextId);
   const initialTask = initial.task;
+  const initialState = getA2aTaskState(initialTask);
+
+  // §6.4: handle all six terminal states from the hub
+  if (initialState === 'input-required') {
+    // The upstream asked a clarifying question — return the question text
+    // so the model can decide whether to answer autonomously or bubble up.
+    const questionText = extractA2aText(initialTask);
+    return questionText || 'The agent requires more information to proceed.';
+  }
+
   const immediateText = extractA2aText(initialTask);
   if (immediateText) return immediateText;
 
@@ -1466,7 +1666,7 @@ function parseA2aSseTaskEvent(jsonStr) {
 }
 
 function isA2aSseTerminalState(state) {
-  return ['completed', 'failed', 'canceled'].includes(state);
+  return ['completed', 'failed', 'canceled', 'input-required'].includes(state);
 }
 
 async function delegateA2aTaskStreaming({ serverId, skillId, task, contextText, contextId, onChunk, onDone, onError }) {
