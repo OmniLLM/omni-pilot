@@ -45,6 +45,20 @@ async function hubRpc(method, params, { expectError = false } = {}) {
   return payload.result;
 }
 
+// Poll tasks/get until the task reaches a terminal state (completed/failed/canceled).
+// A2A `message/send` returns immediately with state="working"; the client must poll.
+async function pollUntilDone(taskId, { timeoutMs = 30000, intervalMs = 500 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  let last = null;
+  while (Date.now() < deadline) {
+    last = await hubRpc('tasks/get', { id: taskId });
+    const state = last?.status?.state;
+    if (state === 'completed' || state === 'failed' || state === 'canceled') return last;
+    await new Promise(r => setTimeout(r, intervalMs));
+  }
+  throw new Error(`Task ${taskId} did not complete within ${timeoutMs}ms (last state: ${last?.status?.state})`);
+}
+
 function makeMessage(text, skillId, contextId) {
   const params = {
     message: {
@@ -153,13 +167,15 @@ async function testSkillFlavourSplit() {
 }
 
 async function testPluginToolCalculator() {
-  // §4: message/send with a plugin:tool:* call — should be fast, typed args
-  const task = await hubRpc('message/send', makeDataMessage(
+  // §4: message/send with a plugin:tool:* call — A2A message/send is async;
+  // it returns state="working" immediately, then the client polls tasks/get.
+  const initial = await hubRpc('message/send', makeDataMessage(
     { expression: '123 * 456' },
     'omnilauncher.plugin:tool:calculator'
   ));
 
-  assert.ok(task.id, 'hub should return a task with id');
+  assert.ok(initial.id, 'hub should return a task with id');
+  const task = await pollUntilDone(initial.id);
   assert.strictEqual(task.status?.state, 'completed', `expected completed, got ${task.status?.state}`);
   const text = extractText(task);
   assert.ok(
@@ -170,13 +186,14 @@ async function testPluginToolCalculator() {
 }
 
 async function testPluginToolSysInfo() {
-  // Another plugin:tool:* test — sys_info
-  const task = await hubRpc('message/send', makeDataMessage(
+  // Another plugin:tool:* test — sys_info (async, poll for completion)
+  const initial = await hubRpc('message/send', makeDataMessage(
     { info_type: 'uptime' },
     'omnilauncher.plugin:tool:sys_info'
   ));
 
-  assert.ok(task.id, 'hub task id present');
+  assert.ok(initial.id, 'hub task id present');
+  const task = await pollUntilDone(initial.id);
   assert.strictEqual(task.status?.state, 'completed');
   const text = extractText(task);
   assert.ok(text.length > 5, `too short: "${text}"`);
