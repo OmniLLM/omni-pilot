@@ -44,7 +44,7 @@
       padding: 48px 20px 64px;
     }
 
-    .container { width: 100%; max-width: 440px; }
+    .container { width: 100%; max-width: 640px; }
 
     /* Header */
     .header {
@@ -393,6 +393,38 @@
       display: flex;
       gap: 6px;
       align-items: flex-start;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    /* A2A inline edit form */
+    .a2a-edit-form {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding: 12px;
+      background: var(--bg3);
+      border: 1px solid var(--accent);
+      border-radius: 8px;
+      box-shadow: 0 0 0 3px rgba(108,108,255,0.10);
+    }
+    .a2a-edit-form .field { margin-bottom: 0; }
+    .a2a-edit-form input {
+      background: var(--bg2);
+    }
+    .a2a-edit-actions {
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+    }
+    .a2a-edit-actions .secondary-btn.save-edit {
+      background: var(--accent);
+      color: #fff;
+      border-color: var(--accent);
+    }
+    .a2a-edit-actions .secondary-btn.save-edit:hover {
+      background: var(--accent-hover);
+      border-color: var(--accent-hover);
     }
 
     .edit-models-btn {

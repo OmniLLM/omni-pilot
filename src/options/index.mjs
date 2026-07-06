@@ -379,6 +379,7 @@ function renderA2aServers(serverList = a2aServers) {
         <div class="a2a-server-endpoint">${escapeHtml(server.endpoint)}</div>
       </div>
       <div class="a2a-server-actions">
+        <button type="button" class="secondary-btn" data-action="edit" data-server-id="${escapeHtml(server.id)}">${escapeHtml(label('edit'))}</button>
         <button type="button" class="secondary-btn" data-action="${toggleAction}" data-server-id="${escapeHtml(server.id)}">${escapeHtml(toggleLabel)}</button>
         <button type="button" class="secondary-btn" data-action="health" data-server-id="${escapeHtml(server.id)}" data-endpoint="${escapeHtml(server.endpoint)}">Health</button>
         <button type="button" class="secondary-btn" data-action="discover" data-server-id="${escapeHtml(server.id)}">${escapeHtml(label('discover'))}</button>
@@ -536,6 +537,69 @@ async function setA2aServerEnabled(serverId, enabled) {
   });
   if (!changed) return;
   await saveA2aServers();
+  renderA2aServers();
+}
+
+function startEditA2aServer(serverId) {
+  const server = a2aServers.find(s => s.id === serverId);
+  if (!server) return;
+  const token = a2aServerTokens[serverId] || '';
+  const item = document.querySelector(`.a2a-server-item[data-server-id="${serverId}"]`);
+  if (!item) return;
+  item.outerHTML = `
+    <div class="a2a-edit-form" data-server-id="${escapeHtml(serverId)}">
+      <div class="field">
+        <label>${escapeHtml(label('a2aServerName'))}</label>
+        <input type="text" class="a2a-edit-name" value="${escapeHtml(server.name)}">
+      </div>
+      <div class="field">
+        <label>${escapeHtml(label('a2aEndpoint'))}</label>
+        <input type="text" class="a2a-edit-endpoint" value="${escapeHtml(server.endpoint)}">
+      </div>
+      <div class="field">
+        <label>${escapeHtml(label('a2aToken'))}</label>
+        <input type="password" class="a2a-edit-token" value="${escapeHtml(token)}" placeholder="${escapeHtml(label('a2aTokenUnchanged'))}">
+      </div>
+      <div class="a2a-edit-actions">
+        <button type="button" class="secondary-btn" data-action="cancel-edit" data-server-id="${escapeHtml(serverId)}">${escapeHtml(label('cancel'))}</button>
+        <button type="button" class="secondary-btn save-edit" data-action="save-edit" data-server-id="${escapeHtml(serverId)}">${escapeHtml(label('save'))}</button>
+      </div>
+    </div>
+  `;
+}
+
+async function saveEditA2aServer(serverId) {
+  const form = document.querySelector(`.a2a-edit-form[data-server-id="${serverId}"]`);
+  if (!form) return;
+  const name = String(form.querySelector('.a2a-edit-name')?.value || '').trim();
+  const endpoint = normalizeA2aEndpoint(form.querySelector('.a2a-edit-endpoint')?.value);
+  const token = String(form.querySelector('.a2a-edit-token')?.value || '').trim();
+
+  if (!name || !endpoint) {
+    const status = document.getElementById('a2aStatus');
+    if (status) {
+      status.textContent = `${label('errorPrefix')} ${name ? 'A2A endpoint is required.' : 'A2A server name is required.'}`;
+      status.className = 'status error';
+    }
+    return;
+  }
+
+  a2aServers = a2aServers.map(server => {
+    if (server.id !== serverId) return server;
+    return { ...server, name, endpoint };
+  });
+  if (token) {
+    a2aServerTokens = { ...a2aServerTokens, [serverId]: token };
+  }
+  await saveA2aServers();
+  await saveA2aTokens();
+
+  const status = document.getElementById('a2aStatus');
+  if (status) {
+    status.textContent = label('saved');
+    status.className = 'status';
+    setTimeout(() => { if (status.textContent === label('saved')) status.textContent = ''; }, 2500);
+  }
   renderA2aServers();
 }
 
@@ -929,7 +993,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const button = event.target?.closest?.('[data-action][data-server-id]');
     if (!button) return;
     const serverId = button.getAttribute('data-server-id');
-    if (button.getAttribute('data-action') === 'discover') {
+    if (button.getAttribute('data-action') === 'edit') {
+      startEditA2aServer(serverId);
+    } else if (button.getAttribute('data-action') === 'save-edit') {
+      saveEditA2aServer(serverId);
+    } else if (button.getAttribute('data-action') === 'cancel-edit') {
+      renderA2aServers();
+    } else if (button.getAttribute('data-action') === 'discover') {
       discoverAndSaveA2aServer(serverId).catch(error => {
         const status = document.getElementById('a2aStatus');
         if (status) {
@@ -1026,6 +1096,8 @@ Object.assign(globalThis, {
   renderA2aServers,
   discoverAndSaveA2aServer,
   checkA2aServerHealth,
-  setA2aServerEnabled
+  setA2aServerEnabled,
+  startEditA2aServer,
+  saveEditA2aServer
 });
 
