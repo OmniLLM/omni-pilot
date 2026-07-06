@@ -1428,16 +1428,29 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
         return;
       }
       const parseRow = row => row.split('|').map(c => c.trim()).filter((c, i, a) => i > 0 && i < a.length);
+      const renderCell = cell => {
+        // Restore inline code placeholders that were extracted before the
+        // table was captured; escape everything else as plain text.
+        const parts = cell.split(/(__OP_INLINE_CODE_PLACEHOLDER_\d+__)/);
+        return parts.map(part => {
+          const m = part.match(/^__OP_INLINE_CODE_PLACEHOLDER_(\d+)__$/);
+          if (m) {
+            const code = inlineCodes[Number(m[1])];
+            return code !== undefined ? `<code>${escapeHtml(code)}</code>` : escapeHtml(part);
+          }
+          return escapeHtml(part);
+        }).join('');
+      };
       const headerCells = parseRow(rows[0]);
       const isSeparator = row => /^\|?[\s\-:|]+\|?$/.test(row);
       const dataStartIdx = isSeparator(rows[1]) ? 2 : 1;
       let tableHtml = '<table class="omnipilot-table"><thead><tr>';
-      headerCells.forEach(cell => { tableHtml += `<th>${escapeHtml(cell)}</th>`; });
+      headerCells.forEach(cell => { tableHtml += `<th>${renderCell(cell)}</th>`; });
       tableHtml += '</tr></thead><tbody>';
       for (let i = dataStartIdx; i < rows.length; i++) {
         const cells = parseRow(rows[i]);
         tableHtml += '<tr>';
-        cells.forEach(cell => { tableHtml += `<td>${escapeHtml(cell)}</td>`; });
+        cells.forEach(cell => { tableHtml += `<td>${renderCell(cell)}</td>`; });
         tableHtml += '</tr>';
       }
       tableHtml += '</tbody></table>';
