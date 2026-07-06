@@ -374,6 +374,7 @@ function renderA2aServers(serverList = a2aServers) {
         <div class="a2a-server-name">
           <span class="a2a-health-dot" data-health-for="${escapeHtml(server.id)}" title="Checking…"></span>
           ${escapeHtml(server.name)}
+          ${disabled ? `<span class="disabled-label">${escapeHtml(label('disabled'))}</span>` : ''}
         </div>
         <div class="a2a-server-endpoint">${escapeHtml(server.endpoint)}</div>
       </div>
