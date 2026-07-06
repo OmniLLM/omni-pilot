@@ -970,6 +970,25 @@ function getProvider(config) {
   return PROVIDERS[providerType] || PROVIDERS[PROVIDER_TYPES.CUSTOM];
 }
 
+// DRY helper: resolve the API key for any provider (Copilot OAuth or static key).
+// Returns { copilotToken } and mutates config.apiKey as a side-effect. Throws on
+// auth failure so callers get a consistent error message.
+async function requireApiKey(config) {
+  const provider = getProvider(config);
+  let copilotToken = '';
+  if (provider.usesCopilotAuth) {
+    try {
+      copilotToken = await getCopilotAccessToken();
+      config.apiKey = copilotToken;
+    } catch (e) {
+      throw new Error('GitHub Copilot authentication failed. Please re-authenticate in Settings.');
+    }
+  } else if (!config.apiKey) {
+    throw new Error('No API key configured. Click the OmniPilot icon to set up.');
+  }
+  return { copilotToken, provider };
+}
+
 async function activateStoredProvider(value) {
   const stored = await storageGet(STORAGE_KEYS, getConfigStorageArea());
   const providerType = normalizeProviderType(value, stored.authMethod);
@@ -2067,19 +2086,7 @@ function shouldAutoRouteA2a(config) {
 }
 
 async function executeApiRequestWithA2aRouting({ config, messages, systemPrompt, a2aServers, toolSchemas, onStatus, onEvent }) {
-  const provider = getProvider(config);
-  let copilotToken = '';
-
-  if (provider.usesCopilotAuth) {
-    try {
-      copilotToken = await getCopilotAccessToken();
-      config.apiKey = copilotToken;
-    } catch (e) {
-      throw new Error('GitHub Copilot authentication failed. Please re-authenticate in Settings.');
-    }
-  } else if (!config.apiKey) {
-    throw new Error('No API key configured. Click the OmniPilot icon to set up.');
-  }
+  const { copilotToken } = await requireApiKey(config);
 
   const session = createSession({ messages });
   const registry = createToolRegistry();
@@ -2134,19 +2141,7 @@ async function handleAIAction(action, text) {
 
 async function executeApiRequest({ config: preloadedConfig, messages, systemPrompt }) {
   const config = preloadedConfig || await loadConfig();
-  const provider = getProvider(config);
-  let copilotToken = '';
-
-  if (provider.usesCopilotAuth) {
-    try {
-      copilotToken = await getCopilotAccessToken();
-      config.apiKey = copilotToken;
-    } catch (e) {
-      throw new Error('GitHub Copilot authentication failed. Please re-authenticate in Settings.');
-    }
-  } else if (!config.apiKey) {
-    throw new Error('No API key configured. Click the OmniPilot icon to set up.');
-  }
+  const { copilotToken, provider } = await requireApiKey(config);
 
   return executeApiRequestWithConfig({ config, messages, systemPrompt, copilotToken, allowModelFallback: provider.usesCopilotAuth });
 }
@@ -2290,19 +2285,11 @@ function getStreamChunkParser(apiShape) {
 
 async function executeApiRequestStreaming({ config: preloadedConfig, messages, systemPrompt, onChunk, onDone, onError }) {
   const config = preloadedConfig || await loadConfig();
-  const provider = getProvider(config);
-  let copilotToken = '';
-
-  if (provider.usesCopilotAuth) {
-    try {
-      copilotToken = await getCopilotAccessToken();
-      config.apiKey = copilotToken;
-    } catch (e) {
-      onError('GitHub Copilot authentication failed. Please re-authenticate in Settings.');
-      return;
-    }
-  } else if (!config.apiKey) {
-    onError('No API key configured. Click the OmniPilot icon to set up.');
+  let copilotToken;
+  try {
+    ({ copilotToken } = await requireApiKey(config));
+  } catch (e) {
+    onError(e.message);
     return;
   }
 
@@ -2446,6 +2433,7 @@ Object.assign(globalThis, {
   handleAIChat,
   handleAIChatStreaming,
   handleGetModels,
+  requireApiKey,
   setupContextMenus,
   wait
 });

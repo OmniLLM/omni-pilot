@@ -44,13 +44,11 @@ function createTraceRecorder({
   async function persist(run) {
     if (typeof chrome === 'undefined' || !chrome.storage?.local?.set) return;
     try {
-      const stored = await new Promise(resolve =>
-        chrome.storage.local.get([TRACES_KEY], resolve));
+      const stored = await storageGet([TRACES_KEY], chrome.storage.local);
       const runs = Array.isArray(stored[TRACES_KEY]) ? stored[TRACES_KEY] : [];
       runs.push(run);
       while (runs.length > maxRuns) runs.shift();
-      await new Promise(resolve =>
-        chrome.storage.local.set({ [TRACES_KEY]: runs }, resolve));
+      await storageSet({ [TRACES_KEY]: runs }, chrome.storage.local);
     } catch (error) {
       console.warn('OmniPilot: failed to persist trace', error?.message || error);
     }
@@ -68,8 +66,7 @@ function createTraceRecorder({
   async function snapshot() {
     if (typeof chrome === 'undefined' || !chrome.storage?.local?.get) return [];
     try {
-      const stored = await new Promise(resolve =>
-        chrome.storage.local.get([TRACES_KEY], resolve));
+      const stored = await storageGet([TRACES_KEY], chrome.storage.local);
       const runs = Array.isArray(stored[TRACES_KEY]) ? stored[TRACES_KEY] : [];
       return JSON.parse(JSON.stringify(runs));
     } catch {
@@ -80,8 +77,7 @@ function createTraceRecorder({
   async function clear() {
     if (typeof chrome === 'undefined' || !chrome.storage?.local?.set) return;
     try {
-      await new Promise(resolve =>
-        chrome.storage.local.set({ [TRACES_KEY]: [] }, resolve));
+      await storageSet({ [TRACES_KEY]: [] }, chrome.storage.local);
     } catch (error) {
       console.warn('OmniPilot: failed to clear traces', error?.message || error);
     }

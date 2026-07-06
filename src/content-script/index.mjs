@@ -1482,7 +1482,7 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
   }
 
   function escapeHtml(str) {
-    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
   }
 
   // ── DOM Helpers (avoid innerHTML +=) ───────────────────────────────────────
@@ -1720,76 +1720,20 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
     }
   }
 
-  function streamAction(actionId, text, body) {
+  // ── Shared Streaming Infrastructure ────────────────────────────────────────
+  //
+  // createStreamPort extracts the common port lifecycle (connect, chunk/error/done
+  // listeners, abort, disconnect) shared by streamAction and streamChat.
+  // Options:
+  //   useWatchdog  — arm a watchdog timer that fires if no messages arrive within STREAM_WATCHDOG_MS
+  //   onStatus     — optional handler for 'status' messages (A2A delegation progress)
+
+  function createStreamPort(body, { useWatchdog = false, onStatus } = {}) {
     const runtime = globalThis.chrome?.runtime;
     if (!runtime?.connect) {
       body.querySelector('.omnipilot-loading')?.remove();
       body.appendChild(createErrorElement(label('extensionContextUnavailable')));
-      return;
-    }
-
-    abortController = new AbortController();
-    const signal = abortController.signal;
-
-    const port = runtime.connect({ name: 'omnipilot-stream' });
-    let accumulated = '';
-    let streamingMsg = null;
-    let streamMsgDiv = null;
-
-    port.onMessage.addListener(msg => {
-      if (signal.aborted) { try { port.disconnect(); } catch {} return; }
-
-      if (msg.type === 'chunk') {
-        if (!streamingMsg) {
-          body.querySelector('.omnipilot-loading')?.remove();
-          const created = createStreamingAssistantMessage();
-          streamingMsg = created.container;
-          streamMsgDiv = created.msgDiv;
-          body.appendChild(streamingMsg);
-        }
-        accumulated += msg.text;
-        streamMsgDiv.textContent = accumulated;
-        body.scrollTop = body.scrollHeight;
-      } else if (msg.type === 'error') {
-        body.querySelector('.omnipilot-loading')?.remove();
-        if (!accumulated) {
-          body.appendChild(createErrorElement(humanizeError(msg.error || label('unknownError'))));
-        }
-      } else if (msg.type === 'done') {
-        body.querySelector('.omnipilot-loading')?.remove();
-        if (accumulated && streamMsgDiv) {
-          finalizeStreamingMessage(streamMsgDiv);
-          conversationHistory.push({ role: 'assistant', content: accumulated });
-        } else if (!accumulated && !body.querySelector('.omnipilot-error')) {
-          body.appendChild(createErrorElement(label('noResponse')));
-        }
-        currentAction = '';
-        updatePanelMeta();
-        body.scrollTop = body.scrollHeight;
-        try { port.disconnect(); } catch {}
-      }
-    });
-
-    port.onDisconnect.addListener(() => {
-      if (!accumulated && !signal.aborted) {
-        body.querySelector('.omnipilot-loading')?.remove();
-        if (!body.querySelector('.omnipilot-error') && !body.querySelector('.omnipilot-msg-assistant')) {
-          body.appendChild(createErrorElement(label('noResponse')));
-        }
-        currentAction = '';
-        updatePanelMeta();
-      }
-    });
-
-    port.postMessage({ type: 'AI_ACTION_STREAM', action: actionId, text });
-  }
-
-  function streamChat(messages, body) {
-    const runtime = globalThis.chrome?.runtime;
-    if (!runtime?.connect) {
-      body.querySelector('.omnipilot-loading')?.remove();
-      body.appendChild(createErrorElement(label('extensionContextUnavailable')));
-      return;
+      return null;
     }
 
     abortController = new AbortController();
@@ -1801,17 +1745,13 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
     let streamMsgDiv = null;
     let settled = false;
 
-    // Watchdog: if the service worker is suspended or an A2A delegation hangs,
-    // the port can go quiet (or disconnect) without ever sending 'done'. Without
-    // this, the spinner would spin forever / vanish silently. Any message resets
-    // the timer, so long-but-alive streams and delegations are never cut short.
     let watchdog = null;
     function clearWatchdog() {
       if (watchdog !== null && typeof clearTimeout === 'function') clearTimeout(watchdog);
       watchdog = null;
     }
     function armWatchdog() {
-      if (typeof setTimeout !== 'function') return;
+      if (!useWatchdog || typeof setTimeout !== 'function') return;
       clearWatchdog();
       watchdog = setTimeout(() => {
         if (settled || signal.aborted) return;
@@ -1824,15 +1764,12 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
         updatePanelMeta();
         try { port.disconnect(); } catch {}
       }, STREAM_WATCHDOG_MS);
-      // A watchdog must never keep a process alive on its own. In the browser
-      // timer handles are numbers (no-op); under Node's test vm they expose
-      // unref(), so a leaked watchdog can't hold the event loop open.
       if (watchdog && typeof watchdog.unref === 'function') watchdog.unref();
     }
 
     port.onMessage.addListener(msg => {
       if (signal.aborted) { try { port.disconnect(); } catch {} return; }
-      armWatchdog();
+      if (useWatchdog) armWatchdog();
 
       if (msg.type === 'chunk') {
         if (!streamingMsg) {
@@ -1845,11 +1782,8 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
         accumulated += msg.text;
         streamMsgDiv.textContent = accumulated;
         body.scrollTop = body.scrollHeight;
-      } else if (msg.type === 'status') {
-        // Non-streaming step in progress (e.g. delegating to an A2A agent).
-        // Keep the spinner but relabel it so the wait is explained.
-        const loadingText = body.querySelector('.omnipilot-loading-text');
-        if (loadingText) loadingText.textContent = statusLabel(msg.status);
+      } else if (msg.type === 'status' && onStatus) {
+        onStatus(msg);
       } else if (msg.type === 'error') {
         removeLoadingIndicators(body);
         if (!accumulated) {
@@ -1876,15 +1810,8 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
       clearWatchdog();
       if (settled || signal.aborted) return;
       settled = true;
-      // Premature disconnect (worker died / crashed before 'done'). Previously
-      // this path silently removed the spinner and left the panel blank — the
-      // exact silent failure this fix targets. Surface an error instead. Judge
-      // "did this turn produce output?" from local state (accumulated /
-      // streamMsgDiv), never from body-wide selectors, which also match earlier
-      // turns' messages and would wrongly suppress this turn's error.
       removeLoadingIndicators(body);
       if (accumulated && streamMsgDiv) {
-        // Partial stream arrived, then the worker vanished: keep what we have.
         finalizeStreamingMessage(streamMsgDiv);
         conversationHistory.push({ role: 'assistant', content: accumulated });
       } else if (!body.querySelector('.omnipilot-error')) {
@@ -1894,6 +1821,24 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
       updatePanelMeta();
     });
 
+    return port;
+  }
+
+  function streamAction(actionId, text, body) {
+    const port = createStreamPort(body);
+    if (!port) return;
+    port.postMessage({ type: 'AI_ACTION_STREAM', action: actionId, text });
+  }
+
+  function streamChat(messages, body) {
+    const port = createStreamPort(body, {
+      useWatchdog: true,
+      onStatus: msg => {
+        const loadingText = body.querySelector('.omnipilot-loading-text');
+        if (loadingText) loadingText.textContent = statusLabel(msg.status);
+      }
+    });
+    if (!port) return;
     port.postMessage({ type: 'AI_CHAT_STREAM', messages });
   }
 
@@ -2107,11 +2052,15 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
     );
   }
 
-  globalThis.getProviderLabel = getProviderLabel;
-  globalThis.getProviderEntries = getProviderEntries;
-  globalThis.__omnipilotTestApi = {
-    getDropdownActionIds,
-    parseA2aMentionTask
-  };
+  // Expose test helpers only in vm sandbox (Node test runner), not in
+  // production where globalThis === window and these would leak to the page.
+  if (typeof window === 'undefined') {
+    globalThis.getProviderLabel = getProviderLabel;
+    globalThis.getProviderEntries = getProviderEntries;
+    globalThis.__omnipilotTestApi = {
+      getDropdownActionIds,
+      parseA2aMentionTask
+    };
+  }
 
 })();

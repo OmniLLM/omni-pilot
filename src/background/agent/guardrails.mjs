@@ -33,7 +33,7 @@ function createGuardrails({ mode = 'deny-list', denyDomains = [], servers = [] }
   function isDeniedDomain(server) {
     const host = domainOf(server);
     if (!host) return false;
-    return denyList.some(pattern => host === pattern || host.endsWith('.' + pattern) || host.endsWith(pattern));
+    return denyList.some(pattern => host === pattern || host.endsWith('.' + pattern));
   }
 
   function hasDestructiveTag(tool) {
@@ -67,13 +67,11 @@ function createGuardrails({ mode = 'deny-list', denyDomains = [], servers = [] }
   async function appendAudit(entry) {
     if (typeof chrome === 'undefined' || !chrome.storage?.local?.set) return;
     try {
-      const stored = await new Promise(resolve =>
-        chrome.storage.local.get([GUARDRAIL_AUDIT_KEY], resolve));
+      const stored = await storageGet([GUARDRAIL_AUDIT_KEY], chrome.storage.local);
       const log = Array.isArray(stored[GUARDRAIL_AUDIT_KEY]) ? stored[GUARDRAIL_AUDIT_KEY] : [];
       log.push(entry);
       while (log.length > GUARDRAIL_AUDIT_MAX_ENTRIES) log.shift();
-      await new Promise(resolve =>
-        chrome.storage.local.set({ [GUARDRAIL_AUDIT_KEY]: log }, resolve));
+      await storageSet({ [GUARDRAIL_AUDIT_KEY]: log }, chrome.storage.local);
     } catch (error) {
       console.warn('OmniPilot: failed to append guardrail audit', error?.message || error);
     }

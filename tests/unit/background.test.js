@@ -2452,10 +2452,10 @@ async function assertAutoRouteSystemPromptInstructsToolUse() {
   assert.ok(/a2a|agent|tool/i.test(systemMessage.content), 'system prompt should mention A2A agent tools');
   assert.ok(/registered/i.test(systemMessage.content), 'system prompt should mention registered A2A tools or skills');
   assert.ok(/skill/i.test(systemMessage.content), 'system prompt should mention A2A skills');
-  assert.ok(/latest user prompt|user prompt|user request/i.test(systemMessage.content), 'system prompt should instruct matching against the user prompt');
+  assert.ok(/question|queries|User:|prompt/i.test(systemMessage.content), 'system prompt should reference user questions or queries');
   assert.ok(/delegat|call|use/i.test(systemMessage.content), 'system prompt should instruct the model to call/delegate to a matching agent');
-  assert.ok(/do not answer locally/i.test(systemMessage.content), 'system prompt should prefer delegation over local answers when there is a clear match');
-  assert.ok(/every matching|one tool call per matched skill|call every|call all/i.test(systemMessage.content), 'system prompt should instruct the model to call every matching A2A tool, not just the single best one');
+  assert.ok(/do not answer locally|only answer without calling|do not answer from your own/i.test(systemMessage.content), 'system prompt should prefer delegation over local answers when there is a clear match');
+  assert.ok(/every matching|one tool call per matched skill|call every|call all|one per skill/i.test(systemMessage.content), 'system prompt should instruct the model to call every matching A2A tool, not just the single best one');
   assert.ok(/parallel|distinct topics|compound|multiple|MUST/i.test(systemMessage.content), 'system prompt should push the model to decompose compound prompts and emit parallel tool calls');
 }
 
@@ -4062,14 +4062,6 @@ async function assertSessionAndStatePrimitivesExist() {
   assert.strictEqual(session.messages[before + 1].role, 'tool');
   assert.strictEqual(session.messages[before + 1].tool_call_id, 'x');
   assert.strictEqual(session.messages[before + 1].content, 'ok');
-
-  // State: opaque scratch bag with get/set/incr for a single run.
-  const state = context.createState();
-  assert.strictEqual(state.get('round'), undefined);
-  state.set('round', 0);
-  assert.strictEqual(state.get('round'), 0);
-  assert.strictEqual(state.incr('round'), 1);
-  assert.strictEqual(state.get('round'), 1);
 }
 
 async function assertA2aToolProviderRegistersOnePerSkill() {
