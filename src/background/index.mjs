@@ -330,7 +330,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
   if (request.type === 'A2A_HEALTH_CHECK') {
-    checkA2aHealth(request.endpoint)
+    checkA2aHealth(request.endpoint, request.serverId)
       .then(health => sendResponse({ success: true, health }))
       .catch(err => sendResponse({ success: false, error: err.message || 'Unexpected extension error' }));
     return true;
@@ -1534,19 +1534,45 @@ async function cancelA2aTask(server, taskId) {
   return postA2aRpc(server, 'tasks/cancel', { id: taskId });
 }
 
-// ── Hub health check ─────────────────────────────────────────────────────────
-// GET /health returns { status: "ok", upstreams: { total, healthy } }.
-// No auth required. Returns the parsed JSON or null on failure.
+// ── A2A health check ─────────────────────────────────────────────────────────
+// Hub agents expose GET /health returning { status: "ok", upstreams: { … } }.
+// Standalone A2A agents (like OmniLauncher) usually don't — /health is a
+// hub-only convention. For those, we fall back to an authenticated agent-card
+// discovery probe: if the .well-known agent card responds, the agent is
+// reachable and we synthesize an { status: "ok" } payload so the UI shows
+// green. Returns the parsed hub payload, a synthesized standalone payload,
+// or null on failure.
 
-async function checkA2aHealth(endpoint) {
-  const healthUrl = joinA2aPath(normalizeA2aEndpoint(endpoint), '/health');
+async function checkA2aHealth(endpoint, serverId) {
+  const normalized = normalizeA2aEndpoint(endpoint);
+  if (!normalized) return null;
+
+  const server = serverId ? await getA2aServerWithToken(serverId) : null;
+  const token = server?.token || '';
+
+  const healthUrl = joinA2aPath(normalized, '/health');
   try {
-    const response = await fetch(healthUrl, { headers: { Accept: 'application/json' } });
-    if (!response.ok) return null;
-    return await response.json();
+    const response = await fetch(healthUrl, { headers: createA2aHeaders(token) });
+    if (response.ok) return await response.json();
   } catch {
-    return null;
+    // fall through to discovery-based reachability probe
   }
+
+  // Standalone A2A fallback: any successful agent-card discovery URL means
+  // the agent is reachable. Try the same URLs discoverA2aServer uses so hub
+  // and standalone endpoints are both covered.
+  const discoveryUrls = getA2aDiscoveryUrls(normalized);
+  const headers = createA2aHeaders(token);
+  for (const url of discoveryUrls) {
+    try {
+      const response = await fetch(url, { headers });
+      if (response.ok) return { status: 'ok', standalone: true };
+    } catch {
+      // try next URL
+    }
+  }
+
+  return null;
 }
 
 async function discoverA2aRpcEndpoint(server) {

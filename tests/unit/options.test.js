@@ -972,6 +972,89 @@ async function testA2aServerListButtonsInvokeDiscoverAndRemove() {
   assert.deepStrictEqual(JSON.parse(JSON.stringify(localWrites.at(-1).a2aServerTokens)), {});
 }
 
+async function testRenderA2aServersIncludesEnableDisableToggle() {
+  const { context, elements } = createTestContext();
+  context.a2aServers = [
+    { id: 'a', name: 'AgentA', endpoint: 'https://a.example', enabled: true },
+    { id: 'b', name: 'AgentB', endpoint: 'https://b.example', enabled: false }
+  ];
+  context.renderA2aServers(context.a2aServers);
+
+  // Enabled agent gets a "Disable" button; disabled agent gets an "Enable" button
+  assert.match(
+    elements.a2aServerList.innerHTML,
+    /data-action="disable"[^>]*data-server-id="a"/
+  );
+  assert.match(
+    elements.a2aServerList.innerHTML,
+    /data-action="enable"[^>]*data-server-id="b"/
+  );
+  // Disabled agent's row carries a visual marker class
+  assert.match(
+    elements.a2aServerList.innerHTML,
+    /class="a2a-server-item disabled"[^>]*data-server-id="b"/
+  );
+  assert.doesNotMatch(
+    elements.a2aServerList.innerHTML,
+    /class="a2a-server-item disabled"[^>]*data-server-id="a"/
+  );
+}
+
+async function testDisableButtonPersistsEnabledFalseAndRerenders() {
+  const { context, elements, localWrites, domListeners } = createTestContext();
+  await domListeners.DOMContentLoaded();
+  context.a2aServers = [
+    { id: 'a', name: 'AgentA', endpoint: 'https://a.example', enabled: true }
+  ];
+  context.renderA2aServers(context.a2aServers);
+
+  const disableButton = {
+    getAttribute(name) {
+      if (name === 'data-action') return 'disable';
+      if (name === 'data-server-id') return 'a';
+      return '';
+    }
+  };
+  elements.a2aServerList.listeners.click({ target: { closest: () => disableButton } });
+  await Promise.resolve();
+  await Promise.resolve();
+
+  const persisted = localWrites.findLast(write => Array.isArray(write.a2aServers))?.a2aServers[0];
+  assert.strictEqual(persisted.enabled, false);
+  // After re-render the toggle now offers "Enable"
+  assert.match(
+    elements.a2aServerList.innerHTML,
+    /data-action="enable"[^>]*data-server-id="a"/
+  );
+}
+
+async function testEnableButtonRestoresEnabledTrue() {
+  const { context, elements, localWrites, domListeners } = createTestContext();
+  await domListeners.DOMContentLoaded();
+  context.a2aServers = [
+    { id: 'a', name: 'AgentA', endpoint: 'https://a.example', enabled: false }
+  ];
+  context.renderA2aServers(context.a2aServers);
+
+  const enableButton = {
+    getAttribute(name) {
+      if (name === 'data-action') return 'enable';
+      if (name === 'data-server-id') return 'a';
+      return '';
+    }
+  };
+  elements.a2aServerList.listeners.click({ target: { closest: () => enableButton } });
+  await Promise.resolve();
+  await Promise.resolve();
+
+  const persisted = localWrites.findLast(write => Array.isArray(write.a2aServers))?.a2aServers[0];
+  assert.strictEqual(persisted.enabled, true);
+  assert.match(
+    elements.a2aServerList.innerHTML,
+    /data-action="disable"[^>]*data-server-id="a"/
+  );
+}
+
 async function testStartCopilotAuthRejectsUnsafeVerificationUri() {
   const tabsCreated = [];
   const { elements, context } = createTestContext({
@@ -1142,6 +1225,9 @@ async function main() {
   await testAddingA2aServerDiscoversAndStoresAgentSkills();
   await testRenderingStoredA2aServersShowsNameAndEndpointNotToken();
   await testA2aServerListButtonsInvokeDiscoverAndRemove();
+  await testRenderA2aServersIncludesEnableDisableToggle();
+  await testDisableButtonPersistsEnabledFalseAndRerenders();
+  await testEnableButtonRestoresEnabledTrue();
   await testStartCopilotAuthRejectsUnsafeVerificationUri();
   await testDiscoverUpdatesAgentCardMetadataAndSavesToLocal();
   await testLegacyA2aServerWithoutIdIsPersistedBeforeDiscovery();

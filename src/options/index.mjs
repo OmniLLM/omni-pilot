@@ -364,8 +364,12 @@ function renderA2aServers(serverList = a2aServers) {
   a2aServers = normalizedList;
   const list = document.getElementById('a2aServerList');
   if (!list) return;
-  list.innerHTML = normalizedList.map(server => `
-    <div class="a2a-server-item" data-server-id="${escapeHtml(server.id)}">
+  list.innerHTML = normalizedList.map(server => {
+    const disabled = server.enabled === false;
+    const toggleAction = disabled ? 'enable' : 'disable';
+    const toggleLabel = disabled ? label('enable') : label('disable');
+    return `
+    <div class="a2a-server-item${disabled ? ' disabled' : ''}" data-server-id="${escapeHtml(server.id)}">
       <div class="a2a-server-meta">
         <div class="a2a-server-name">
           <span class="a2a-health-dot" data-health-for="${escapeHtml(server.id)}" title="Checking…"></span>
@@ -374,12 +378,14 @@ function renderA2aServers(serverList = a2aServers) {
         <div class="a2a-server-endpoint">${escapeHtml(server.endpoint)}</div>
       </div>
       <div class="a2a-server-actions">
+        <button type="button" class="secondary-btn" data-action="${toggleAction}" data-server-id="${escapeHtml(server.id)}">${escapeHtml(toggleLabel)}</button>
         <button type="button" class="secondary-btn" data-action="health" data-server-id="${escapeHtml(server.id)}" data-endpoint="${escapeHtml(server.endpoint)}">Health</button>
         <button type="button" class="secondary-btn" data-action="discover" data-server-id="${escapeHtml(server.id)}">${escapeHtml(label('discover'))}</button>
         <button type="button" class="secondary-btn" data-action="remove" data-server-id="${escapeHtml(server.id)}">${escapeHtml(label('remove'))}</button>
       </div>
     </div>
-  `).join('');
+  `;
+  }).join('');
   // Auto-check health for all listed servers (fire-and-forget, no render block)
   for (const server of normalizedList) {
     checkA2aServerHealth(server.id, server.endpoint).catch(() => {});
@@ -396,7 +402,7 @@ async function checkA2aServerHealth(serverId, endpoint) {
   try {
     const response = await new Promise((resolve, reject) => {
       try {
-        chrome.runtime.sendMessage({ type: 'A2A_HEALTH_CHECK', endpoint }, result => {
+        chrome.runtime.sendMessage({ type: 'A2A_HEALTH_CHECK', endpoint, serverId }, result => {
           if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
           else resolve(result);
         });
@@ -408,7 +414,9 @@ async function checkA2aServerHealth(serverId, endpoint) {
     if (response?.success && response.health?.status === 'ok') {
       const upstreams = response.health.upstreams || {};
       dot.className = 'a2a-health-dot healthy';
-      dot.title = `Healthy — ${upstreams.healthy || 0}/${upstreams.total || 0} upstreams`;
+      dot.title = response.health.standalone
+        ? 'Reachable — standalone A2A agent'
+        : `Healthy — ${upstreams.healthy || 0}/${upstreams.total || 0} upstreams`;
     } else {
       dot.className = 'a2a-health-dot unhealthy';
       dot.title = 'Unhealthy or unreachable';
@@ -512,6 +520,21 @@ async function removeA2aServer(serverId) {
   a2aServerTokens = remainingTokens;
   await saveA2aServers();
   await saveA2aTokens();
+  renderA2aServers();
+}
+
+async function setA2aServerEnabled(serverId, enabled) {
+  const wanted = Boolean(enabled);
+  let changed = false;
+  a2aServers = a2aServers.map(server => {
+    if (server.id !== serverId) return server;
+    const current = server.enabled !== false;
+    if (current === wanted) return server;
+    changed = true;
+    return { ...server, enabled: wanted };
+  });
+  if (!changed) return;
+  await saveA2aServers();
   renderA2aServers();
 }
 
@@ -918,6 +941,10 @@ document.addEventListener('DOMContentLoaded', () => {
     } else if (button.getAttribute('data-action') === 'health') {
       const endpoint = button.getAttribute('data-endpoint');
       checkA2aServerHealth(serverId, endpoint);
+    } else if (button.getAttribute('data-action') === 'enable') {
+      setA2aServerEnabled(serverId, true);
+    } else if (button.getAttribute('data-action') === 'disable') {
+      setA2aServerEnabled(serverId, false);
     }
   });
   document.getElementById('languageSelect').addEventListener('change', () => {
@@ -997,6 +1024,7 @@ Object.assign(globalThis, {
   addA2aServerFromForm,
   renderA2aServers,
   discoverAndSaveA2aServer,
-  checkA2aServerHealth
+  checkA2aServerHealth,
+  setA2aServerEnabled
 });
 

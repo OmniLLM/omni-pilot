@@ -336,6 +336,17 @@
       border: 1px solid var(--border);
       border-radius: 8px;
     }
+    .a2a-server-item.disabled {
+      opacity: 0.55;
+    }
+    .a2a-server-item.disabled .a2a-server-name::after {
+      content: '(disabled)';
+      margin-left: 6px;
+      font-size: 10px;
+      font-weight: 500;
+      color: var(--ink2);
+      letter-spacing: 0.02em;
+    }
     .a2a-server-meta {
       min-width: 0;
     }

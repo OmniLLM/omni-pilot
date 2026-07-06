@@ -1572,6 +1572,89 @@ async function assertA2aDiscoveryFallsBackToEndpointAgentCard() {
   }
 }
 
+async function assertA2aHealthChecksHubEndpointWithBearerToken() {
+  const { context, requests } = await createBackgroundContext({
+    storage: {
+      a2aServers: [
+        { id: 'hub', name: 'Hub', endpoint: 'https://hub.example', enabled: true }
+      ],
+      a2aServerTokens: { hub: 'hub-token' }
+    },
+    fetchImpl: async url => {
+      if (url === 'https://hub.example/health') {
+        return {
+          ok: true,
+          json: async () => ({ status: 'ok', upstreams: { total: 3, healthy: 3 } })
+        };
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    }
+  });
+
+  const health = await context.checkA2aHealth('https://hub.example', 'hub');
+
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(health)), {
+    status: 'ok',
+    upstreams: { total: 3, healthy: 3 }
+  });
+  assert.strictEqual(requests.length, 1);
+  assert.strictEqual(requests[0].url, 'https://hub.example/health');
+  // The bearer token is now attached to /health so token-gated hubs also work
+  assert.strictEqual(requests[0].options.headers.Authorization, 'Bearer hub-token');
+}
+
+async function assertA2aHealthFallsBackToAgentCardForStandaloneAgent() {
+  // OmniLauncher-style: /health is 404 (hub-only convention) but the agent
+  // card discovery URL responds with the bearer token — treat as healthy.
+  const { context, requests } = await createBackgroundContext({
+    storage: {
+      a2aServers: [
+        { id: 'launcher', name: 'OmniLauncher', endpoint: 'http://127.0.0.1:1423', enabled: true }
+      ],
+      a2aServerTokens: { launcher: 'launcher-token' }
+    },
+    fetchImpl: async url => {
+      if (url === 'http://127.0.0.1:1423/health') {
+        return { ok: false, status: 404, json: async () => ({}) };
+      }
+      if (url === 'http://127.0.0.1:1423/.well-known/agent-card.json') {
+        return { ok: true, json: async () => ({ name: 'OmniLauncher' }) };
+      }
+      return { ok: false, status: 404, json: async () => ({}) };
+    }
+  });
+
+  const health = await context.checkA2aHealth('http://127.0.0.1:1423', 'launcher');
+
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(health)), {
+    status: 'ok',
+    standalone: true
+  });
+  // /health tried first, then discovery URL succeeded → we stopped
+  assert.deepStrictEqual(requests.map(r => r.url), [
+    'http://127.0.0.1:1423/health',
+    'http://127.0.0.1:1423/.well-known/agent-card.json'
+  ]);
+  // Both requests carry the bearer token (so token-protected agents pass)
+  for (const req of requests) {
+    assert.strictEqual(req.options.headers.Authorization, 'Bearer launcher-token');
+  }
+}
+
+async function assertA2aHealthReturnsNullWhenAgentIsUnreachable() {
+  const { context } = await createBackgroundContext({
+    storage: {
+      a2aServers: [
+        { id: 'offline', name: 'Offline', endpoint: 'http://127.0.0.1:9', enabled: true }
+      ]
+    },
+    fetchImpl: async () => ({ ok: false, status: 404, json: async () => ({}) })
+  });
+
+  const health = await context.checkA2aHealth('http://127.0.0.1:9', 'offline');
+  assert.strictEqual(health, null);
+}
+
 async function assertRemoveA2aServerRemovesLocalTokenOnlyForThatServer() {
   const { context, stores } = await createBackgroundContext({
     storage: {
@@ -4402,6 +4485,9 @@ async function main() {
   await assertSetModelUpdatesActiveProviderConfig();
   await assertA2aDiscoveryFetchesAgentCardWithBearerToken();
   await assertA2aDiscoveryFallsBackToEndpointAgentCard();
+  await assertA2aHealthChecksHubEndpointWithBearerToken();
+  await assertA2aHealthFallsBackToAgentCardForStandaloneAgent();
+  await assertA2aHealthReturnsNullWhenAgentIsUnreachable();
   await assertRemoveA2aServerRemovesLocalTokenOnlyForThatServer();
   await assertLegacyA2aProviderTypeFallsBackToCustomProvider();
   await assertConfiguredA2aServerWithoutAgentCardDoesNotAutomaticallyHandleChat();
