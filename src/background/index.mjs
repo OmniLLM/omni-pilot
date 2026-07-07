@@ -204,38 +204,63 @@ if (chrome.contextMenus) {
   });
 }
 
+function isDisconnectedPortError(error) {
+  const message = error?.message || String(error || '');
+  return message.includes('Attempting to use a disconnected port object') || message.includes('Extension context invalidated');
+}
+
+function safePortPostMessage(port, message) {
+  try {
+    port.postMessage(message);
+    return true;
+  } catch (error) {
+    if (isDisconnectedPortError(error)) return false;
+    throw error;
+  }
+}
+
 // ── Streaming via Ports ────────────────────────────────────────────────────────
 
 chrome.runtime.onConnect?.addListener(port => {
   if (port.name === 'omnipilot-stream') {
+    let disconnected = false;
+    port.onDisconnect?.addListener(() => {
+      disconnected = true;
+    });
+
+    const postStreamMessage = message => {
+      if (disconnected) return false;
+      const sent = safePortPostMessage(port, message);
+      if (!sent) disconnected = true;
+      return sent;
+    };
+
+    const postStreamErrorAndDone = error => {
+      if (!postStreamMessage({ type: 'error', error })) return;
+      postStreamMessage({ type: 'done' });
+    };
+
     port.onMessage.addListener(async request => {
       if (request.type === 'AI_ACTION_STREAM') {
         const systemPrompt = ACTION_PROMPTS[request.action];
         if (!systemPrompt) {
-          port.postMessage({ type: 'error', error: `Unknown action: ${request.action}` });
-          port.postMessage({ type: 'done' });
+          postStreamErrorAndDone(`Unknown action: ${request.action}`);
           return;
         }
         await executeApiRequestStreaming({
           messages: [{ role: 'user', content: request.text }],
           systemPrompt,
-          onChunk: text => port.postMessage({ type: 'chunk', text }),
-          onDone: () => port.postMessage({ type: 'done' }),
-          onError: error => {
-            port.postMessage({ type: 'error', error });
-            port.postMessage({ type: 'done' });
-          }
+          onChunk: text => postStreamMessage({ type: 'chunk', text }),
+          onDone: () => postStreamMessage({ type: 'done' }),
+          onError: postStreamErrorAndDone
         });
       } else if (request.type === 'AI_CHAT_STREAM') {
         await handleAIChatStreaming({
           messages: request.messages,
-          onChunk: text => port.postMessage({ type: 'chunk', text }),
-          onStatus: status => port.postMessage({ type: 'status', status }),
-          onDone: () => port.postMessage({ type: 'done' }),
-          onError: error => {
-            port.postMessage({ type: 'error', error });
-            port.postMessage({ type: 'done' });
-          }
+          onChunk: text => postStreamMessage({ type: 'chunk', text }),
+          onStatus: status => postStreamMessage({ type: 'status', status }),
+          onDone: () => postStreamMessage({ type: 'done' }),
+          onError: postStreamErrorAndDone
         });
       }
     });

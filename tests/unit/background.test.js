@@ -3858,6 +3858,138 @@ async function assertStreamingChatReportsA2aDelegationError() {
   assert.ok(!portMessages.some(m => m.type === 'chunk'), 'a failed delegation should not emit a content chunk');
 }
 
+async function assertStreamingChatIgnoresDisconnectedPortDuringError() {
+  const portMessages = [];
+  const { connectListeners } = await createBackgroundContext({
+    storage: {
+      providerType: 'custom-provider',
+      endpoint: 'https://custom.example/v1',
+      apiKey: 'custom-key',
+      model: 'custom-model',
+      apiShape: 'openai-compatible'
+    },
+    fetchImpl: async () => ({
+      ok: false,
+      status: 503,
+      text: async () => JSON.stringify({ error: { message: 'upstream unavailable' } }),
+      headers: { entries: () => [] }
+    })
+  });
+
+  const messageListeners = [];
+  const disconnectListeners = [];
+  let disconnected = false;
+  connectListeners[0]({
+    name: 'omnipilot-stream',
+    onMessage: { addListener(fn) { messageListeners.push(fn); } },
+    onDisconnect: { addListener(fn) { disconnectListeners.push(fn); } },
+    postMessage(message) {
+      if (disconnected) throw new Error('Attempting to use a disconnected port object');
+      portMessages.push(message);
+    }
+  });
+
+  assert.strictEqual(disconnectListeners.length, 1, 'stream port should register one disconnect listener');
+  disconnected = true;
+  disconnectListeners[0]();
+
+  await messageListeners[0]({
+    type: 'AI_CHAT_STREAM',
+    messages: [{ role: 'user', content: 'trigger an upstream failure' }]
+  });
+
+  assert.deepStrictEqual(portMessages, [], 'disconnected chat stream port should not receive error or done messages');
+}
+
+async function assertStreamingActionIgnoresDisconnectedPortDuringDone() {
+  const portMessages = [];
+  const { connectListeners } = await createBackgroundContext({
+    storage: {
+      providerType: 'custom-provider',
+      endpoint: 'https://custom.example/v1',
+      apiKey: 'custom-key',
+      model: 'custom-model',
+      apiShape: 'openai-compatible'
+    },
+    fetchImpl: async (url, options) => {
+      const body = JSON.parse(options.body);
+      assert.strictEqual(body.stream, true, 'action stream should request streaming');
+      return {
+        ok: true,
+        body: null,
+        json: async () => ({ choices: [{ message: { content: 'partial' } }] })
+      };
+    }
+  });
+
+  const messageListeners = [];
+  const disconnectListeners = [];
+  let disconnected = false;
+  connectListeners[0]({
+    name: 'omnipilot-stream',
+    onMessage: { addListener(fn) { messageListeners.push(fn); } },
+    onDisconnect: { addListener(fn) { disconnectListeners.push(fn); } },
+    postMessage(message) {
+      if (disconnected) throw new Error('Attempting to use a disconnected port object');
+      portMessages.push(message);
+      if (message.type === 'chunk') {
+        disconnected = true;
+        disconnectListeners[0]();
+      }
+    }
+  });
+
+  await messageListeners[0]({
+    type: 'AI_ACTION_STREAM',
+    action: 'summarize',
+    text: 'hello world'
+  });
+
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(portMessages)), [
+    { type: 'chunk', text: 'partial' }
+  ]);
+}
+
+async function assertStreamingChatConnectedPortStillReceivesErrorAndDone() {
+  const portMessages = [];
+  const { connectListeners } = await createBackgroundContext({
+    storage: {
+      providerType: 'custom-provider',
+      endpoint: 'https://custom.example/v1',
+      apiKey: 'custom-key',
+      model: 'custom-model',
+      apiShape: 'openai-compatible'
+    },
+    fetchImpl: async () => ({
+      ok: false,
+      status: 503,
+      text: async () => JSON.stringify({ error: { message: 'upstream unavailable' } }),
+      headers: { entries: () => [] }
+    })
+  });
+
+  const messageListeners = [];
+  const disconnectListeners = [];
+  connectListeners[0]({
+    name: 'omnipilot-stream',
+    onMessage: { addListener(fn) { messageListeners.push(fn); } },
+    onDisconnect: { addListener(fn) { disconnectListeners.push(fn); } },
+    postMessage(message) { portMessages.push(message); }
+  });
+
+  assert.strictEqual(disconnectListeners.length, 1, 'stream port should register one disconnect listener');
+
+  await messageListeners[0]({
+    type: 'AI_CHAT_STREAM',
+    messages: [{ role: 'user', content: 'trigger an upstream failure' }]
+  });
+
+  assert.strictEqual(portMessages.length, 2, 'connected stream port should receive error and done');
+  assert.strictEqual(portMessages[0].type, 'error');
+  assert.ok(portMessages[0].error.includes('upstream unavailable'), `expected upstream error, got ${portMessages[0].error}`);
+  assert.strictEqual(portMessages[1].type, 'done');
+}
+
 // A dedicated A2A provider streams a delegating status then the delegated text.
 
 async function assertStreamingReportsErrorOnBadStatus() {
@@ -4535,6 +4667,9 @@ async function main() {
   await assertStreamingChatKeepsA2aDelegationAliveDuringSlowInitialSend();
   await assertStreamingChatKeepsA2aDelegationAliveDuringSlowPoll();
   await assertStreamingChatReportsA2aDelegationError();
+  await assertStreamingChatIgnoresDisconnectedPortDuringError();
+  await assertStreamingActionIgnoresDisconnectedPortDuringDone();
+  await assertStreamingChatConnectedPortStillReceivesErrorAndDone();
   await assertStreamingReportsErrorOnBadStatus();
   await assertStreamingReportsErrorWhenNoApiKey();
   await assertStreamChunkParsersWorkForAllShapes();
