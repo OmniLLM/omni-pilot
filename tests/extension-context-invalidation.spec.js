@@ -78,6 +78,21 @@ async function setupPageWithInvalidatableRuntime(page) {
       const invalidated = () => { throw new Error('Extension context invalidated.'); };
       window.chrome.runtime.connect = invalidated;
       window.chrome.runtime.sendMessage = invalidated;
+      window.chrome.runtime.openOptionsPage = invalidated;
+      // Storage APIs also throw synchronously after invalidation.
+      window.chrome.storage.sync.get = invalidated;
+      window.chrome.storage.sync.set = invalidated;
+      window.chrome.storage.local.get = invalidated;
+      window.chrome.storage.local.set = invalidated;
+      window.chrome.storage.onChanged.addListener = invalidated;
+    };
+
+    // Capture the storage.onChanged listener so tests can fire it manually.
+    window.__storageListeners = [];
+    const originalAddListener = window.chrome.storage.onChanged.addListener;
+    window.chrome.storage.onChanged.addListener = function (fn) {
+      window.__storageListeners.push(fn);
+      return originalAddListener(fn);
     };
   }, { contentSource });
 }
@@ -239,4 +254,74 @@ test('port.postMessage throw after connect does not crash the page', async ({ pa
 
   await expect(page.locator('#omnipilot-panel .omnipilot-loading')).toHaveCount(0);
   await expect(page.locator('#omnipilot-panel .omnipilot-error')).toHaveCount(1);
+});
+
+// The reported bug's actual crash context was github.com/asimons81/hermes-a2a-bridge —
+// a page that was already loaded when the extension was reloaded. In that state,
+// firing a chrome.storage.onChanged listener from another page (e.g. options.html
+// saving new settings) used to throw synchronously because the listener body
+// touched chrome.storage.local and chrome.runtime.* through helper functions.
+// The safeAddListener wrapper must catch the invalidated-context throw so it
+// doesn't surface as "Uncaught Error: Extension context invalidated."
+test('storage.onChanged listener does not crash when the context is invalidated', async ({ page }) => {
+  const pageErrors = [];
+  page.on('pageerror', err => pageErrors.push(err));
+
+  await setupPageWithInvalidatableRuntime(page);
+  await page.evaluate(() => window.__invalidate());
+
+  // Fire the same storage.onChanged event options.js would emit when the user
+  // saves a new provider — the listener body references chrome.storage.local
+  // (invalidated) and calls updatePanelMeta which is safe, but any invalidated
+  // chrome.* touch inside must not escape.
+  await page.evaluate(() => {
+    for (const fn of window.__storageListeners) {
+      fn({ providerType: { newValue: 'custom-provider' }, endpoint: { newValue: 'https://x.example' } }, 'sync');
+      fn({ a2aServers: { newValue: [{ id: 'a2a-1', name: 'x', enabled: true }] } }, 'local');
+      fn({ themePreference: { newValue: 'light' } }, 'sync');
+    }
+  });
+  await page.waitForTimeout(30);
+
+  const contextErrors = pageErrors.filter(e => /Extension context invalidated/i.test(e.message));
+  expect(contextErrors).toEqual([]);
+});
+
+// If the extension is invalidated BEFORE the content script even runs its
+// top-level init, the chrome.storage.sync.get calls at load time throw. That
+// must also be caught so the content script doesn't blow up on page load
+// after a re-injection into a stale page.
+test('initial storage.get throws do not crash the page', async ({ page }) => {
+  const pageErrors = [];
+  page.on('pageerror', err => pageErrors.push(err));
+
+  await page.goto('about:blank');
+  await page.setContent(`<!DOCTYPE html><html><head><style>${stylesSource}</style></head><body><p id="para">hello world text</p></body></html>`);
+  await page.evaluate(({ contentSource }) => {
+    // Provide a chrome object whose storage.sync.get and everything else throws
+    // synchronously from the very first call — mirrors a re-injection into a
+    // page whose owning extension is already invalidated.
+    const invalidated = () => { throw new Error('Extension context invalidated.'); };
+    window.chrome = {
+      runtime: {
+        lastError: null,
+        onMessage: { addListener: invalidated },
+        connect: invalidated,
+        sendMessage: invalidated,
+        openOptionsPage: invalidated
+      },
+      storage: {
+        sync: { get: invalidated, set: invalidated },
+        local: { get: invalidated, set: invalidated },
+        onChanged: { addListener: invalidated }
+      }
+    };
+    // eslint-disable-next-line no-eval
+    window.eval(contentSource);
+  }, { contentSource });
+
+  await page.waitForTimeout(50);
+
+  const contextErrors = pageErrors.filter(e => /Extension context invalidated/i.test(e.message));
+  expect(contextErrors).toEqual([]);
 });

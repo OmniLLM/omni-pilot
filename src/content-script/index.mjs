@@ -65,13 +65,13 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
   }
 
   function loadThemePreference() {
-    chrome.storage.sync.get({ themePreference: 'dark' }, config => {
+    safeStorageGet(chrome.storage?.sync, { themePreference: 'dark' }, config => {
       applyTheme(config.themePreference);
     });
   }
 
   function loadLanguagePreference() {
-    chrome.storage.sync.get({ languagePreference: 'en' }, config => {
+    safeStorageGet(chrome.storage?.sync, { languagePreference: 'en' }, config => {
       applyLanguage(config.languagePreference);
     });
   }
@@ -83,7 +83,7 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
   }
 
   // Load config from storage
-  chrome.storage.sync.get({ model: 'claude-sonnet-4-5', endpoint: 'https://api.omnillm.com/v1', apiKey: '', providerType: 'custom-provider', authMethod: 'api-key', popupInitialWidth: null, popupInitialHeight: null }, cfg => {
+  safeStorageGet(chrome.storage?.sync, { model: 'claude-sonnet-4-5', endpoint: 'https://api.omnillm.com/v1', apiKey: '', providerType: 'custom-provider', authMethod: 'api-key', popupInitialWidth: null, popupInitialHeight: null }, cfg => {
     currentModel = cfg.model || 'claude-sonnet-4-5';
     currentProviderType = normalizeProviderType(cfg.providerType || 'custom-provider');
     currentAuthMethod = cfg.authMethod || 'api-key';
@@ -106,7 +106,7 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
   loadThemePreference();
   loadLanguagePreference();
 
-  chrome.storage.onChanged.addListener((changes, areaName) => {
+  safeAddListener(chrome.storage?.onChanged, (changes, areaName) => {
     if (changes.model) { currentModel = changes.model.newValue; updatePanelMeta(); }
     if (changes.endpoint) currentEndpoint = changes.endpoint.newValue || '';
     if (changes.providerType) currentProviderType = normalizeProviderType(changes.providerType.newValue || 'custom-provider');
@@ -137,13 +137,13 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
   }
 
   function loadA2aServersFromStorage(callback) {
-    getA2aServersStorageArea().get(['a2aServers'], local => {
+    safeStorageGet(getA2aServersStorageArea(), ['a2aServers'], local => {
       if (Array.isArray(local?.a2aServers)) {
         callback(local.a2aServers);
         return;
       }
       // Fall back to legacy sync storage until options.js migrates it.
-      chrome.storage.sync.get(['a2aServers'], synced => {
+      safeStorageGet(chrome.storage?.sync, ['a2aServers'], synced => {
         callback(Array.isArray(synced?.a2aServers) ? synced.a2aServers : []);
       });
     });
@@ -587,7 +587,12 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
     btn.className = 'omnipilot-onboarding-btn';
     btn.textContent = label('openSettings') || 'Open Settings';
     btn.addEventListener('click', () => {
-      chrome.runtime.openOptionsPage();
+      try { chrome.runtime.openOptionsPage(); }
+      catch (err) {
+        if (!isExtensionContextInvalidatedError(err)) throw err;
+        // Extension context invalidated — nothing else to do; the page has to
+        // be refreshed for the extension to work again.
+      }
     });
     onboarding.appendChild(btn);
 
@@ -1722,6 +1727,48 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
     }
   }
 
+  // chrome.storage.sync.get / .local.get and .onChanged.addListener also throw
+  // synchronously with "Extension context invalidated." once the extension has
+  // been reloaded and the content script is still resident. Wrap all storage
+  // reads and the onChanged subscription; also wrap the callback body so a
+  // late-firing listener that touches other chrome.* APIs cannot escape as an
+  // uncaught error either.
+  function safeStorageGet(area, defaults, callback) {
+    if (!area || typeof area.get !== 'function') return false;
+    try {
+      area.get(defaults, function (result) {
+        try { callback(result); }
+        catch (err) {
+          if (!isExtensionContextInvalidatedError(err)) throw err;
+        }
+      });
+      return true;
+    } catch (err) {
+      if (isExtensionContextInvalidatedError(err)) return false;
+      throw err;
+    }
+  }
+
+  function safeAddListener(target, listener) {
+    if (!target || typeof target.addListener !== 'function') return false;
+    // Wrap the listener so a late-firing invocation whose body touches an
+    // invalidated chrome.* API cannot bubble as an uncaught error.
+    const wrapped = function () {
+      try { return listener.apply(null, arguments); }
+      catch (err) {
+        if (isExtensionContextInvalidatedError(err)) return undefined;
+        throw err;
+      }
+    };
+    try {
+      target.addListener(wrapped);
+      return true;
+    } catch (err) {
+      if (isExtensionContextInvalidatedError(err)) return false;
+      throw err;
+    }
+  }
+
   // Map a background 'status' signal to a localized spinner label. Falls back to
   // the generic thinking label for unknown statuses.
   function statusLabel(status) {
@@ -2061,7 +2108,7 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
 
   // ── Context Menu Handler ──────────────────────────────────────────────────────
 
-  chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  chrome.runtime?.onMessage && safeAddListener(chrome.runtime.onMessage, (request, sender, sendResponse) => {
     if (request.type === 'CONTEXT_MENU_ACTION') {
       lastSelection = request.text;
       runAction(request.action);
