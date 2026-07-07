@@ -1,271 +1,268 @@
 # ✦ OmniPilot
 
-> **AI-powered browser assistant** — Select text, get instant AI actions. Completely open source, works with any LLM.
+> **Open-source browser AI assistant** — select text, summarize pages, chat in context, and route work to your chosen LLM provider or A2A agents.
 
 [![Chrome](https://img.shields.io/badge/Chrome-gray?logo=google-chrome&logoColor=white)](https://chrome.google.com/)
 [![Firefox](https://img.shields.io/badge/Firefox-gray?logo=firefox&logoColor=white)](https://mozilla.org/firefox/)
 [![Edge](https://img.shields.io/badge/Edge-gray?logo=microsoft-edge&logoColor=white)](https://microsoft.com/edge)
-[![MIT License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Tests Passing](https://img.shields.io/badge/tests-passing-brightgreen)]()
 
-**Part of the [OmniLLM](https://github.com/OmniLLM) ecosystem** — Universal LLM orchestration for the browser.
+**Part of the [OmniLLM](https://github.com/OmniLLM) ecosystem** — universal LLM orchestration for the browser.
 
 ---
 
-## 🎯 What It Does
+## What It Does
 
-Select any text on any webpage, choose an action, get results in a floating panel:
+OmniPilot adds AI workflows directly to the browser:
 
-| 🌍 Translate | 📝 Summarize | 💡 Explain | ✨ Improve |
-|---|---|---|---|
-| To English (or Chinese if English) | 2-3 sentence summary | Clear, simple explanation | Polished rewrite, same language |
-
-**Works everywhere** — Gmail, Twitter, Reddit, Medium, PDFs, code editors, everywhere you read text.
+- Select text on a webpage and open a floating OmniPilot action menu.
+- Run actions such as **Translate**, **Summarize**, **Explain**, **Improve**, **Sentiment**, **Code Explain**, **Divide Paragraphs**, and **Ask**.
+- Continue the result as a multi-turn chat in a draggable, resizable in-page panel.
+- Summarize full pages or GitHub issues/pull requests from the context menu.
+- Use the Chrome/Edge side panel for persistent chat.
+- Connect to GitHub Copilot, Azure Foundry, or a custom OpenAI/Anthropic-compatible endpoint.
+- Delegate work to configured A2A agents through auto-routing or `@AgentName` mentions.
 
 ---
 
-## ✨ Key Features
+## Key Features
 
-✅ **Works on any website** — Gmail, Docs, Reddit, GitHub, Twitter, anywhere with text  
-✅ **Choose your AI** — OpenAI, Claude, local models, custom endpoints  
-✅ **No data collection** — Everything runs locally; we never store your text  
-✅ **Offline ready** — Works with self-hosted LLMs  
-✅ **Privacy first** — Open source, transparent, auditable  
-✅ **Multi-language** — English, Chinese, Japanese, Indonesian, Turkish  
-✅ **Lightweight** — Pure vanilla JavaScript; only esbuild is used at build time  
+- **In-page assistant UI** — selection bubble, action dropdown, streaming output, follow-up chat, copy controls, code-block copy, read-aloud, context chips, and runtime provider/model/action selectors.
+- **Multiple provider modes** — GitHub Copilot device-flow sign-in, Custom Provider, and Azure Foundry.
+- **Three API wire formats** — OpenAI Chat Completions, Anthropic Messages, and OpenAI Responses.
+- **A2A agent orchestration** — discover agent cards, enable/disable servers and individual skills, run health checks, store local tokens, and let the model call enabled A2A skills as tools.
+- **Memory** — optional cross-session long-term notes plus rolling daily activity logs in browser local storage.
+- **Guardrails** — deny-list mode for A2A tool dispatch by server domain and destructive/admin/payment-style skill tags.
+- **Observability** — a Debug view with recent agent traces, tool dispatches, guardrail decisions, memory appends, and context-budget drops.
+- **Local-first settings** — provider settings, A2A metadata, memory, and traces live in browser storage. Prompts are sent only to the provider or A2A server you configure.
 
-### 🔌 Advanced Features
-
-- **Smart Provider Routing** — Switch between Claude, OpenAI, GitHub Copilot, or custom endpoints instantly
-- **A2A Agent Delegation** — Delegate tasks to specialized AI agents automatically
-- **Format Flexibility** — Works with OpenAI, Anthropic, or custom API formats
-- **Provider Auto-Routing** — LLM chooses the best agent for each task
+---
 
 ## Architecture
 
-Background service-worker logic is split between two areas:
+OmniPilot is a Manifest V3 extension. The manifest loads generated files from `dist/`, while source lives under `src/`.
 
-- **`src/background/index.mjs`** — Chrome runtime code: context menus, ports, message routing, `chrome.storage` schemas, provider abstraction (custom / GitHub Copilot / Azure Foundry), OAuth flows, and the streaming SSE parsers.
-- **`src/background/agent/`** — Harness-style agent primitives (`Agent`, `Runner`, `Tool`, `ToolRegistry`, `Session`, `State`) plus the A2A tool provider. Files are concatenated into `dist/background.js` by `build.mjs` before the entry file, so declarations are top-level bindings at runtime.
+### Browser surfaces
 
-### Memory
+- **Background service worker** — `src/background/index.mjs` handles context menus, runtime messaging, streaming ports, provider requests, GitHub Copilot auth, A2A discovery/delegation, storage defaults, and API-shape conversion.
+- **Content script** — `src/content-script/index.mjs` and `src/content-script/styles.css` render the selection bubble, dropdown, floating panel, follow-up chat, streaming responses, page extraction, GitHub issue/PR extraction, and extension-reload resilience.
+- **Options page** — `src/options/` manages provider setup, model lists, A2A servers, memory, popup size, language/theme, and debug traces.
+- **Popup** — `src/popup/` shows readiness status and shortcuts to settings, theme, and language.
+- **Side panel** — `src/sidepanel/` provides persistent chat with streaming and timeout handling.
 
-The Agent maintains cross-session memory via `src/background/agent/memory.mjs`:
+### Agent runtime
 
-- **Long-term memory** — a user-editable string (like a project's `MEMORY.md`), edited from the extension's options page. Prepended to the system prompt on every chat/action.
-- **Daily activity logs** — a rolling 7-day window of one-line entries the Agent appends after each successful turn. Also injected into the system prompt so the model has recent context across restarts.
+The agent runtime lives in `src/background/agent/`:
 
-Both tiers live in `chrome.storage.local`. Users can disable memory or clear the daily logs from the options page.
+- `agent.mjs` assembles context, loads memory, starts observability runs, and chooses plain-provider or A2A-routed execution.
+- `runner.mjs` runs the think/act/observe loop for provider tool calls.
+- `session.mjs` tracks conversation history and duplicate tool dispatches.
+- `tool-registry.mjs` is the execution choke point for tools.
+- `a2a-tool-provider.mjs` maps discovered A2A servers and skills into callable tools.
+- `memory.mjs`, `context-assembler.mjs`, `guardrails.mjs`, and `observability.mjs` provide persistent context, token-budget packing, dispatch checks, and trace storage.
 
-### Context assembly
+### Context, memory, guardrails, traces
 
-Every chat/action turn's system prompt is packed by `src/background/agent/context-assembler.mjs`. Sections (system prompt, long-term memory, recent activity, tool schemas) are added with integer priorities (lower = kept first); when the running token estimate would exceed `contextMaxTokens` (default 8000), lower-priority sections are dropped. The latest user message is always pinned so an oversized history can't silently drop the prompt the user just typed.
-
-### Guardrails
-
-Every tool dispatch in the A2A auto-route path is checked by `src/background/agent/guardrails.mjs` before it runs. The default `deny-list` mode blocks A2A endpoints on any domain in `guardrailsDenyDomains` and tools whose skill tags mark them as destructive/admin/payments-related. Denied calls surface to the model as `tool_result` errors instead of being executed, and each classification lands in a rolling 200-entry audit log at `chrome.storage.local["omnipilotGuardrailsAudit"]`.
-
-### Observability
-
-Every Agent chat/action call is wrapped in a run recorded by `src/background/agent/observability.mjs`. Provider requests/responses, tool dispatches and results, guardrail decisions, memory appends, and context-assembler drops all emit structured events into a ring-buffered per-run log persisted at `chrome.storage.local["omnipilotTraces"]` (20-run ring; 200 events per run). The options page has a Debug card that renders the last runs with a Refresh / Clear button pair. Set `observabilityEnabled: false` to disable via `chrome.storage.sync`.
-
----
-
-Phase 5 completes the 5-phase harness build-out (agent primitives → memory → context assembly → guardrails → observability). The extension is now a proper harness in the sense defined by [harness-guide.com](https://harness-guide.com/guide/what-is-harness/): agentic loop, tool registry, memory/context/session split, guardrails, and per-run observability all present.
-
-The agent primitives are inspired by [Google's Agent Development Kit](https://adk.dev/get-started/) and the harness patterns from the [Harness Guide](https://harness-guide.com/guide/what-is-harness/) (agentic loop, tool registry, session/context/memory separation). Memory has since been added (see below); later phases add priority-based context assembly, guardrails, and observability on top of these primitives.
+- **Memory** uses `chrome.storage.local` for a user-editable long-term note and daily logs retained for a rolling window.
+- **Context assembly** priority-packs system prompt, memory, recent activity, tool schemas, and chat history under `contextMaxTokens` while pinning the latest user message.
+- **Guardrails** currently support `off` and `deny-list` modes. Denied A2A tool calls are returned to the model as tool errors and written to an audit log.
+- **Observability** stores a ring buffer of recent runs and events in local storage; the options page Debug card can refresh or clear traces.
 
 ---
 
-## 📦 Installation
+## Installation
 
 ### Chrome / Edge
 
-1. Download the [latest release](https://github.com/OmniLLM/omni-pilot/releases)
-2. Go to `chrome://extensions/`
-3. Enable **Developer mode** (top right)
-4. Click **Load unpacked** → select this folder
+1. Download the [latest release](https://github.com/OmniLLM/omni-pilot/releases).
+2. Extract the `omni-pilot-<version>.zip` archive.
+3. Open `chrome://extensions/` or `edge://extensions/`.
+4. Enable **Developer mode**.
+5. Click **Load unpacked** and select the extracted folder.
 
-### Firefox
+### Firefox temporary install
 
-1. Download the [latest release](https://github.com/OmniLLM/omni-pilot/releases)
-2. Go to `about:debugging#/runtime/this-firefox`
-3. Click **Load Temporary Add-on** → select `manifest.json`
-
----
-
-## ⚙️ Configuration
-
-Click the **✦** toolbar icon → **Settings**, or go to the extension options page.
-
-### Basic Settings
-
-| Setting | Default | What it does |
-|---------|---------|-------------|
-| **Provider** | Custom Provider | Claude, OpenAI, GitHub Copilot, or custom endpoint |
-| **Model** | `claude-sonnet-4-5` | Which model to use |
-| **API Key** | — | Your API key (not needed for GitHub Copilot) |
-
-### Advanced Settings
-
-| Setting | Default | What it does |
-|---------|---------|-------------|
-| **API Endpoint** | `https://api.omnillm.com/v1` | Custom OpenAI-compatible server |
-| **API Format** | OpenAI chat | Request format: OpenAI, Anthropic, or custom |
-| **A2A Servers** | — | Comma/newline-separated local agent servers |
-| **Auto-route to agents** | Enabled | Let the model pick the best agent automatically |
-
-### 🤖 Provider Modes
-
-**OpenAI-Compatible** — Works with OpenAI, Azure, Ollama, vLLM, any endpoint with OpenAI API format.
-
-**Anthropic** — Direct support for Claude models. Uses the Messages API for better tool calling.
-
-**GitHub Copilot** — Sign in through GitHub. OmniPilot handles token exchange automatically.
-
-**A2A Agents** — Route requests to local AI agents. Perfect for specialized tasks (research, coding, analysis).
+1. Download and extract the [latest release](https://github.com/OmniLLM/omni-pilot/releases).
+2. Open `about:debugging#/runtime/this-firefox`.
+3. Click **Load Temporary Add-on**.
+4. Select the extracted `manifest.json`.
 
 ---
 
-## 🚀 Usage
+## Configuration
 
-1. **Open any webpage**
-2. **Select text** with your mouse
-3. **Click the ✦ bubble** that appears
-4. **Choose an action** from the menu
-5. **View result** in the floating panel
-6. **Press Esc** to dismiss
+Open the toolbar popup and click **Settings**, or open the extension options page directly.
 
-### Advanced: Agent Delegation
+### Providers
 
-If you have A2A agents configured:
+| Provider | Setup | Notes |
+|---|---|---|
+| **GitHub Copilot** | Use the built-in GitHub device-code sign-in flow. | The extension exchanges the GitHub token for a Copilot token and fetches Copilot models through the background worker. |
+| **Custom Provider** | Enter endpoint, API key, API format, and model. | Works with OpenAI-compatible servers, Anthropic Messages-compatible endpoints, OmniLLM, Ollama/vLLM-style gateways, or other compatible APIs. |
+| **Azure Foundry** | Enter endpoint, API key, API format, and manual model list. | Uses configured model IDs instead of fetching `/models`. |
 
-- **Auto-routing** — The model picks the best agent automatically
-- **Manual selection** — Click the provider dropdown to pick a specific agent
-- **Mentions** — Type `@AgentName` in your prompt to force routing to that agent
+Supported API formats:
 
-Example: `@Planner help me organize my schedule`
+- **OpenAI-compatible / Chat Completions**
+- **Anthropic Messages**
+- **OpenAI Responses**
 
----
+### A2A servers
 
-## 🔒 Privacy & Security
+The options page includes a structured A2A server manager:
 
-✅ **No data collection** — This extension does NOT collect, store, or send your text to us  
-✅ **Open source** — Audit the code, verify the claims  
-✅ **Local-first** — Everything stays in your browser until you submit to your LLM  
-✅ **Your keys, your control** — API keys stay in your browser profile, not our servers
+- Add server name, endpoint, and an optional local-only token.
+- Discover agent cards/capabilities from `.well-known/agent-card.json` or `.well-known/agent.json`.
+- Run health checks.
+- Enable or disable whole servers.
+- Enable or disable individual discovered skills.
+- Enable auto-routing so the active model can choose enabled A2A tools.
 
----
+Manual delegation is available by starting a prompt with an agent mention, for example:
 
-## 🛠️ Development
-
-Sources live in `src/`; running `npm run build` bundles them into `dist/` via
-esbuild. The `manifest.json` loads scripts and HTML from `dist/` — always
-rebuild after editing sources.
-
+```text
+@Planner help me organize this task list
 ```
+
+### Memory and debug controls
+
+- **Enable cross-session memory** toggles long-term notes and recent activity injection.
+- **Long-term notes** are editable from the Memory card.
+- **Clear recent activity** removes rolling daily logs.
+- **Recent runs** in the Debug card show observability traces and can be refreshed or cleared.
+
+### UI preferences
+
+- Theme and language can be changed from popup/options.
+- Current shared i18n strings support **English** and **Chinese**.
+- Initial floating-panel width and height are configurable from settings.
+
+---
+
+## Usage
+
+### Text actions
+
+1. Open a webpage.
+2. Select text.
+3. Click the OmniPilot bubble.
+4. Choose an action.
+5. Read the streamed result in the floating panel.
+6. Continue with follow-up chat, switch provider/model/action, copy content, or close the panel.
+
+### Page and GitHub summaries
+
+Use the browser context menu for:
+
+- **Summarize Page** on general webpages.
+- **Summarize Issue/PR** on GitHub issue and pull request pages.
+
+### Side panel chat
+
+Open the extension side panel for persistent chat that stays available while browsing.
+
+---
+
+## Privacy and Security
+
+- OmniPilot does not send prompts to OmniPilot-owned servers by default.
+- Text is sent to the provider endpoint or A2A server you configure when you submit an action or chat turn.
+- API keys and provider settings stay in browser storage.
+- A2A server tokens are stored separately in local storage.
+- Memory, observability traces, and guardrail audit logs are stored in browser local storage.
+- The code is open source and can be audited before loading the extension.
+
+---
+
+## Development
+
+The project intentionally uses a small custom Node build script instead of a real bundler/IIFE. Unit tests load built artifacts in a VM and rely on top-level declarations remaining visible.
+
+```text
 omni-pilot/
-├── manifest.json                   # Extension manifest (Manifest V3) — loads dist/*
-├── build.mjs                       # esbuild bundler (src/ → dist/)
-├── pack.mjs                        # ZIP packager (manifest + icons/ + dist/)
-├── Makefile                        # `make package` → omni-pilot-<version>.zip
-├── package.json                    # npm scripts (build, test:unit, test:playwright)
+├── manifest.json                         # MV3 manifest; loads dist/* files
+├── build.mjs                             # custom concat/copy build script
+├── pack.mjs                              # ZIP packager
+├── Makefile                              # make package / clean-package / clean
+├── package.json                          # npm scripts and dev dependencies
 ├── src/
-│   ├── background/index.mjs        # Service worker: API calls, provider logic, A2A
-│   ├── content-script/index.mjs    # Selection detection + floating panel UI
-│   ├── content-script/styles.css   # All in-page styles
-│   ├── popup/{index.html,index.mjs}       # Toolbar popup
-│   ├── options/{index.html,index.mjs}     # Settings page
-│   ├── sidepanel/{index.html,index.mjs}   # Chrome side panel
-│   └── utils/i18n.mjs              # Internationalization (shared across pages)
-├── dist/                           # Built output (gitignored) — loaded by the extension
-├── icons/                          # Extension icons (16x16, 48x48, 128x128)
+│   ├── background/index.mjs              # service worker host layer
+│   ├── background/agent/*.mjs            # agent runtime primitives and services
+│   ├── background/copilot-model-shapes.mjs
+│   ├── content-script/index.mjs          # selection UI and floating panel
+│   ├── content-script/styles.css
+│   ├── options/{index.html,index.mjs}
+│   ├── popup/{index.html,index.mjs}
+│   ├── sidepanel/{index.html,index.mjs}
+│   └── utils/i18n.mjs
+├── dist/                                 # generated; gitignored
+├── icons/                                # extension icons
 └── tests/
-    ├── *.spec.js                   # Playwright E2E specs (browser-driven)
-    ├── unit/*.test.js              # Node unit tests (vm-sandboxed dist/*.js)
-    └── e2e/*.test.js               # Live-backend integration tests (skipped by default)
+    ├── *.spec.js                         # Playwright browser specs
+    ├── unit/*.test.js                    # Node VM unit tests against dist/*
+    └── e2e/*.test.js                     # manual/live backend integration tests
 ```
+
+### Setup
+
+```bash
+npm install
+npm run build
+```
+
+Then load the repo root unpacked in Chrome/Edge after each build, or load an extracted release ZIP.
+
+### Build
+
+```bash
+npm run build
+```
+
+The build script recreates `dist/`, concatenates shared runtime files into the generated JavaScript files, and copies HTML/CSS assets.
+
+### Tests
+
+```bash
+npm test                 # unit tests + Playwright browser specs
+npm run test:unit        # Node VM unit tests only
+npm run test:playwright  # Playwright specs only
+```
+
+`npm test` does not run `tests/e2e/*.test.js`. Those integration tests are manual/live-backend checks and may require local OmniLLM/Omni Agent Hub configuration such as `~/.config/omnilauncher/settings.json` and `~/.config/omnillm/api-key`.
 
 ### Packaging a release
 
 ```bash
-make package          # → omni-pilot-<version>.zip (ready for Load unpacked or Web Store upload)
-make clean-package    # remove all omni-pilot-*.zip
-make clean            # remove ZIPs and dist/
+make package          # builds dist/ and writes omni-pilot-<version>.zip
+make clean-package    # removes omni-pilot-*.zip
+make clean            # removes ZIPs and dist/
 ```
 
-The ZIP contains `manifest.json`, `icons/`, and `dist/` — the same layout the
-manifest references in development, so `Load unpacked` on either the extracted
-ZIP or on the repo root (after `npm run build`) produces an identical
-extension.
-
-### Running Tests
-
-```bash
-npm test              # Unit tests + Playwright specs (build runs automatically)
-npm run test:unit     # Node vm-sandbox unit tests only
-npm run test:playwright # Playwright browser specs only
-```
-
-### Core Architecture
-
-| Module | Role |
-|--------|------|
-| **src/content-script** | Detects text selection, renders floating bubble, handles UI interactions |
-| **src/background** | Service worker: manages API calls, provider logic, A2A delegation, storage |
-| **src/options** | Settings UI, provider configuration, A2A server management |
-| **src/utils/i18n** | Multi-language support (strings, formatting) — shared across pages |
+The ZIP contains exactly the extension loadout: `manifest.json`, `icons/`, and `dist/`. The manifest references the same `dist/` paths in development and in packaged releases.
 
 ---
 
-## 📝 Supported Languages
+## Contributing
 
-- 🇬🇧 English
-- 🇨🇳 中文 (Chinese)
-- 🇯🇵 日本語 (Japanese)
-- 🇮🇩 Bahasa Indonesia
-- 🇹🇷 Türkçe (Turkish)
+Useful contribution areas:
 
-Contributions welcome! Add a language by extending `i18n.js`.
-
----
-
-## 🤝 Contributing
-
-We welcome contributions! Areas we need help with:
-
-- **New languages** — Add translations to `src/utils/i18n.mjs`
-- **New providers** — Extend `src/background/index.mjs` with more AI services
-- **Bug reports** — File issues with reproducible steps
-- **Feature requests** — Discuss in issues first
-
-### Development Setup
-
-1. Clone this repo
-2. Run `npm install` to fetch the esbuild bundler
-3. Run `npm run build` to produce `dist/`
-4. Load `omni-pilot/` unpacked in Chrome/Firefox (see Installation)
-5. Edit files under `src/`, run `npm run build`, then reload the extension
-6. Run tests: `npm test`
+- New provider integrations in `src/background/index.mjs`.
+- New or improved translations in `src/utils/i18n.mjs`.
+- A2A agent compatibility and delegation improvements.
+- Tests for content-script UI behavior, provider request shaping, extension reload resilience, and settings workflows.
+- Bug reports with browser, provider mode, model, and reproducible steps.
 
 ---
 
-## 📚 Ecosystem
+## Ecosystem
 
 Part of **OmniLLM** — a unified platform for LLM integration:
 
 - **[OmniPilot](https://github.com/OmniLLM/omni-pilot)** ← You are here
-- **[OmniLLM Core](https://github.com/OmniLLM)** — Orchestration engine
+- **[OmniLLM Core](https://github.com/OmniLLM)** — orchestration engine
 
 ---
 
-## 📄 License
-
-MIT © [OmniLLM](https://github.com/OmniLLM)
-
----
-
-## 🙏 Acknowledgments
+## Acknowledgments
 
 Inspired by [ChatGPT Box](https://github.com/ChatGPTBox-dev/chatGPTBox) and similar community projects. Thanks to all contributors and users.
 
