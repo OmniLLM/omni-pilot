@@ -1136,8 +1136,36 @@ function isCopilotResponsesOnlyModel(model) {
   return /^mai-code-/i.test(String(model || ''));
 }
 
+// Vendor-shape messages: strip extension-only bookkeeping fields (kind,
+// contextId, …) attached by the content script / side panel. The Anthropic
+// Messages, OpenAI Responses, and OpenAI Chat endpoints all reject unknown
+// keys inside message/input entries — see tests/unit/provider-message-sanitization.test.js.
+//
+// Uses a denylist rather than an allowlist so we keep vendor-legitimate
+// fields (tool_calls, tool_call_id, name, type, tool_use_id, call_id,
+// output, function_call_output items in the Responses input list, etc.)
+// while stripping only the fields the content script attaches to
+// conversationHistory for its own bookkeeping.
+const EXTENSION_ONLY_MESSAGE_FIELDS = ['kind', 'contextId'];
+
+function sanitizeVendorMessages(messages) {
+  if (!Array.isArray(messages)) return messages;
+  return messages.map(m => {
+    if (!m || typeof m !== 'object') return m;
+    let hasBanned = false;
+    for (const field of EXTENSION_ONLY_MESSAGE_FIELDS) {
+      if (field in m) { hasBanned = true; break; }
+    }
+    if (!hasBanned) return m;
+    const copy = { ...m };
+    for (const field of EXTENSION_ONLY_MESSAGE_FIELDS) delete copy[field];
+    return copy;
+  });
+}
+
 function buildApiRequest({ config, messages, systemPrompt, copilotToken, tools }) {
   const hasTools = Array.isArray(tools) && tools.length > 0;
+  messages = sanitizeVendorMessages(messages);
 
   if (getProvider(config).usesCopilotAuth) {
     if (isCopilotResponsesOnlyModel(config.model)) {
