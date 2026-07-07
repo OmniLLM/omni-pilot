@@ -52,6 +52,21 @@ function concatAgentPrimitives() {
   }).join('\n\n') + '\n'
 }
 
+// Concatenate top-level provider helper files (currently just Copilot's
+// model→shape mapping) into the background bundle BEFORE the entry file.
+// The mapping is a plain data file — declarations must land top-level so
+// index.mjs can call them without an import.
+function concatBackgroundProviders() {
+  const files = ['src/background/copilot-model-shapes.mjs']
+  const parts = []
+  for (const file of files) {
+    if (!fs.existsSync(file)) continue
+    const raw = fs.readFileSync(file, 'utf8')
+    parts.push(`// ── ${path.basename(file)} ─────────────────────────────────────────────\n${stripExports(raw)}`)
+  }
+  return parts.length ? parts.join('\n\n') + '\n' : ''
+}
+
 const entries = [
   { name: 'background', src: 'src/background/index.mjs', needsI18n: false, needsAgent: true  },
   { name: 'content',    src: 'src/content-script/index.mjs', needsI18n: true,  needsAgent: false },
@@ -61,6 +76,7 @@ const entries = [
 ]
 
 const agentPrimitives = concatAgentPrimitives()
+const backgroundProviders = concatBackgroundProviders()
 
 for (const { name, src, needsI18n, needsAgent } of entries) {
   const raw = fs.readFileSync(src, 'utf8')
@@ -68,6 +84,7 @@ for (const { name, src, needsI18n, needsAgent } of entries) {
   const parts = []
   if (needsI18n) parts.push(i18nInlined)
   if (needsAgent) parts.push(agentPrimitives)
+  if (needsAgent) parts.push(backgroundProviders)
   parts.push(stripped)
   const bundled = parts.join('\n')
   fs.writeFileSync(`${outdir}/${name}.js`, bundled)

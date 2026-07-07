@@ -1099,6 +1099,194 @@ async function assertCopilotResponsesOnlyModelUsesResponsesEndpoint() {
   assert.deepStrictEqual(body.input, [{ role: 'user', content: 'hello' }]);
 }
 
+// Regression: `gpt-5.4-mini` on Copilot MUST route to /responses. Its
+// `supported_endpoints` list from Copilot's /models is
+// ['/responses', 'ws:/responses'] — it is responses-only. Before this
+// fix, `isCopilotResponsesOnlyModel` only matched `^mai-code-` so
+// `gpt-5.4-mini` was sent to /chat/completions and Copilot returned
+// `unsupported_api_for_model`.
+async function assertCopilotGpt54MiniUsesResponsesEndpoint() {
+  const { context, requests } = await createBackgroundContext({
+    storage: {
+      providerType: 'github-copilot',
+      endpoint: '',
+      apiKey: '',
+      model: 'gpt-5.4-mini',
+      copilotAccessToken: 'cached-copilot-token',
+      copilotTokenExpiry: Date.now() + 60_000
+    },
+    fetchImpl: async url => {
+      if (url === 'https://api.githubcopilot.com/responses') {
+        return {
+          ok: true,
+          json: async () => RESPONSE_BY_SHAPE['openai-responses']
+        };
+      }
+      // Simulate Copilot rejecting /chat/completions for this model so a
+      // regression that routes to /chat/completions fails loudly.
+      if (url === 'https://api.githubcopilot.com/chat/completions') {
+        return {
+          ok: false,
+          status: 400,
+          statusText: '',
+          headers: { entries: () => [] },
+          text: async () => JSON.stringify({
+            error: {
+              message: 'model "gpt-5.4-mini" is not accessible via the /chat/completions endpoint',
+              code: 'unsupported_api_for_model'
+            }
+          })
+        };
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    }
+  });
+
+  const result = await context.handleAIAction('summarize', 'hello');
+
+  assert.strictEqual(result, 'ok');
+  assert.deepStrictEqual(requests.map(request => request.url), ['https://api.githubcopilot.com/responses']);
+  const body = JSON.parse(requests[0].options.body);
+  assert.strictEqual(body.model, 'gpt-5.4-mini');
+}
+
+// Regression: other GPT-5 responses-only variants (gpt-5.5, gpt-5.3-codex)
+// share the same failure mode as gpt-5.4-mini — they must NOT be sent to
+// /chat/completions.
+async function assertCopilotGpt5ResponsesOnlyVariantsRouteToResponses() {
+  for (const model of ['gpt-5.5', 'gpt-5.3-codex']) {
+    const { context, requests } = await createBackgroundContext({
+      storage: {
+        providerType: 'github-copilot',
+        endpoint: '',
+        apiKey: '',
+        model,
+        copilotAccessToken: 'cached-copilot-token',
+        copilotTokenExpiry: Date.now() + 60_000
+      },
+      fetchImpl: async url => {
+        if (url === 'https://api.githubcopilot.com/responses') {
+          return {
+            ok: true,
+            json: async () => RESPONSE_BY_SHAPE['openai-responses']
+          };
+        }
+        throw new Error(`Unexpected fetch ${url} for model ${model}`);
+      }
+    });
+
+    const result = await context.handleAIAction('summarize', 'hello');
+    assert.strictEqual(result, 'ok', `failed for ${model}`);
+    assert.deepStrictEqual(
+      requests.map(request => request.url),
+      ['https://api.githubcopilot.com/responses'],
+      `wrong route for ${model}`
+    );
+    const body = JSON.parse(requests[0].options.body);
+    assert.strictEqual(body.model, model);
+  }
+}
+
+// gpt-5-mini and gpt-5.4 both support /chat/completions per Copilot's
+// /models response, so they must keep going there — and gpt-5.4 must use
+// max_completion_tokens because the whole gpt-5 family is a reasoning
+// family on Copilot.
+async function assertCopilotGpt5FamilyChatModelsUseChatCompletionsWithMaxCompletionTokens() {
+  for (const model of ['gpt-5-mini', 'gpt-5.4']) {
+    const { context, requests } = await createBackgroundContext({
+      storage: {
+        providerType: 'github-copilot',
+        endpoint: '',
+        apiKey: '',
+        model,
+        copilotAccessToken: 'cached-copilot-token',
+        copilotTokenExpiry: Date.now() + 60_000
+      },
+      fetchImpl: async url => {
+        if (url === 'https://api.githubcopilot.com/chat/completions') {
+          return {
+            ok: true,
+            json: async () => ({ choices: [{ message: { content: 'ok' } }] })
+          };
+        }
+        throw new Error(`Unexpected fetch ${url} for model ${model}`);
+      }
+    });
+
+    const result = await context.handleAIAction('summarize', 'hello');
+    assert.strictEqual(result, 'ok', `failed for ${model}`);
+    assert.deepStrictEqual(
+      requests.map(request => request.url),
+      ['https://api.githubcopilot.com/chat/completions'],
+      `wrong route for ${model}`
+    );
+    const body = JSON.parse(requests[0].options.body);
+    assert.strictEqual(body.model, model);
+    assert.strictEqual(body.max_completion_tokens, 1024, `${model} should use max_completion_tokens`);
+    assert.ok(
+      !Object.prototype.hasOwnProperty.call(body, 'max_tokens'),
+      `${model} must not send max_tokens`
+    );
+  }
+}
+
+// Pure-function tests for the mapping — sanity-check the exported
+// helpers directly so failures point straight at copilot-model-shapes.mjs.
+async function assertCopilotModelShapeMappingCoversKnownCases() {
+  const { context } = await createBackgroundContext({ storage: {} });
+  const isResponsesOnly = vm.runInContext('isCopilotResponsesOnlyModel', context);
+  const usesMax = vm.runInContext('copilotModelUsesMaxCompletionTokens', context);
+  const selectShape = vm.runInContext('selectCopilotShape', context);
+  const map = vm.runInContext('COPILOT_MODEL_SHAPES', context);
+
+  // Responses-only from the live Copilot /models snapshot.
+  for (const m of ['gpt-5.4-mini', 'gpt-5.5', 'gpt-5.3-codex', 'mai-code-1-flash-picker']) {
+    assert.strictEqual(isResponsesOnly(m), true, `${m} must be responses-only`);
+    assert.strictEqual(selectShape(m), 'responses', `${m} selectShape`);
+  }
+
+  // Chat-completions capable per Copilot's supported_endpoints.
+  for (const m of ['gpt-5.4', 'gpt-5-mini', 'gpt-4o', 'claude-sonnet-4.5']) {
+    assert.strictEqual(isResponsesOnly(m), false, `${m} must NOT be responses-only`);
+    assert.strictEqual(selectShape(m), 'chat', `${m} selectShape`);
+  }
+
+  // Reasoning family — uses max_completion_tokens.
+  for (const m of ['gpt-5', 'gpt-5.4', 'gpt-5-mini', 'gpt-5.4-mini', 'o1', 'o3-mini', 'o4']) {
+    assert.strictEqual(usesMax(m), true, `${m} must use max_completion_tokens`);
+  }
+
+  // Non-reasoning — keeps max_tokens.
+  for (const m of ['gpt-4o', 'gpt-4o-mini', 'gpt-4.1', 'claude-sonnet-4.5']) {
+    assert.strictEqual(usesMax(m), false, `${m} must keep max_tokens`);
+  }
+
+  // Sanity: the map has an entry for the bug's poster child.
+  assert.strictEqual(map['gpt-5.4-mini'], 'responses');
+
+  // Case-insensitive lookup.
+  assert.strictEqual(selectShape('GPT-5.4-MINI'), 'responses');
+  assert.strictEqual(selectShape('  gpt-5.4-mini  '), 'responses');
+
+  // Unknown model → chat fallback (no substring hit).
+  assert.strictEqual(selectShape('brand-new-mystery-model'), 'chat');
+  // Unknown mai-* variant → responses (substring 'mai').
+  assert.strictEqual(selectShape('mai-code-42-experimental'), 'responses');
+  // Unknown gpt-* → responses (substring 'gpt').
+  assert.strictEqual(selectShape('gpt-5.99'), 'responses');
+  assert.strictEqual(selectShape('gpt-5.99-mini'), 'responses');
+  // Unknown claude-* → messages (substring 'claude').
+  assert.strictEqual(selectShape('claude-mystery-8'), 'messages');
+  // Unknown gemini-* → gemini (substring 'gemini').
+  assert.strictEqual(selectShape('gemini-99-mystery'), 'gemini');
+  // Claude wins over gpt when both are substrings — order-dependence test.
+  assert.strictEqual(selectShape('claude-gpt-relay'), 'messages');
+  // Empty/null → chat (safe default).
+  assert.strictEqual(selectShape(''), 'chat');
+  assert.strictEqual(selectShape(null), 'chat');
+  assert.strictEqual(selectShape(undefined), 'chat');
+}
+
 async function assertCopilotApiRequestRefreshesExpiredTokenFirst() {
   const { context, requests, stores } = await createBackgroundContext({
     storage: {
@@ -4645,6 +4833,10 @@ async function main() {
   await assertCopilotGpt54UsesMaxCompletionTokens();
   await assertCopilotUnsupportedStoredModelRetriesWithAvailableModel();
   await assertCopilotResponsesOnlyModelUsesResponsesEndpoint();
+  await assertCopilotGpt54MiniUsesResponsesEndpoint();
+  await assertCopilotGpt5ResponsesOnlyVariantsRouteToResponses();
+  await assertCopilotGpt5FamilyChatModelsUseChatCompletionsWithMaxCompletionTokens();
+  await assertCopilotModelShapeMappingCoversKnownCases();
   await assertCopilotApiRequestRefreshesExpiredTokenFirst();
   await assertA2aDelegateTaskBuildsStandaloneTaskText();
   await assertA2aDelegateTaskUsesAgentCardRpcUrl();

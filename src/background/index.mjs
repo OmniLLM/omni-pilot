@@ -1149,17 +1149,30 @@ async function removeA2aServer(serverId) {
 
 function getOpenAIChatTokenLimitParams(config) {
   const providerType = normalizeProviderType(config.providerType, config.authMethod);
+
+  // Copilot: use the full reasoning-family detector (o1/o3/o4/gpt-5*),
+  // not just the single legacy `gpt-5.4` check. Without this, sending
+  // e.g. `gpt-5-mini` or `gpt-5.4` chat requests with `max_tokens`
+  // fails on Copilot's newer reasoning models.
+  if (providerType === PROVIDER_TYPES.GITHUB_COPILOT) {
+    return copilotModelUsesMaxCompletionTokens(config.model)
+      ? { max_completion_tokens: 1024 }
+      : { max_tokens: 1024 };
+  }
+
+  // Azure Foundry: preserve the historical narrow `gpt-5.4` rule. The
+  // Foundry deployment shape is user-configured and not tied to
+  // Copilot's model catalog, so we don't broaden this without evidence.
   const usesMaxCompletionTokens = config.model === 'gpt-5.4'
-    && (providerType === PROVIDER_TYPES.AZURE_FOUNDRY || providerType === PROVIDER_TYPES.GITHUB_COPILOT);
+    && providerType === PROVIDER_TYPES.AZURE_FOUNDRY;
 
   return usesMaxCompletionTokens
     ? { max_completion_tokens: 1024 }
     : { max_tokens: 1024 };
 }
 
-function isCopilotResponsesOnlyModel(model) {
-  return /^mai-code-/i.test(String(model || ''));
-}
+// `isCopilotResponsesOnlyModel` lives in `copilot-model-shapes.mjs` and
+// is inlined at bundle time by build.mjs — do not redeclare here.
 
 // Vendor-shape messages: strip extension-only bookkeeping fields (kind,
 // contextId, …) attached by the content script / side panel. The Anthropic
@@ -2476,6 +2489,13 @@ Object.assign(globalThis, {
   getCopilotAccessToken,
   pollCopilotToken,
   startCopilotDeviceFlow,
+  // Copilot model→shape helpers (declared in copilot-model-shapes.mjs)
+  COPILOT_MODEL_SHAPES,
+  copilotModelUsesMaxCompletionTokens,
+  isCopilotGpt5Family,
+  isCopilotReasoningModel,
+  isCopilotResponsesOnlyModel,
+  selectCopilotShape,
   // Streaming parsers
   parseStreamChunkOpenAIChat,
   parseStreamChunkAnthropic,

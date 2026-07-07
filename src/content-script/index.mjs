@@ -2192,9 +2192,12 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
     );
   }
 
-  // Expose test helpers only in vm sandbox (Node test runner), not in
-  // production where globalThis === window and these would leak to the page.
-  if (typeof window === 'undefined') {
+  // Expose test helpers only in the vm sandbox (Node test runner), not
+  // in production where globalThis === window and these would leak to
+  // the page. The Node test runner installs its own mock `window` on
+  // the vm context, so `typeof window === 'undefined'` is NOT a
+  // reliable discriminator — check `globalThis !== window` instead.
+  if (typeof globalThis === 'undefined' || typeof window === 'undefined' || globalThis !== window) {
     globalThis.getProviderLabel = getProviderLabel;
     globalThis.getProviderEntries = getProviderEntries;
     globalThis.__omnipilotTestApi = {

@@ -176,11 +176,12 @@ async function assertCopilotResponsesStripsFromGptModels() {
       copilotTokenExpiry: Date.now() + 60_000
     },
     fetchImpl: async (url) => {
-      // Non-mai Copilot models route to /chat/completions (openai-compatible),
-      // NOT /responses. The invariant we're checking is the same either way:
-      // no extension-only fields on the wire, whatever route the router picks.
-      if (url === 'https://api.githubcopilot.com/chat/completions') {
-        return { ok: true, json: async () => RESPONSE_BY_SHAPE['openai-compatible'] };
+      // `gpt-5.5` is responses-only on Copilot (its
+      // supported_endpoints list is ['/responses', 'ws:/responses']).
+      // The router MUST send this model to /responses; the invariant
+      // we're checking is that no extension-only fields leak on the wire.
+      if (url === 'https://api.githubcopilot.com/responses') {
+        return { ok: true, json: async () => RESPONSE_BY_SHAPE['openai-responses'] };
       }
       throw new Error(`Unexpected fetch ${url}`);
     }
@@ -193,9 +194,9 @@ async function assertCopilotResponsesStripsFromGptModels() {
 
   await context.handleAIChat(messages);
   const body = JSON.parse(requests[0].options.body);
-  // Every message on the wire — including the injected system prompt — must
-  // be free of extension-only fields.
-  assertNoExtensionFieldsIn(body.messages, 'body.messages (Copilot Chat / gpt-*)');
+  // Every message on the wire — the responses-shape `input` list —
+  // must be free of extension-only fields.
+  assertNoExtensionFieldsIn(body.input, 'body.input (Copilot Responses / gpt-*)');
 }
 
 // ── Symptom #3: claude-* on Copilot -> /chat/completions ────────────────────
