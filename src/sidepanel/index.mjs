@@ -66,6 +66,11 @@
     body.scrollTop = body.scrollHeight;
   }
 
+  function isExtensionContextInvalidatedError(err) {
+    const msg = err && (err.message || err.toString?.() || String(err));
+    return typeof msg === 'string' && /extension context invalidated/i.test(msg);
+  }
+
   function sendMessage() {
     const text = input.value.trim();
     if (!text) return;
@@ -75,7 +80,19 @@
     addUserMsg(text);
     history.push({ role: 'user', content: text });
 
-    const port = chrome.runtime.connect({ name: 'omnipilot-stream' });
+    // chrome.runtime.connect() throws synchronously with
+    // "Extension context invalidated." after an extension reload while the
+    // side panel is still open. Catch it and surface a friendly error.
+    let port;
+    try {
+      port = chrome.runtime.connect({ name: 'omnipilot-stream' });
+    } catch (err) {
+      if (isExtensionContextInvalidatedError(err)) {
+        addErrorMsg('Extension context unavailable. Refresh the page.');
+        return;
+      }
+      throw err;
+    }
     let accumulated = '';
     let msgDiv = null;
     let settled = false;
@@ -147,7 +164,17 @@
       }
     });
 
-    port.postMessage({ type: 'AI_CHAT_STREAM', messages: history });
+    try {
+      port.postMessage({ type: 'AI_CHAT_STREAM', messages: history });
+    } catch (err) {
+      if (isExtensionContextInvalidatedError(err)) {
+        clearWatchdog();
+        try { port.disconnect(); } catch {}
+        addErrorMsg('Extension context unavailable. Refresh the page.');
+        return;
+      }
+      throw err;
+    }
   }
 
   sendBtn.addEventListener('click', sendMessage);

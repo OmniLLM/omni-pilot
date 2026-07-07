@@ -891,7 +891,8 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
 
     // A2A delegation uses non-streaming sendMessage (A2A protocol is not SSE)
     if (a2aMentionTask?.server) {
-      runtime.sendMessage(
+      const sent = safeSendMessage(
+        runtime,
         {
           type: 'A2A_DELEGATE_TASK',
           serverId: a2aMentionTask.server.id,
@@ -914,6 +915,10 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
           body.scrollTop = body.scrollHeight;
         }
       );
+      if (!sent) {
+        body.querySelector('.omnipilot-loading')?.remove();
+        body.appendChild(createErrorElement(label('extensionContextUnavailable')));
+      }
       return;
     }
 
@@ -1097,7 +1102,8 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
       return;
     }
 
-    runtime.sendMessage(
+    const sent = safeSendMessage(
+      runtime,
       { type: 'A2A_DELEGATE_TASK', serverId, task: trimmedTask, contextText: lastSelection || '' },
       response => {
         if (runtime.lastError) {
@@ -1130,6 +1136,9 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
         body.innerHTML = `${lastSelection ? renderSelectionContext(lastSelection) : ''}${userMsgHtml}${assistantMsgHtml}`;
       }
     );
+    if (!sent) {
+      body.innerHTML = `<div class="omnipilot-error">${label('extensionContextUnavailable')}</div>`;
+    }
   }
 
   function showModelSelector(anchorEl) {
@@ -1183,7 +1192,7 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
         item.addEventListener('click', e => {
           e.stopPropagation();
           currentModel = model;
-          runtime.sendMessage({ type: 'SET_MODEL', model });
+          safeSendMessage(runtime, { type: 'SET_MODEL', model });
           updatePanelMeta();
           selector.remove();
         });
@@ -1193,7 +1202,7 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
 
     filterInput.addEventListener('input', () => renderList(filterInput.value));
 
-    runtime.sendMessage({ type: 'GET_MODELS' }, response => {
+    const sent = safeSendMessage(runtime, { type: 'GET_MODELS' }, response => {
       if (!response || !response.models || !response.models.length) {
         allModels = [currentModel];
       } else {
@@ -1202,6 +1211,13 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
       renderList(filterInput.value);
       filterInput.focus();
     });
+    if (!sent) {
+      // Extension context was invalidated between opening the panel and clicking
+      // the model chip. Close the empty selector instead of leaving a permanent
+      // "loading models…" spinner.
+      selector.remove();
+      return;
+    }
 
     // Close on click outside
     const closeHandler = e => {
@@ -1229,7 +1245,7 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
         e.stopPropagation();
         const runtime = globalThis.chrome?.runtime;
         if (runtime?.sendMessage) {
-          runtime.sendMessage({ type: 'SET_PROVIDER', providerType });
+          safeSendMessage(runtime, { type: 'SET_PROVIDER', providerType });
         }
         selector.remove();
       });
@@ -1646,11 +1662,64 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
   function humanizeError(msg) {
     if (!msg) return label('somethingWrong');
     const s = escapeHtml(msg);
+    if (/extension context invalidated/i.test(s)) return label('extensionContextUnavailable');
     if (/401|403|api key/i.test(s)) return `${label('apiKeyRejected')} <a class="omnipilot-error-link" href="#">${label('checkSettings')}</a>`;
     if (/429|rate.?limit|quota/i.test(s)) return label('rateLimit');
     if (/network|fetch|timeout|ECONNREFUSED/i.test(s)) return label('networkError');
     if (/empty.*response/i.test(s)) return label('emptyResponseError');
     return s;
+  }
+
+  // Chrome keeps chrome.runtime defined on the page after the extension is
+  // reloaded/updated, but every call into it throws synchronously with
+  // "Extension context invalidated." until the page is refreshed. Detect that
+  // specific error so callers can surface a "refresh the page" message instead
+  // of letting it bubble as an uncaught exception.
+  function isExtensionContextInvalidatedError(err) {
+    const msg = err && (err.message || err.toString?.() || String(err));
+    return typeof msg === 'string' && /extension context invalidated/i.test(msg);
+  }
+
+  // Wrap chrome.runtime.sendMessage so a synchronous throw (extension context
+  // invalidated) does not bubble to the page. Returns true on success, false
+  // when the runtime is invalidated — callers can then render a local error.
+  function safeSendMessage(runtime, message, callback) {
+    if (!runtime?.sendMessage) return false;
+    try {
+      runtime.sendMessage(message, callback);
+      return true;
+    } catch (err) {
+      if (isExtensionContextInvalidatedError(err)) return false;
+      throw err;
+    }
+  }
+
+  // Wrap chrome.runtime.connect + port.postMessage the same way. Returns the
+  // connected port on success, or null if the runtime is invalidated at either
+  // step. When postMessage throws after a successful connect, the port is
+  // disconnected so no dangling listeners are left behind.
+  function safeConnectPort(runtime, connectOpts) {
+    if (!runtime?.connect) return null;
+    try {
+      return runtime.connect(connectOpts);
+    } catch (err) {
+      if (isExtensionContextInvalidatedError(err)) return null;
+      throw err;
+    }
+  }
+
+  function safePortPostMessage(port, message) {
+    if (!port) return false;
+    try {
+      port.postMessage(message);
+      return true;
+    } catch (err) {
+      if (isExtensionContextInvalidatedError(err)) {
+        try { port.disconnect(); } catch {}
+        return false;
+      }
+      throw err;
+    }
   }
 
   // Map a background 'status' signal to a localized spinner label. Falls back to
@@ -1731,7 +1800,7 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
   function createStreamPort(body, { useWatchdog = false, onStatus } = {}) {
     const runtime = globalThis.chrome?.runtime;
     if (!runtime?.connect) {
-      body.querySelector('.omnipilot-loading')?.remove();
+      removeLoadingIndicators(body);
       body.appendChild(createErrorElement(label('extensionContextUnavailable')));
       return null;
     }
@@ -1739,7 +1808,19 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
     abortController = new AbortController();
     const signal = abortController.signal;
 
-    const port = runtime.connect({ name: 'omnipilot-stream' });
+    // runtime.connect() throws synchronously with "Extension context invalidated"
+    // after the extension has been reloaded/updated while this content script is
+    // still resident in the page. Surface that as a localized in-panel error
+    // instead of letting it bubble as an uncaught exception (dist/content.js:2010
+    // in the original crash trace).
+    const port = safeConnectPort(runtime, { name: 'omnipilot-stream' });
+    if (!port) {
+      // The runtime is dead — every pending spinner in this panel will hang
+      // forever, so clear them all along with the fresh one for this stream.
+      removeLoadingIndicators(body);
+      body.appendChild(createErrorElement(label('extensionContextUnavailable')));
+      return null;
+    }
     let accumulated = '';
     let streamingMsg = null;
     let streamMsgDiv = null;
@@ -1827,7 +1908,13 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
   function streamAction(actionId, text, body) {
     const port = createStreamPort(body);
     if (!port) return;
-    port.postMessage({ type: 'AI_ACTION_STREAM', action: actionId, text });
+    const sent = safePortPostMessage(port, { type: 'AI_ACTION_STREAM', action: actionId, text });
+    if (!sent) {
+      removeLoadingIndicators(body);
+      if (!body.querySelector('.omnipilot-error')) {
+        body.appendChild(createErrorElement(label('extensionContextUnavailable')));
+      }
+    }
   }
 
   function streamChat(messages, body) {
@@ -1839,7 +1926,13 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
       }
     });
     if (!port) return;
-    port.postMessage({ type: 'AI_CHAT_STREAM', messages });
+    const sent = safePortPostMessage(port, { type: 'AI_CHAT_STREAM', messages });
+    if (!sent) {
+      removeLoadingIndicators(body);
+      if (!body.querySelector('.omnipilot-error')) {
+        body.appendChild(createErrorElement(label('extensionContextUnavailable')));
+      }
+    }
   }
 
   // ── Action Runner ─────────────────────────────────────────────────────────────
