@@ -43,6 +43,8 @@ async function testShellCommand() {
   ]);
 
   assert.ok(result, 'should return a result');
+  assert.ok(!/no command provided/i.test(result), `shell delegation should include command args, got: ${result}`);
+  assert.ok(/\/data\/tools\/omnilauncher|working directory|pwd/i.test(result), `expected pwd/working-directory output, got: ${result}`);
   console.info(`         tools=${getToolCount(infoLogs)}`);
   console.info(`  ✓ "${result.slice(0, 100)}"`);
 }

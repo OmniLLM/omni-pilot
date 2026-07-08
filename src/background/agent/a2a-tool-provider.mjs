@@ -23,11 +23,12 @@ function registerA2aToolsInRegistry(registry, servers, options = {}) {
         registry.register(createTool({
           name,
           description: buildA2aSkillToolDescription(server, skill),
-          parameters: buildA2aToolParameters(),
-          dispatch: async ({ task }) => delegateA2aTask({
+          parameters: normalizeA2aSkillInputSchema(skill),
+          dispatch: async (args) => delegateA2aTask({
             serverId: server.id,
             skillId,
-            task: String(task || '').trim(),
+            task: String(args?.task || args?.query || '').trim(),
+            args: args && typeof args === 'object' ? args : {},
             contextText: getContextText ? getContextText() : ''
           }),
           meta: {
@@ -76,11 +77,12 @@ function registerA2aToolsInRegistry(registry, servers, options = {}) {
         registry.register(createTool({
           name,
           description: buildA2aSkillToolDescription(server, skill),
-          parameters: buildA2aToolParameters(),
-          dispatch: async ({ task }) => delegateA2aTask({
+          parameters: normalizeA2aSkillInputSchema(skill),
+          dispatch: async (args) => delegateA2aTask({
             serverId: server.id,
             skillId,
-            task: String(task || '').trim(),
+            task: String(args?.task || args?.query || '').trim(),
+            args: args && typeof args === 'object' ? args : {},
             contextText: getContextText ? getContextText() : ''
           }),
           meta: {

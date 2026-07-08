@@ -86,8 +86,10 @@ function createRunner({
       for (const call of toolCalls) {
         const tool = toolRegistry.get(call.toolName);
         if (!tool) continue;
-        if (!call.task) continue;
-        const key = `${tool.meta.serverId} ${call.task}`;
+        const parsedArgs = call.parsedArgs && typeof call.parsedArgs === 'object' ? call.parsedArgs : {};
+        const hasArgs = Object.keys(parsedArgs).length > 0;
+        if (!call.task && !hasArgs) continue;
+        const key = `${tool.meta.serverId} ${call.toolName} ${hasArgs ? JSON.stringify(parsedArgs) : call.task}`;
         if (roundSeen.has(key)) continue;
         if (session.hasDispatched(key)) continue;
         roundSeen.add(key);
@@ -99,7 +101,7 @@ function createRunner({
           const first = toolCalls[0];
           const tool = toolRegistry.get(first.toolName);
           if (!tool) throw new Error('A2A tool selected an unknown server.');
-          if (!first.task) throw new Error('A2A tool selected an empty task.');
+          if (!first.task && !Object.keys(first.parsedArgs || {}).length) throw new Error('A2A tool selected empty arguments.');
         }
         break;
       }

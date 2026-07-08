@@ -3333,6 +3333,67 @@ async function assertA2aToolSchemasIncludeOneToolPerSkill() {
   assert.ok(aws.openAIChat.function.description.includes('EC2'));
 }
 
+async function assertA2aToolSchemasPreserveSkillInputSchema() {
+  const { context, requests } = await createBackgroundContext({
+    storage: {
+      providerType: 'custom-provider',
+      endpoint: 'https://custom.example/v1',
+      apiKey: 'test-key',
+      model: 'custom-model',
+      apiShape: 'openai-compatible',
+      a2aServers: [
+        {
+          id: 'launcher',
+          name: 'OmniLauncher',
+          endpoint: 'https://launcher.example/a2a',
+          enabled: true,
+          agentCard: {
+            name: 'OmniLauncher',
+            skills: [{
+              id: 'plugin:tool:shell_exec',
+              name: 'shell_exec',
+              description: 'Run shell commands.',
+              inputSchema: {
+                type: 'object',
+                properties: { command: { type: 'string' } },
+                required: ['command']
+              }
+            }]
+          }
+        }
+      ],
+      a2aServerTokens: { launcher: 'server-token' }
+    },
+    fetchImpl: async (url) => {
+      if (url === 'https://custom.example/v1/chat/completions') {
+        return {
+          ok: true,
+          json: async () => ({ choices: [{ message: { tool_calls: [{
+            id: 'call_1',
+            type: 'function',
+            function: { name: 'a2a__launcher__plugin_tool_shell_exec', arguments: JSON.stringify({ command: 'pwd' }) }
+          }] } }] })
+        };
+      }
+      if (url === 'https://launcher.example/a2a') {
+        return { ok: true, json: async () => ({ result: { message: { parts: [{ type: 'text', text: '/tmp' }] } } }) };
+      }
+      throw new Error(`Unexpected fetch ${url}`);
+    }
+  });
+
+  const schemas = context.buildA2aToolSchemas([{ id: 'launcher', agentCard: { skills: [{ id: 'plugin:tool:shell_exec', name: 'shell_exec', inputSchema: { type: 'object', properties: { command: { type: 'string' } }, required: ['command'] } }] } }]);
+  assert.strictEqual(schemas[0].openAIChat.function.parameters.required[0], 'command');
+  assert.ok(schemas[0].openAIChat.function.parameters.properties.command, 'schema should expose command parameter');
+
+  const result = await context.handleAIChat([{ role: 'user', content: 'run pwd' }]);
+  assert.strictEqual(result, '/tmp');
+  const a2aRequest = requests.find(r => r.url === 'https://launcher.example/a2a');
+  const body = JSON.parse(a2aRequest.options.body);
+  assert.deepStrictEqual(body.params.message.parts, [{ type: 'data', data: { command: 'pwd' } }]);
+  assert.strictEqual(body.params.skillId, 'plugin:tool:shell_exec');
+}
+
 async function assertA2aToolSchemasFallBackToServerToolWhenNoSkills() {
   const { context } = await createBackgroundContext();
   const schemas = context.buildA2aToolSchemas([
@@ -4806,6 +4867,7 @@ async function main() {
   await assertA2aAutoRouteInjectsToolsForDiscoveredAgentCards();
   await assertA2aRoutingHonorsGuardrailsDenyDomain();
   await assertA2aToolSchemasIncludeOneToolPerSkill();
+  await assertA2aToolSchemasPreserveSkillInputSchema();
   await assertA2aToolSchemasFallBackToServerToolWhenNoSkills();
   await assertSkillToolCallDelegatesToCorrectServer();
   await assertQuestionMatchingA2aSkillUsesLlmToolCallRouting();

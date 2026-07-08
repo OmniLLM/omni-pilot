@@ -44,8 +44,11 @@ function loadConfig() {
 function loadHubConfig() {
   // Try config.yaml from the hub repo or standard install location
   const candidatePaths = [
+    path.join(os.homedir(), '.config/omni-agent-hub/config.yaml'),
     path.join(os.homedir(), 'repos/omni-agent-hub/config.yaml'),
     path.join(os.homedir(), '.omni-agent-hub/config.yaml'),
+    '/data/tools/omni-agent-hub/config.local.yaml',
+    '/data/tools/omni-agent-hub/config.yaml',
     '/etc/omni-agent-hub/config.yaml'
   ];
 

@@ -622,7 +622,7 @@ function buildA2aSkillToolDescription(server, skill) {
     skill.description || '',
     tags,
     card.description ? `Agent context: ${card.description}` : '',
-    'When the current user request matches this skill, call this tool instead of answering from local model knowledge. Pass the user\'s full request as the "task".'
+    'When the current user request matches this skill, call this tool instead of answering from local model knowledge. Pass arguments that match this skill\'s input schema; if the schema only exposes "task", pass the user\'s full request as task.'
   ];
   return lines.filter(Boolean).join('\n').slice(0, A2A_TOOL_DESCRIPTION_MAX_LEN);
 }
@@ -646,8 +646,22 @@ function buildA2aToolParameters() {
   };
 }
 
-function buildA2aToolSchema({ serverId, skillId, skillName, skillDescription, skillTags, name, description }) {
-  const parameters = buildA2aToolParameters();
+function normalizeA2aSkillInputSchema(skill) {
+  const schema = skill?.inputSchema || skill?.input_schema;
+  if (!schema || typeof schema !== 'object' || Array.isArray(schema)) {
+    return buildA2aToolParameters();
+  }
+  const normalized = { ...schema };
+  if (!normalized.type) normalized.type = 'object';
+  if (!normalized.properties || typeof normalized.properties !== 'object' || Array.isArray(normalized.properties)) {
+    normalized.properties = {};
+  }
+  if (!Array.isArray(normalized.required)) normalized.required = [];
+  return normalized;
+}
+
+function buildA2aToolSchema({ serverId, skillId, skillName, skillDescription, skillTags, inputSchema, name, description }) {
+  const parameters = inputSchema || buildA2aToolParameters();
   return {
     serverId,
     skillId: skillId || null,
@@ -809,6 +823,7 @@ function buildA2aToolSchemas(servers) {
           skillName: skill.name || skill.id || '',
           skillDescription: skill.description || '',
           skillTags: Array.isArray(skill.tags) ? skill.tags : [],
+          inputSchema: normalizeA2aSkillInputSchema(skill),
           name: uniqueName(buildA2aToolName(server.id, skillId)),
           description: buildA2aSkillToolDescription(server, skill)
         }));
@@ -857,6 +872,7 @@ function buildA2aToolSchemas(servers) {
           skillName: skill.name || skill.id || '',
           skillDescription: skill.description || '',
           skillTags: Array.isArray(skill.tags) ? skill.tags : [],
+          inputSchema: normalizeA2aSkillInputSchema(skill),
           name: uniqueName(buildA2aToolName(server.id, skillId)),
           description: buildA2aSkillToolDescription(server, skill)
         }));
@@ -1428,16 +1444,16 @@ function createA2aRpcRequest(method, params) {
   };
 }
 
-function createA2aMessageParams(task, contextText, skillId, contextId) {
+function createA2aMessageParams(task, contextText, skillId, contextId, args) {
+  const hasStructuredArgs = args && typeof args === 'object' && !Array.isArray(args)
+    && Object.keys(args).some(key => !['task', 'contextText', 'contextId', 'skillId'].includes(key));
+  const parts = hasStructuredArgs
+    ? [{ type: 'data', data: args }]
+    : [{ type: 'text', text: buildA2aTaskText(task, contextText) }];
   const params = {
     message: {
       role: 'user',
-      parts: [
-        {
-          type: 'text',
-          text: buildA2aTaskText(task, contextText)
-        }
-      ]
+      parts
     }
   };
   if (skillId) params.skillId = String(skillId);
@@ -1517,22 +1533,22 @@ function joinA2aPath(endpoint, path) {
   return `${String(endpoint || '').replace(/\/$/, '')}${path}`;
 }
 
-function createA2aRestMessageRequest(task, contextText, skillId, contextId) {
-  const params = createA2aMessageParams(task, contextText, skillId, contextId);
+function createA2aRestMessageRequest(task, contextText, skillId, contextId, args) {
+  const params = createA2aMessageParams(task, contextText, skillId, contextId, args);
   const body = { messages: [params.message] };
   if (params.skillId) body.skillId = params.skillId;
   if (params.contextId) body.contextId = params.contextId;
   return body;
 }
 
-async function postA2aRestMessage(server, task, contextText, skillId, contextId) {
+async function postA2aRestMessage(server, task, contextText, skillId, contextId, args) {
   const headers = { 'Content-Type': 'application/json', Accept: 'application/json' };
   if (server.token) headers.Authorization = `Bearer ${server.token}`;
 
   const response = await fetch(joinA2aPath(server.endpoint, '/message:send'), {
     method: 'POST',
     headers,
-    body: JSON.stringify(createA2aRestMessageRequest(task, contextText, skillId, contextId))
+    body: JSON.stringify(createA2aRestMessageRequest(task, contextText, skillId, contextId, args))
   });
 
   if (!response.ok) {
@@ -1686,7 +1702,7 @@ function isA2aBreakerOpenError(error) {
   return error?.code === A2A_RPC_ERROR_UPSTREAM_UNAVAILABLE;
 }
 
-async function sendInitialA2aTask(server, task, contextText, skillId, contextId) {
+async function sendInitialA2aTask(server, task, contextText, skillId, contextId, args) {
   // Retry loop for hub circuit-breaker (-32010): the upstream had 3+
   // consecutive failures. Back off briefly and try again before surfacing
   // the error to the user.
@@ -1694,7 +1710,7 @@ async function sendInitialA2aTask(server, task, contextText, skillId, contextId)
     try {
       return {
         server,
-        task: assertA2aTaskNotFailed(await postA2aRpc(server, 'message/send', createA2aMessageParams(task, contextText, skillId, contextId)))
+        task: assertA2aTaskNotFailed(await postA2aRpc(server, 'message/send', createA2aMessageParams(task, contextText, skillId, contextId, args)))
       };
     } catch (error) {
       if (isA2aBreakerOpenError(error) && attempt < A2A_RPC_BREAKER_MAX_RETRIES) {
@@ -1711,7 +1727,7 @@ async function sendInitialA2aTask(server, task, contextText, skillId, contextId)
       try {
         return {
           server: { ...server, protocol: 'rest' },
-          task: assertA2aTaskNotFailed(await postA2aRestMessage(server, task, contextText, skillId, contextId))
+          task: assertA2aTaskNotFailed(await postA2aRestMessage(server, task, contextText, skillId, contextId, args))
         };
       } catch (restError) {
         if (restError.status !== 404) throw restError;
@@ -1723,21 +1739,21 @@ async function sendInitialA2aTask(server, task, contextText, skillId, contextId)
       if (getA2aRpcEndpoint(discoveredServer) === getA2aRpcEndpoint(server)) throw error;
       return {
         server: discoveredServer,
-        task: assertA2aTaskNotFailed(await postA2aRpc(discoveredServer, 'message/send', createA2aMessageParams(task, contextText, skillId, contextId)))
+        task: assertA2aTaskNotFailed(await postA2aRpc(discoveredServer, 'message/send', createA2aMessageParams(task, contextText, skillId, contextId, args)))
       };
     }
   }
   throw new Error('A2A upstream is temporarily unavailable. Please try again later.');
 }
 
-async function delegateA2aTask({ serverId, skillId, task, contextText, contextId }) {
+async function delegateA2aTask({ serverId, skillId, task, contextText, contextId, args }) {
   const server = await getA2aServerWithToken(serverId);
 
   if (!server?.endpoint) {
     throw new Error(`A2A server not configured: ${serverId}`);
   }
 
-  const initial = await sendInitialA2aTask(server, task, contextText, skillId, contextId);
+  const initial = await sendInitialA2aTask(server, task, contextText, skillId, contextId, args);
   const initialTask = initial.task;
   const initialState = getA2aTaskState(initialTask);
 
