@@ -245,17 +245,6 @@ function createHubContext({ agentCard = null, captureInfoLogs = false } = {}) {
 async function preflight() {
   const cfg = loadConfig();
 
-  try {
-    const health = await fetch('http://127.0.0.1:1422/health');
-    const data = await health.json();
-    if (!data.ok) throw new Error('not ok');
-    console.info('  ✓ OmniLauncher backend: UP');
-  } catch {
-    console.error('  ✗ OmniLauncher backend not running');
-    console.error('    Start: cd /data/tools/omnilauncher && ./src-tauri/target/release/omnilauncher --server');
-    process.exit(1);
-  }
-
   let agentCard;
   try {
     // Try hub-style agent-card.json first, fall back to agent.json
