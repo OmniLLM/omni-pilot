@@ -48,10 +48,11 @@ const DEFAULT_CONFIG = {
   a2aAutoRoute: true,
   memoryEnabled: true,
   popupInitialWidth: 640,
-  popupInitialHeight: 400
+  popupInitialHeight: 400,
+  responseTimeoutMs: RESPONSE_TIMEOUT_DEFAULT_MS
 };
 
-const STORAGE_KEYS = ['endpoint', 'apiKey', 'model', 'models', 'themePreference', 'apiShape', 'languagePreference', 'providerType', 'authMethod', 'providerConfigs', 'a2aServers', 'a2aAutoRoute', 'memoryEnabled', 'popupInitialWidth', 'popupInitialHeight'];
+const STORAGE_KEYS = ['endpoint', 'apiKey', 'model', 'models', 'themePreference', 'apiShape', 'languagePreference', 'providerType', 'authMethod', 'providerConfigs', 'a2aServers', 'a2aAutoRoute', 'memoryEnabled', 'popupInitialWidth', 'popupInitialHeight', 'responseTimeoutMs'];
 const A2A_TOKEN_STORAGE_KEY = 'a2aServerTokens';
 const PROVIDER_CONFIG_FIELDS = ['endpoint', 'apiKey', 'model', 'models', 'apiShape'];
 
@@ -199,6 +200,17 @@ function getPopupInitialSizeConfig() {
   return {
     popupInitialWidth: normalizePopupInitialSize(document.getElementById('popupInitialWidth')?.value, 'width'),
     popupInitialHeight: normalizePopupInitialSize(document.getElementById('popupInitialHeight')?.value, 'height')
+  };
+}
+
+function setResponseTimeoutField(config) {
+  const input = document.getElementById('responseTimeout');
+  if (input) input.value = String(responseTimeoutMsToMinutes(config.responseTimeoutMs));
+}
+
+function getResponseTimeoutConfig() {
+  return {
+    responseTimeoutMs: responseTimeoutMinutesToMs(document.getElementById('responseTimeout')?.value)
   };
 }
 
@@ -1072,6 +1084,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.documentElement.setAttribute('data-theme', config.themePreference);
     applyLanguage(config.languagePreference);
     setPopupInitialSizeFields(config);
+    setResponseTimeoutField(config);
     setProviderFormConfig(activeProviderConfig);
     const providerTypeElement = document.getElementById('providerType') || document.getElementById('authMethod');
     if (providerTypeElement) providerTypeElement.value = providerType;
@@ -1207,6 +1220,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const config = {
       ...providerConfig,
       ...getPopupInitialSizeConfig(),
+      ...getResponseTimeoutConfig(),
       providerType,
       providerConfigs,
       languagePreference: normalizeLanguage(document.getElementById('languageSelect').value)

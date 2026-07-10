@@ -73,6 +73,7 @@ function createTestContext({ fetchImpl, sendMessageImpl, storageGetImpl, localSt
     a2aToken: createElement('secret-token'),
     popupInitialWidth: createElement('720'),
     popupInitialHeight: createElement('360'),
+    responseTimeout: createElement('5'),
     addA2aServerBtn: createElement(),
     a2aStatus: createElement(),
     a2aServerList: createElement()
@@ -606,6 +607,31 @@ async function testOptionsHtmlContainsPopupInitialSizeControls() {
     assert.match(htmlSource, new RegExp(`id=\"${expectedId}\"`), `options.html should contain #${expectedId}`);
   }
   assert.match(htmlSource, /data-i18n=\"popupInitialSize\"/, 'options.html should label popup initial size settings');
+}
+
+async function testResponseTimeoutLoadsSavesAndClamps() {
+  const loaded = createTestContext({
+    storageGetImpl(keys, callback) {
+      callback({ responseTimeoutMs: 450000, languagePreference: 'en' });
+    }
+  });
+  await loaded.domListeners.DOMContentLoaded();
+  assert.strictEqual(loaded.elements.responseTimeout.value, '7.5');
+
+  loaded.elements.responseTimeout.value = '0.1';
+  await loaded.elements.saveBtn.listeners.click();
+  assert.strictEqual(loaded.syncWrites.at(-1).responseTimeoutMs, 30000);
+
+  loaded.elements.responseTimeout.value = '999';
+  await loaded.elements.saveBtn.listeners.click();
+  assert.strictEqual(loaded.syncWrites.at(-1).responseTimeoutMs, 1800000);
+}
+
+async function testOptionsHtmlContainsResponseTimeoutControl() {
+  assert.match(htmlSource, /id="responseTimeout"/);
+  assert.match(htmlSource, /min="0\.5"/);
+  assert.match(htmlSource, /max="30"/);
+  assert.match(htmlSource, /data-i18n="responseTimeoutHint"/);
 }
 
 async function testOptionsHtmlContainsMemoryCardControls() {
@@ -1212,6 +1238,8 @@ async function main() {
   await testStoredPopupInitialSizeLoadsIntoFields();
   await testSaveClampsPopupInitialSize();
   await testOptionsHtmlContainsPopupInitialSizeControls();
+  await testResponseTimeoutLoadsSavesAndClamps();
+  await testOptionsHtmlContainsResponseTimeoutControl();
   await testOptionsHtmlContainsMemoryCardControls();
   await assertOptionsDebugCardIsPresent();
   await testAdvancedSectionContainsAllAdvancedCards();

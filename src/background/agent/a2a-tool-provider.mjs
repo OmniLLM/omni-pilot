@@ -7,7 +7,7 @@
 
 function registerA2aToolsInRegistry(registry, servers, options = {}) {
   const uniqueName = createUniqueNameGenerator(registry);
-  const { getContextText } = options;
+  const { getContextText, deadline } = options;
 
   for (const server of servers) {
     const skills = getEnabledA2aSkills(server);
@@ -29,7 +29,8 @@ function registerA2aToolsInRegistry(registry, servers, options = {}) {
             skillId,
             task: String(args?.task || args?.query || '').trim(),
             args: args && typeof args === 'object' ? args : {},
-            contextText: getContextText ? getContextText() : ''
+            contextText: getContextText ? getContextText() : '',
+            deadline
           }),
           meta: {
             serverId: server.id,
@@ -53,7 +54,8 @@ function registerA2aToolsInRegistry(registry, servers, options = {}) {
             serverId: server.id,
             skillId: String(skill_id || '').trim(),
             task: String(task || '').trim(),
-            contextText: getContextText ? getContextText() : ''
+            contextText: getContextText ? getContextText() : '',
+            deadline
           }),
           meta: {
             serverId: server.id,
@@ -83,7 +85,8 @@ function registerA2aToolsInRegistry(registry, servers, options = {}) {
             skillId,
             task: String(args?.task || args?.query || '').trim(),
             args: args && typeof args === 'object' ? args : {},
-            contextText: getContextText ? getContextText() : ''
+            contextText: getContextText ? getContextText() : '',
+            deadline
           }),
           meta: {
             serverId: server.id,
@@ -106,7 +109,8 @@ function registerA2aToolsInRegistry(registry, servers, options = {}) {
       dispatch: async ({ task }) => delegateA2aTask({
         serverId: server.id,
         task: String(task || '').trim(),
-        contextText: getContextText ? getContextText() : ''
+        contextText: getContextText ? getContextText() : '',
+            deadline
       }),
       meta: {
         serverId: server.id,

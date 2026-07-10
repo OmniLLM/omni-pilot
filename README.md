@@ -135,6 +135,7 @@ Manual delegation is available by starting a prompt with an agent mention, for e
 - Theme and language can be changed from popup/options.
 - Current shared i18n strings support **English** and **Chinese**.
 - Initial floating-panel width and height are configurable from settings.
+- **Response timeout** defaults to 5 minutes and can be set from 0.5 to 30 minutes under Advanced Settings. It is a hard total limit for each AI request; streaming activity keeps the interface active but does not extend the request deadline.
 
 ---
 

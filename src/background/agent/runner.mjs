@@ -21,6 +21,7 @@ function createRunner({
   session,
   onStatus,
   onEvent = () => {},
+  deadline,
   maxTurns = A2A_MAX_ROUNDS
 }) {
   function safeEmit(type, data) { try { onEvent(type, data); } catch {} }
@@ -46,7 +47,8 @@ function createRunner({
       const response = await fetch(built.requestUrl, {
         method: 'POST',
         headers: built.requestHeaders,
-        body: JSON.stringify(requestBody)
+        body: JSON.stringify(requestBody),
+        ...(deadline?.signal ? { signal: deadline.signal } : {})
       });
 
       if (!response.ok) {

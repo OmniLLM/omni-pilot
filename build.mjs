@@ -5,7 +5,8 @@
 // context properties. Wrapping the output in an IIFE (as esbuild/rollup do
 // by default) would hide those declarations and break the tests.
 //
-// Two concat sources feed into the built scripts:
+// Three concat sources feed into the built scripts:
+//   * `src/utils/timeout.mjs` is inlined into every JavaScript bundle.
 //   * `src/utils/i18n.mjs` is inlined into content/popup/options bundles.
 //   * `src/background/agent/*.mjs` (Agent, Runner, Tool, ToolRegistry,
 //     Session, State, A2aToolProvider, follow-up, constants) is inlined
@@ -24,6 +25,8 @@ fs.mkdirSync(outdir, { recursive: true })
 
 const i18nRaw = fs.readFileSync('src/utils/i18n.mjs', 'utf8')
 const i18nInlined = i18nRaw.replace(/^export\s*\{[\s\S]*?\};?\s*$/m, '').trimEnd() + '\n'
+const timeoutRaw = fs.readFileSync('src/utils/timeout.mjs', 'utf8')
+const timeoutInlined = timeoutRaw.replace(/^export\s*\{[\s\S]*?\};?\s*$/m, '').trimEnd() + '\n'
 
 function stripI18nImports(src) {
   return src.replace(/^import\s+\{[^}]+\}\s+from\s+['"][^'"]*i18n\.mjs['"];?\s*\n/gm, '')
@@ -81,7 +84,7 @@ const backgroundProviders = concatBackgroundProviders()
 for (const { name, src, needsI18n, needsAgent } of entries) {
   const raw = fs.readFileSync(src, 'utf8')
   const stripped = stripI18nImports(raw)
-  const parts = []
+  const parts = [timeoutInlined]
   if (needsI18n) parts.push(i18nInlined)
   if (needsAgent) parts.push(agentPrimitives)
   if (needsAgent) parts.push(backgroundProviders)

@@ -75,10 +75,11 @@ const DEFAULT_CONFIG = {
   contextMaxTokens: 8000,
   guardrailsMode: 'deny-list',
   guardrailsDenyDomains: [],
-  observabilityEnabled: true
+  observabilityEnabled: true,
+  responseTimeoutMs: RESPONSE_TIMEOUT_DEFAULT_MS
 };
 
-const STORAGE_KEYS = ['endpoint', 'apiKey', 'model', 'models', 'apiShape', 'providerType', 'authMethod', 'providerConfigs', 'a2aServers', 'a2aAutoRoute', 'memoryEnabled', 'contextMaxTokens', 'guardrailsMode', 'guardrailsDenyDomains', 'observabilityEnabled'];
+const STORAGE_KEYS = ['endpoint', 'apiKey', 'model', 'models', 'apiShape', 'providerType', 'authMethod', 'providerConfigs', 'a2aServers', 'a2aAutoRoute', 'memoryEnabled', 'contextMaxTokens', 'guardrailsMode', 'guardrailsDenyDomains', 'observabilityEnabled', 'responseTimeoutMs'];
 const A2A_TOKEN_STORAGE_KEY = 'a2aServerTokens';
 const PROVIDER_CONFIG_FIELDS = ['endpoint', 'apiKey', 'model', 'models', 'apiShape'];
 // A2A constants live in src/background/agent/constants.mjs; they are
@@ -1541,14 +1542,15 @@ function createA2aRestMessageRequest(task, contextText, skillId, contextId, args
   return body;
 }
 
-async function postA2aRestMessage(server, task, contextText, skillId, contextId, args) {
+async function postA2aRestMessage(server, task, contextText, skillId, contextId, args, deadline) {
   const headers = { 'Content-Type': 'application/json', Accept: 'application/json' };
   if (server.token) headers.Authorization = `Bearer ${server.token}`;
 
   const response = await fetch(joinA2aPath(server.endpoint, '/message:send'), {
     method: 'POST',
     headers,
-    body: JSON.stringify(createA2aRestMessageRequest(task, contextText, skillId, contextId, args))
+    body: JSON.stringify(createA2aRestMessageRequest(task, contextText, skillId, contextId, args)),
+    ...(deadline?.signal ? { signal: deadline.signal } : {})
   });
 
   if (!response.ok) {
@@ -1558,13 +1560,14 @@ async function postA2aRestMessage(server, task, contextText, skillId, contextId,
   return response.json();
 }
 
-async function getA2aRestTask(server, taskId) {
+async function getA2aRestTask(server, taskId, deadline) {
   const headers = { Accept: 'application/json' };
   if (server.token) headers.Authorization = `Bearer ${server.token}`;
 
   const response = await fetch(joinA2aPath(server.endpoint, `/tasks/${encodeURIComponent(taskId)}`), {
     method: 'GET',
-    headers
+    headers,
+    ...(deadline?.signal ? { signal: deadline.signal } : {})
   });
 
   if (!response.ok) {
@@ -1598,14 +1601,15 @@ function classifyA2aRpcError(rpcError) {
   return { retryable: false, userMessage: rpcError.message || 'A2A request failed.' };
 }
 
-async function postA2aRpc(server, method, params) {
+async function postA2aRpc(server, method, params, deadline) {
   const headers = { 'Content-Type': 'application/json' };
   if (server.token) headers.Authorization = `Bearer ${server.token}`;
 
   const response = await fetch(getA2aRpcEndpoint(server), {
     method: 'POST',
     headers,
-    body: JSON.stringify(createA2aRpcRequest(method, params))
+    body: JSON.stringify(createA2aRpcRequest(method, params)),
+    ...(deadline?.signal ? { signal: deadline.signal } : {})
   });
 
   if (!response.ok) {
@@ -1624,18 +1628,18 @@ async function postA2aRpc(server, method, params) {
   return payload.result;
 }
 
-async function pollA2aTask(server, taskId) {
+async function pollA2aTask(server, taskId, deadline) {
   for (let attempt = 0; attempt < A2A_MAX_POLL_ATTEMPTS; attempt += 1) {
-    // Look up via globalThis so tests can inject a mock wait implementation
-    // without needing to stub setTimeout in the vm sandbox.
-    await globalThis.wait(A2A_POLL_INTERVAL_MS);
+    deadline?.throwIfExpired();
+    await globalThis.wait(Math.min(A2A_POLL_INTERVAL_MS, deadline?.remainingMs?.() ?? A2A_POLL_INTERVAL_MS));
+    deadline?.throwIfExpired();
     const task = assertA2aTaskNotFailed(server.protocol === 'rest'
-      ? await getA2aRestTask(server, taskId)
-      : await postA2aRpc(server, 'tasks/get', { id: taskId }));
+      ? await getA2aRestTask(server, taskId, deadline)
+      : await postA2aRpc(server, 'tasks/get', { id: taskId }, deadline));
     if (isA2aTaskComplete(task)) return task;
   }
 
-  throw new Error('A2A task polling timed out.');
+  throw deadline ? new Error(createResponseTimeoutMessage(deadline.timeoutMs)) : new Error('A2A task polling timed out.');
 }
 
 // ── Hub tasks/cancel ─────────────────────────────────────────────────────────
@@ -1702,7 +1706,7 @@ function isA2aBreakerOpenError(error) {
   return error?.code === A2A_RPC_ERROR_UPSTREAM_UNAVAILABLE;
 }
 
-async function sendInitialA2aTask(server, task, contextText, skillId, contextId, args) {
+async function sendInitialA2aTask(server, task, contextText, skillId, contextId, args, deadline) {
   // Retry loop for hub circuit-breaker (-32010): the upstream had 3+
   // consecutive failures. Back off briefly and try again before surfacing
   // the error to the user.
@@ -1710,7 +1714,7 @@ async function sendInitialA2aTask(server, task, contextText, skillId, contextId,
     try {
       return {
         server,
-        task: assertA2aTaskNotFailed(await postA2aRpc(server, 'message/send', createA2aMessageParams(task, contextText, skillId, contextId, args)))
+        task: assertA2aTaskNotFailed(await postA2aRpc(server, 'message/send', createA2aMessageParams(task, contextText, skillId, contextId, args), deadline))
       };
     } catch (error) {
       if (isA2aBreakerOpenError(error) && attempt < A2A_RPC_BREAKER_MAX_RETRIES) {
@@ -1727,7 +1731,7 @@ async function sendInitialA2aTask(server, task, contextText, skillId, contextId,
       try {
         return {
           server: { ...server, protocol: 'rest' },
-          task: assertA2aTaskNotFailed(await postA2aRestMessage(server, task, contextText, skillId, contextId, args))
+          task: assertA2aTaskNotFailed(await postA2aRestMessage(server, task, contextText, skillId, contextId, args, deadline))
         };
       } catch (restError) {
         if (restError.status !== 404) throw restError;
@@ -1739,21 +1743,22 @@ async function sendInitialA2aTask(server, task, contextText, skillId, contextId,
       if (getA2aRpcEndpoint(discoveredServer) === getA2aRpcEndpoint(server)) throw error;
       return {
         server: discoveredServer,
-        task: assertA2aTaskNotFailed(await postA2aRpc(discoveredServer, 'message/send', createA2aMessageParams(task, contextText, skillId, contextId, args)))
+        task: assertA2aTaskNotFailed(await postA2aRpc(discoveredServer, 'message/send', createA2aMessageParams(task, contextText, skillId, contextId, args), deadline))
       };
     }
   }
   throw new Error('A2A upstream is temporarily unavailable. Please try again later.');
 }
 
-async function delegateA2aTask({ serverId, skillId, task, contextText, contextId, args }) {
+async function delegateA2aTask({ serverId, skillId, task, contextText, contextId, args, deadline }) {
   const server = await getA2aServerWithToken(serverId);
 
   if (!server?.endpoint) {
     throw new Error(`A2A server not configured: ${serverId}`);
   }
 
-  const initial = await sendInitialA2aTask(server, task, contextText, skillId, contextId, args);
+  deadline?.throwIfExpired();
+  const initial = await sendInitialA2aTask(server, task, contextText, skillId, contextId, args, deadline);
   const initialTask = initial.task;
   const initialState = getA2aTaskState(initialTask);
 
@@ -1773,7 +1778,7 @@ async function delegateA2aTask({ serverId, skillId, task, contextText, contextId
     throw new Error('A2A task did not include a task id or text result.');
   }
 
-  const completedTask = await pollA2aTask(initial.server, taskId);
+  const completedTask = await pollA2aTask(initial.server, taskId, deadline);
   const completedText = extractA2aText(completedTask);
   if (!completedText) {
     throw new Error('A2A task completed without text result.');
@@ -2167,7 +2172,7 @@ function shouldAutoRouteA2a(config) {
   return config.a2aAutoRoute !== false && !isA2aProviderType(config.providerType);
 }
 
-async function executeApiRequestWithA2aRouting({ config, messages, systemPrompt, a2aServers, toolSchemas, onStatus, onEvent }) {
+async function executeApiRequestWithA2aRouting({ config, messages, systemPrompt, a2aServers, toolSchemas, onStatus, onEvent, deadline }) {
   const { copilotToken } = await requireApiKey(config);
 
   const session = createSession({ messages });
@@ -2176,7 +2181,7 @@ async function executeApiRequestWithA2aRouting({ config, messages, systemPrompt,
   // closure, so wrap the already-computed value in a lambda to freeze one
   // contextText per run and ensure every dispatch sees the same text.
   const contextText = getA2aConversationContext(messages);
-  registerA2aToolsInRegistry(registry, a2aServers, { getContextText: () => contextText });
+  registerA2aToolsInRegistry(registry, a2aServers, { getContextText: () => contextText, deadline });
   const guardrails = createGuardrails({
     mode: config.guardrailsMode,
     denyDomains: Array.isArray(config.guardrailsDenyDomains) ? config.guardrailsDenyDomains : [],
@@ -2192,6 +2197,7 @@ async function executeApiRequestWithA2aRouting({ config, messages, systemPrompt,
     session,
     onStatus,
     onEvent,
+    deadline,
     maxTurns: A2A_MAX_ROUNDS
   });
 
@@ -2228,14 +2234,15 @@ async function executeApiRequest({ config: preloadedConfig, messages, systemProm
   return executeApiRequestWithConfig({ config, messages, systemPrompt, copilotToken, allowModelFallback: provider.usesCopilotAuth });
 }
 
-async function executeApiRequestWithConfig({ config, messages, systemPrompt, copilotToken, allowModelFallback }) {
+async function executeApiRequestWithConfig({ config, messages, systemPrompt, copilotToken, allowModelFallback, deadline }) {
   const raw = await executeApiRequestRaw({
     config,
     messages,
     systemPrompt,
     copilotToken,
     allowModelFallback,
-    tools: []
+    tools: [],
+    deadline
   });
 
   if (!raw.content) {
@@ -2246,7 +2253,7 @@ async function executeApiRequestWithConfig({ config, messages, systemPrompt, cop
   return raw.content;
 }
 
-async function executeApiRequestRaw({ config, messages, systemPrompt, copilotToken, allowModelFallback, tools }) {
+async function executeApiRequestRaw({ config, messages, systemPrompt, copilotToken, allowModelFallback, tools, deadline }) {
   const {
     apiShape,
     requestUrl,
@@ -2270,7 +2277,8 @@ async function executeApiRequestRaw({ config, messages, systemPrompt, copilotTok
   const response = await fetch(requestUrl, {
     method: 'POST',
     headers: requestHeaders,
-    body: serializedBody
+    body: serializedBody,
+    ...(deadline?.signal ? { signal: deadline.signal } : {})
   });
 
   if (!response.ok) {
@@ -2295,7 +2303,8 @@ async function executeApiRequestRaw({ config, messages, systemPrompt, copilotTok
           systemPrompt,
           copilotToken,
           allowModelFallback: false,
-          tools
+          tools,
+          deadline
         });
       }
     }
@@ -2365,7 +2374,7 @@ function getStreamChunkParser(apiShape) {
   return parseStreamChunkOpenAIChat;
 }
 
-async function executeApiRequestStreaming({ config: preloadedConfig, messages, systemPrompt, onChunk, onDone, onError }) {
+async function executeApiRequestStreaming({ config: preloadedConfig, messages, systemPrompt, onChunk, onDone, onError, deadline }) {
   const config = preloadedConfig || await loadConfig();
   let copilotToken;
   try {
@@ -2395,10 +2404,11 @@ async function executeApiRequestStreaming({ config: preloadedConfig, messages, s
     response = await fetch(requestUrl, {
       method: 'POST',
       headers: requestHeaders,
-      body: serializedBody
+      body: serializedBody,
+      ...(deadline?.signal ? { signal: deadline.signal } : {})
     });
   } catch (err) {
-    onError('Network error. Check your connection and endpoint.');
+    onError(deadline ? deadline.toError(err).message : 'Network error. Check your connection and endpoint.');
     return;
   }
 
@@ -2475,7 +2485,7 @@ async function executeApiRequestStreaming({ config: preloadedConfig, messages, s
     }
     onDone();
   } catch (err) {
-    onError(err.message || 'Stream interrupted.');
+    onError(deadline ? deadline.toError(err).message : (err.message || 'Stream interrupted.'));
   }
 }
 

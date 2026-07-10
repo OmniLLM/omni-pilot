@@ -34,7 +34,7 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
   // service worker died / an A2A delegation hung and surface an error instead of
   // a spinner that never resolves. Reset on every message, so healthy long
   // streams and delegations are unaffected.
-  const STREAM_WATCHDOG_MS = 90000;
+  let streamWatchdogMs = RESPONSE_TIMEOUT_DEFAULT_MS;
   const PROVIDER_LABELS = {
     'custom-provider': 'Custom',
     'github-copilot': 'GitHub Copilot',
@@ -83,7 +83,7 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
   }
 
   // Load config from storage
-  safeStorageGet(chrome.storage?.sync, { model: 'claude-sonnet-4-5', endpoint: 'https://api.omnillm.com/v1', apiKey: '', providerType: 'custom-provider', authMethod: 'api-key', popupInitialWidth: null, popupInitialHeight: null }, cfg => {
+  safeStorageGet(chrome.storage?.sync, { model: 'claude-sonnet-4-5', endpoint: 'https://api.omnillm.com/v1', apiKey: '', providerType: 'custom-provider', authMethod: 'api-key', popupInitialWidth: null, popupInitialHeight: null, responseTimeoutMs: RESPONSE_TIMEOUT_DEFAULT_MS }, cfg => {
     currentModel = cfg.model || 'claude-sonnet-4-5';
     currentProviderType = normalizeProviderType(cfg.providerType || 'custom-provider');
     currentAuthMethod = cfg.authMethod || 'api-key';
@@ -91,6 +91,7 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
     currentEndpoint = cfg.endpoint || '';
     popupInitialWidth = normalizePopupSizeValue(cfg.popupInitialWidth, 300, 1200);
     popupInitialHeight = normalizePopupSizeValue(cfg.popupInitialHeight, 180, 900);
+    streamWatchdogMs = normalizeResponseTimeoutMs(cfg.responseTimeoutMs);
     currentProvider = getProviderLabel(currentProviderType || currentAuthMethod, currentEndpoint);
     hasApiKey = currentProviderType === 'github-copilot' || currentAuthMethod === 'github-copilot' || isA2aProviderType(currentProviderType) || Boolean(currentApiKey);
     updatePanelMeta();
@@ -126,6 +127,7 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
     if (changes.languagePreference) applyLanguage(changes.languagePreference.newValue || 'en');
     if (changes.popupInitialWidth) popupInitialWidth = normalizePopupSizeValue(changes.popupInitialWidth.newValue, 300, 1200);
     if (changes.popupInitialHeight) popupInitialHeight = normalizePopupSizeValue(changes.popupInitialHeight.newValue, 180, 900);
+    if (changes.responseTimeoutMs) streamWatchdogMs = normalizeResponseTimeoutMs(changes.responseTimeoutMs.newValue);
   });
 
   function isA2aProviderType(providerType) {
@@ -1841,7 +1843,7 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
   // createStreamPort extracts the common port lifecycle (connect, chunk/error/done
   // listeners, abort, disconnect) shared by streamAction and streamChat.
   // Options:
-  //   useWatchdog  — arm a watchdog timer that fires if no messages arrive within STREAM_WATCHDOG_MS
+  //   useWatchdog  — arm a watchdog timer that fires if no messages arrive within streamWatchdogMs
   //   onStatus     — optional handler for 'status' messages (A2A delegation progress)
 
   function createStreamPort(body, { useWatchdog = false, onStatus } = {}) {
@@ -1891,7 +1893,7 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
         currentAction = '';
         updatePanelMeta();
         try { port.disconnect(); } catch {}
-      }, STREAM_WATCHDOG_MS);
+      }, streamWatchdogMs);
       if (watchdog && typeof watchdog.unref === 'function') watchdog.unref();
     }
 

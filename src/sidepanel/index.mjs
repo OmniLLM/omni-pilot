@@ -10,11 +10,12 @@
   let currentTheme = 'light';
   // Surface an error if the stream port goes silent this long (worker suspended
   // or A2A delegation hung). Reset on every message so live streams aren't cut.
-  const STREAM_WATCHDOG_MS = 90000;
+  let streamWatchdogMs = RESPONSE_TIMEOUT_DEFAULT_MS;
 
   // Theme
-  chrome.storage.sync.get({ themePreference: 'dark' }, cfg => {
+  chrome.storage.sync.get({ themePreference: 'dark', responseTimeoutMs: RESPONSE_TIMEOUT_DEFAULT_MS }, cfg => {
     currentTheme = cfg.themePreference || 'dark';
+    streamWatchdogMs = normalizeResponseTimeoutMs(cfg.responseTimeoutMs);
     applyTheme();
   });
 
@@ -118,7 +119,7 @@
         if (!accumulated) addErrorMsg('No response. The assistant may have timed out — try again.');
         else if (msgDiv) { msgDiv.classList.remove('sp-streaming'); history.push({ role: 'assistant', content: accumulated }); }
         finish();
-      }, STREAM_WATCHDOG_MS);
+      }, streamWatchdogMs);
       // Never let the watchdog itself keep the process alive (no-op in browsers,
       // where timer handles are plain numbers).
       if (watchdog && typeof watchdog.unref === 'function') watchdog.unref();

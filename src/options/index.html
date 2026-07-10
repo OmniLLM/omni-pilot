@@ -781,6 +781,15 @@
 
     <div class="advanced-section" id="advancedSection">
 
+    <div class="card compact-card">
+      <div class="card-title" data-i18n="responseTimeout">Response timeout</div>
+      <div class="field">
+        <label for="responseTimeout" data-i18n="responseTimeoutMinutes">Minutes</label>
+        <input type="number" id="responseTimeout" min="0.5" max="30" step="0.5" inputmode="decimal">
+        <div class="hint" data-i18n="responseTimeoutHint">Maximum total wait for an AI request. Streaming activity keeps the interface active, but the request still stops at this total limit.</div>
+      </div>
+    </div>
+
     <div class="card compact-card" id="a2aCard">
       <div class="card-title" data-i18n="a2aServers">A2A Servers</div>
       <div class="compact-stack">

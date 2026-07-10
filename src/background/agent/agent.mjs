@@ -49,6 +49,7 @@ async function createAgent(overrides = {}) {
   }
 
   async function chat(messages) {
+    const deadline = createResponseDeadline(config.responseTimeoutMs);
     recorder.startRun('chat');
     try {
       const basePrompt = overrides.systemPrompt || CHAT_SYSTEM_PROMPT;
@@ -68,7 +69,8 @@ async function createAgent(overrides = {}) {
             a2aServers,
             toolSchemas: buildA2aToolSchemas(a2aServers),
             onStatus: overrides.onStatus,
-            onEvent: (type, data) => recorder.event(type, data)
+            onEvent: (type, data) => recorder.event(type, data),
+            deadline
           });
         }
       }
@@ -78,7 +80,8 @@ async function createAgent(overrides = {}) {
           messages: built.messages,
           systemPrompt: built.systemPrompt,
           copilotToken,
-          allowModelFallback: provider.usesCopilotAuth
+          allowModelFallback: provider.usesCopilotAuth,
+          deadline
         });
         recorder.event('provider.request', {
           requestUrl: buildApiRequest({ config, messages: built.messages, systemPrompt: built.systemPrompt, copilotToken, tools: [] }).requestUrl,
@@ -100,11 +103,14 @@ async function createAgent(overrides = {}) {
     } catch (error) {
       recorder.event('error', { message: error?.message || String(error) });
       await recorder.endRun('error');
-      throw error;
+      throw deadline.toError(error);
+    } finally {
+      deadline.clear();
     }
   }
 
   async function chatStreaming({ messages, onChunk, onStatus, onDone, onError }) {
+    const deadline = createResponseDeadline(config.responseTimeoutMs);
     recorder.startRun('chat-streaming');
     try {
       const basePrompt = overrides.systemPrompt || CHAT_SYSTEM_PROMPT;
@@ -122,15 +128,16 @@ async function createAgent(overrides = {}) {
           console.warn(`OmniPilot A2A discovery failed; streaming without tools: ${error?.message || error}`);
         }
         if (a2aServers.length) {
-          const result = await withA2aDelegationTimeout(executeApiRequestWithA2aRouting({
+          const result = await executeApiRequestWithA2aRouting({
             config,
             messages: built.messages,
             systemPrompt: built.systemPrompt,
             a2aServers,
             toolSchemas: buildA2aToolSchemas(a2aServers),
             onStatus,
-            onEvent: (type, data) => recorder.event(type, data)
-          }));
+            onEvent: (type, data) => recorder.event(type, data),
+            deadline
+          });
           onChunk(result);
           onDone();
           await logCompletion({
@@ -176,17 +183,21 @@ async function createAgent(overrides = {}) {
         systemPrompt: built.systemPrompt,
         onChunk,
         onDone: wrappedDone,
-        onError: wrappedError
+        onError: wrappedError,
+        deadline
       });
     } catch (error) {
       const msg = error?.message || String(error);
       recorder.event('error', { message: msg });
       await recorder.endRun('error');
-      onError(msg);
+      onError(deadline.toError(error).message);
+    } finally {
+      deadline.clear();
     }
   }
 
   async function action(actionName, text) {
+    const deadline = createResponseDeadline(config.responseTimeoutMs);
     recorder.startRun('action');
     try {
       const basePrompt = ACTION_PROMPTS[actionName];
@@ -202,7 +213,8 @@ async function createAgent(overrides = {}) {
         messages: built.messages,
         systemPrompt: built.systemPrompt,
         copilotToken,
-        allowModelFallback: provider.usesCopilotAuth
+        allowModelFallback: provider.usesCopilotAuth,
+          deadline
       });
       recorder.event('provider.request', {
         requestUrl: buildApiRequest({ config, messages: built.messages, systemPrompt: built.systemPrompt, copilotToken, tools: [] }).requestUrl,
@@ -225,7 +237,9 @@ async function createAgent(overrides = {}) {
     } catch (error) {
       recorder.event('error', { message: error?.message || String(error) });
       await recorder.endRun('error');
-      throw error;
+      throw deadline.toError(error);
+    } finally {
+      deadline.clear();
     }
   }
 
