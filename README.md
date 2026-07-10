@@ -33,7 +33,7 @@ OmniPilot adds AI workflows directly to the browser:
 - **Memory** — optional cross-session long-term notes plus rolling daily activity logs in browser local storage.
 - **Guardrails** — deny-list mode for A2A tool dispatch by server domain and destructive/admin/payment-style skill tags.
 - **Observability** — a Debug view with recent agent traces, tool dispatches, guardrail decisions, memory appends, and context-budget drops.
-- **Local-first settings** — provider settings, A2A metadata, memory, and traces live in browser storage. Prompts are sent only to the provider or A2A server you configure.
+- **Browser-stored settings** — provider settings use browser sync storage; A2A metadata, memory, and traces use browser local storage when available. Prompts are sent to the selected provider or A2A server, with `https://api.omnillm.com/v1` as the default Custom Provider endpoint.
 
 ---
 
@@ -164,10 +164,12 @@ Open the extension side panel for persistent chat that stays available while bro
 
 ## Privacy and Security
 
-- OmniPilot does not send prompts to OmniPilot-owned servers by default.
-- Text is sent to the provider endpoint or A2A server you configure when you submit an action or chat turn.
-- API keys and provider settings stay in browser storage.
-- A2A server tokens are stored separately in local storage.
+Read the full [Privacy Policy](PRIVACY.md).
+
+- By default, the Custom Provider points to `https://api.omnillm.com/v1`; submitted content goes there unless you change the endpoint.
+- Text and requested page content are sent to the provider endpoint or A2A server you configure when you submit an action or chat turn.
+- API keys and provider settings are stored in browser sync storage and may synchronize through your browser account.
+- A2A server definitions and tokens are stored separately in browser local storage when available.
 - Memory, observability traces, and guardrail audit logs are stored in browser local storage.
 - The code is open source and can be audited before loading the extension.
 

@@ -1,0 +1,25 @@
+const assert = require('assert')
+const fs = require('fs')
+
+const manifest = JSON.parse(fs.readFileSync('manifest.json', 'utf8'))
+const packageJson = JSON.parse(fs.readFileSync('package.json', 'utf8'))
+const packageLock = JSON.parse(fs.readFileSync('package-lock.json', 'utf8'))
+const privacyPolicy = fs.readFileSync('PRIVACY.md', 'utf8')
+const readme = fs.readFileSync('README.md', 'utf8')
+
+assert.ok(!manifest.permissions.includes('tabs'), 'manifest must not request the tabs permission')
+assert.strictEqual(manifest.version, packageJson.version, 'manifest and package versions must match')
+assert.strictEqual(packageLock.version, packageJson.version, 'package lock and package versions must match')
+assert.strictEqual(packageLock.packages[''].version, packageJson.version, 'root lock package version must match')
+assert.match(privacyPolicy, /^# OmniPilot Privacy Policy$/m)
+assert.match(privacyPolicy, /user-configured provider/i)
+assert.match(privacyPolicy, /browser sync storage/i)
+assert.match(privacyPolicy, /https:\/\/api\.omnillm\.com\/v1/)
+assert.match(privacyPolicy, /full page content/i)
+assert.match(privacyPolicy, /GitHub Issues/i)
+assert.match(readme, /\[Privacy Policy\]\(PRIVACY\.md\)/)
+
+const packScript = fs.readFileSync('pack.mjs', 'utf8')
+assert.match(packScript, /const ENTRIES = \['manifest\.json', 'PRIVACY\.md', 'icons', 'dist'\]/)
+
+console.log('Policy compliance tests passed')

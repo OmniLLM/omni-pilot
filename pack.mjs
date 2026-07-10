@@ -1,5 +1,5 @@
 // OmniPilot Chrome-extension packager.
-// Bundles manifest.json + icons/ + dist/ into a distributable ZIP.
+// Bundles manifest.json + PRIVACY.md + icons/ + dist/ into a distributable ZIP.
 // Requires `npm run build` to have populated dist/ (see Makefile `package` target).
 // Zero external deps — uses Node's zlib.deflateRawSync to write a minimal ZIP.
 import fs from 'fs'
@@ -11,7 +11,7 @@ const outFile = process.argv[2] || `${pkg.name}-${pkg.version}.zip`
 
 // Files/dirs to ship. Each entry is a filesystem path; nested files are added
 // recursively with their relative path preserved inside the ZIP.
-const ENTRIES = ['manifest.json', 'icons', 'dist']
+const ENTRIES = ['manifest.json', 'PRIVACY.md', 'icons', 'dist']
 
 // Refuse to ship without a build — a missing dist/ would silently produce a
 // half-broken package that won't load in Chrome.
