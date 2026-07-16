@@ -29,7 +29,7 @@ OmniPilot adds AI workflows directly to the browser:
 - **In-page assistant UI** — selection bubble, action dropdown, streaming output, follow-up chat, copy controls, code-block copy, read-aloud, context chips, and runtime provider/model/action selectors.
 - **Multiple provider modes** — GitHub Copilot device-flow sign-in, Custom Provider, and Azure Foundry.
 - **Three API wire formats** — OpenAI Chat Completions, Anthropic Messages, and OpenAI Responses.
-- **A2A agent orchestration** — discover agent cards, enable/disable servers and individual skills, run health checks, store local tokens, and let the model call enabled A2A skills as tools.
+- **A2A agent orchestration** — discover agent cards, enable/disable servers and individual skills, run health checks, store local tokens, and let the model call enabled A2A skills as tools while preserving each skill's structured input schema.
 - **Memory** — optional cross-session long-term notes plus rolling daily activity logs in browser local storage.
 - **Guardrails** — deny-list mode for A2A tool dispatch by server domain and destructive/admin/payment-style skill tags.
 - **Observability** — a Debug view with recent agent traces, tool dispatches, guardrail decisions, memory appends, and context-budget drops.
@@ -43,7 +43,7 @@ OmniPilot is a Manifest V3 extension. The manifest loads generated files from `d
 
 ### Browser surfaces
 
-- **Background service worker** — `src/background/index.mjs` handles context menus, runtime messaging, streaming ports, provider requests, GitHub Copilot auth, A2A discovery/delegation, storage defaults, and API-shape conversion.
+- **Background service worker** — `src/background/index.mjs` handles context menus, runtime messaging, streaming ports, provider requests, GitHub Copilot auth, A2A discovery/delegation, shared response deadlines, storage defaults, and API-shape conversion.
 - **Content script** — `src/content-script/index.mjs` and `src/content-script/styles.css` render the selection bubble, dropdown, floating panel, follow-up chat, streaming responses, page extraction, GitHub issue/PR extraction, and extension-reload resilience.
 - **Options page** — `src/options/` manages provider setup, model lists, A2A servers, memory, popup size, language/theme, and debug traces.
 - **Popup** — `src/popup/` shows readiness status and shortcuts to settings, theme, and language.
@@ -58,12 +58,13 @@ The agent runtime lives in `src/background/agent/`:
 - `session.mjs` tracks conversation history and duplicate tool dispatches.
 - `tool-registry.mjs` is the execution choke point for tools.
 - `a2a-tool-provider.mjs` maps discovered A2A servers and skills into callable tools.
-- `memory.mjs`, `context-assembler.mjs`, `guardrails.mjs`, and `observability.mjs` provide persistent context, token-budget packing, dispatch checks, and trace storage.
+- `memory.mjs`, `context-assembler.mjs`, `deadline.mjs`, `guardrails.mjs`, and `observability.mjs` provide persistent context, token-budget packing, request cancellation, dispatch checks, and trace storage.
 
-### Context, memory, guardrails, traces
+### Context, memory, deadlines, guardrails, traces
 
 - **Memory** uses `chrome.storage.local` for a user-editable long-term note and daily logs retained for a rolling window.
 - **Context assembly** priority-packs system prompt, memory, recent activity, tool schemas, and chat history under `contextMaxTokens` while pinning the latest user message.
+- **Response deadlines** apply one configurable total time budget across provider requests, streaming, A2A tool rounds, and A2A task polling. Expired requests abort in-flight fetches instead of leaving the UI waiting indefinitely.
 - **Guardrails** currently support `off` and `deny-list` modes. Denied A2A tool calls are returned to the model as tool errors and written to an audit log.
 - **Observability** stores a ring buffer of recent runs and events in local storage; the options page Debug card can refresh or clear traces.
 
@@ -116,6 +117,7 @@ The options page includes a structured A2A server manager:
 - Enable or disable whole servers.
 - Enable or disable individual discovered skills.
 - Enable auto-routing so the active model can choose enabled A2A tools.
+- Preserve discovered JSON input schemas so structured skill arguments reach standalone agents and Omni Agent Hub tools intact.
 
 Manual delegation is available by starting a prompt with an agent mention, for example:
 
@@ -127,7 +129,7 @@ Manual delegation is available by starting a prompt with an agent mention, for e
 
 - **Enable cross-session memory** toggles long-term notes and recent activity injection.
 - **Long-term notes** are editable from the Memory card.
-- **Clear recent activity** removes rolling daily logs.
+- **Clear recent activity** removes daily logs, which otherwise retain the seven most recent logged dates.
 - **Recent runs** in the Debug card show observability traces and can be refreshed or cleared.
 
 ### UI preferences
@@ -172,6 +174,7 @@ Read the full [Privacy Policy](PRIVACY.md).
 - API keys and provider settings are stored in browser sync storage and may synchronize through your browser account.
 - A2A server definitions and tokens are stored separately in browser local storage when available.
 - Memory, observability traces, and guardrail audit logs are stored in browser local storage.
+- The manifest requests `storage`, `clipboardWrite`, `contextMenus`, and `sidePanel`, plus host access needed to inject the assistant and contact configured endpoints. It does not request the broad `tabs` permission.
 - The code is open source and can be audited before loading the extension.
 
 ---
@@ -196,7 +199,7 @@ omni-pilot/
 │   ├── options/{index.html,index.mjs}
 │   ├── popup/{index.html,index.mjs}
 │   ├── sidepanel/{index.html,index.mjs}
-│   └── utils/i18n.mjs
+│   └── utils/{i18n,timeout}.mjs
 ├── dist/                                 # generated; gitignored
 ├── icons/                                # extension icons
 └── tests/
@@ -208,8 +211,9 @@ omni-pilot/
 ### Setup
 
 ```bash
-npm install
+npm ci
 npm run build
+npx playwright install chromium  # one-time prerequisite for browser tests
 ```
 
 Then load the repo root unpacked in Chrome/Edge after each build, or load an extracted release ZIP.
@@ -220,7 +224,7 @@ Then load the repo root unpacked in Chrome/Edge after each build, or load an ext
 npm run build
 ```
 
-The build script recreates `dist/`, concatenates shared runtime files into the generated JavaScript files, and copies HTML/CSS assets.
+The build script recreates `dist/`, inlines timeout helpers into every JavaScript bundle, adds shared i18n and agent/provider runtime code where needed, and copies the HTML/CSS assets.
 
 ### Tests
 
@@ -240,7 +244,7 @@ make clean-package    # removes omni-pilot-*.zip
 make clean            # removes ZIPs and dist/
 ```
 
-The ZIP contains exactly the extension loadout: `manifest.json`, `icons/`, and `dist/`. The manifest references the same `dist/` paths in development and in packaged releases.
+The ZIP contains exactly the extension loadout: `manifest.json`, `PRIVACY.md`, `icons/`, and `dist/`. The manifest references the same `dist/` paths in development and in packaged releases.
 
 ---
 
