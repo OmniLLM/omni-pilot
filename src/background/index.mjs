@@ -1669,7 +1669,17 @@ async function checkA2aHealth(endpoint, serverId) {
   const healthUrl = joinA2aPath(normalized, '/health');
   try {
     const response = await fetch(healthUrl, { headers: createA2aHeaders(token) });
-    if (response.ok) return await response.json();
+    if (response.ok) {
+      const payload = await response.json();
+      // Hub-style payloads carry { status: "ok", upstreams: {…} }. Standalone
+      // agents that DO expose /health may use a different schema — OmniLauncher
+      // returns { ok: true, protocol: "a2a" }. Normalize those to the shape the
+      // options UI checks so they don't read as unhealthy.
+      if (payload?.status !== 'ok' && payload?.ok === true) {
+        return { ...payload, status: 'ok', standalone: true };
+      }
+      return payload;
+    }
   } catch {
     // fall through to discovery-based reachability probe
   }
