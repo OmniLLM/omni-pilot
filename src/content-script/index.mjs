@@ -1775,6 +1775,7 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
   // the generic thinking label for unknown statuses.
   function statusLabel(status) {
     if (status === 'delegating') return `${label('delegating')}…`;
+    if (status === 'working') return `${label('working')}…`;
     return label('thinking');
   }
 
