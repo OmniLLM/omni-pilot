@@ -4039,6 +4039,117 @@ async function assertStreamingChatKeepsA2aDelegationAliveDuringSlowPoll() {
   ]);
 }
 
+// Regression: A2A v1.0 serializes TaskState as the protobuf enum name
+// ("TASK_STATE_COMPLETED") while pre-1.0 peers send the short form
+// ("completed"). Unnormalized states never matched the terminal set, so a task
+// that had already finished kept polling for the full 600-attempt budget —
+// surfacing as a "Delegating..." spinner that hung for minutes.
+async function assertA2aTaskStateNormalizationAcceptsV1EnumNames() {
+  const { context } = await createBackgroundContext({ storage: {} });
+  const normalize = context.normalizeA2aTaskState;
+
+  // v1.0 protobuf enum names → short form
+  assert.strictEqual(normalize('TASK_STATE_COMPLETED'), 'completed');
+  assert.strictEqual(normalize('TASK_STATE_WORKING'), 'working');
+  assert.strictEqual(normalize('TASK_STATE_FAILED'), 'failed');
+  assert.strictEqual(normalize('TASK_STATE_CANCELED'), 'canceled');
+  assert.strictEqual(normalize('TASK_STATE_REJECTED'), 'rejected');
+  // Underscores inside the suffix become hyphens
+  assert.strictEqual(normalize('TASK_STATE_INPUT_REQUIRED'), 'input-required');
+  // UNSPECIFIED is "no state", not a literal state
+  assert.strictEqual(normalize('TASK_STATE_UNSPECIFIED'), '');
+
+  // Pre-1.0 short form passes through unchanged
+  assert.strictEqual(normalize('completed'), 'completed');
+  assert.strictEqual(normalize('input-required'), 'input-required');
+  assert.strictEqual(normalize('working'), 'working');
+
+  // Empty / absent states stay empty rather than becoming a bogus state
+  assert.strictEqual(normalize(''), '');
+  assert.strictEqual(normalize(null), '');
+  assert.strictEqual(normalize(undefined), '');
+}
+
+// Regression: a hub speaking A2A v1.0 returns TASK_STATE_COMPLETED. Delegation
+// must settle on the first poll instead of spinning until the poll budget runs
+// out.
+async function assertA2aDelegationTerminatesOnV1EnumState() {
+  const { context, requests } = await createBackgroundContext({
+    storage: {
+      a2aServers: [{
+        id: 'launcher',
+        name: 'OmniLauncher',
+        endpoint: 'https://launcher.example/a2a',
+        enabled: true,
+        agentCard: { name: 'OmniLauncher', skills: [{ id: 'alibaba', name: 'alibaba' }] }
+      }],
+      a2aServerTokens: { launcher: 'server-token' }
+    },
+    fetchImpl: async (url, options) => {
+      const body = JSON.parse(options.body);
+      if (body.method === 'message/send') {
+        // v1 enum name for a still-running task
+        return { ok: true, json: async () => ({ result: { id: 'task-1', status: { state: 'TASK_STATE_WORKING' } } }) };
+      }
+      // First tasks/get already reports the v1 terminal enum name
+      return {
+        ok: true,
+        json: async () => ({
+          result: {
+            id: 'task-1',
+            status: { state: 'TASK_STATE_COMPLETED' },
+            artifacts: [{ parts: [{ type: 'text', text: '11053 Alibaba VMs' }] }]
+          }
+        })
+      };
+    }
+  });
+  context.wait = async () => {};
+
+  const result = await context.delegateA2aTask({
+    serverId: 'launcher',
+    skillId: 'alibaba',
+    task: 'how many VMs in alibaba'
+  });
+
+  assert.strictEqual(result, '11053 Alibaba VMs');
+  const polls = requests.filter(r => JSON.parse(r.options.body).method === 'tasks/get').length;
+  assert.strictEqual(polls, 1, `v1 terminal state must settle on the first poll, took ${polls}`);
+}
+
+// Regression: `rejected` is terminal in the A2A spec but was missing from the
+// terminal set, so a rejected task polled to exhaustion instead of erroring.
+async function assertA2aDelegationSurfacesRejectedState() {
+  const { context } = await createBackgroundContext({
+    storage: {
+      a2aServers: [{
+        id: 'launcher',
+        name: 'OmniLauncher',
+        endpoint: 'https://launcher.example/a2a',
+        enabled: true,
+        agentCard: { name: 'OmniLauncher', skills: [{ id: 'alibaba', name: 'alibaba' }] }
+      }],
+      a2aServerTokens: { launcher: 'server-token' }
+    },
+    fetchImpl: async () => ({
+      ok: true,
+      json: async () => ({
+        result: {
+          id: 'task-1',
+          status: { state: 'rejected', message: { parts: [{ type: 'text', text: 'Skill not permitted.' }] } }
+        }
+      })
+    })
+  });
+  context.wait = async () => {};
+
+  await assert.rejects(
+    () => context.delegateA2aTask({ serverId: 'launcher', skillId: 'alibaba', task: 'do it' }),
+    /Skill not permitted\.|rejected/i,
+    'a rejected task must raise rather than poll to exhaustion'
+  );
+}
+
 // Regression: a failing A2A delegation used to leave the panel spinner spinning
 // forever. The streaming handler must translate the failure into error + done.
 async function assertStreamingChatReportsA2aDelegationError() {
@@ -4920,6 +5031,9 @@ async function main() {
   await assertStreamingChatDoesNotShowDelegatingBeforeToolSelection();
   await assertStreamingChatKeepsA2aDelegationAliveDuringSlowInitialSend();
   await assertStreamingChatKeepsA2aDelegationAliveDuringSlowPoll();
+  await assertA2aTaskStateNormalizationAcceptsV1EnumNames();
+  await assertA2aDelegationTerminatesOnV1EnumState();
+  await assertA2aDelegationSurfacesRejectedState();
   await assertStreamingChatReportsA2aDelegationError();
   await assertStreamingChatIgnoresDisconnectedPortDuringError();
   await assertStreamingActionIgnoresDisconnectedPortDuringDone();
