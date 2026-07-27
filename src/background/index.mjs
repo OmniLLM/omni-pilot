@@ -750,20 +750,23 @@ function partitionHubSkills(skills) {
 
 function buildHubMetaToolParameters(metaSkills) {
   const skillEnum = metaSkills.map(s => String(s.id || s.name)).filter(Boolean);
-  // Truncate skill descriptions aggressively to keep the total parameter
-  // description under ~2KB. Some LLM providers (e.g. Copilot with claude
-  // haiku) 400 on huge tool schemas without any useful error message.
+  // Keep the total parameter description bounded — some LLM providers (e.g.
+  // Copilot with claude haiku) 400 on huge tool schemas without any useful
+  // error message. The caps are generous enough that the full skill list
+  // survives for realistic hubs; truncating the list is worse than a large
+  // schema, because a dropped skill is invisible to the model and it will
+  // decline the request instead of routing.
   const skillDescriptions = metaSkills
-    .map(s => `- ${s.id || s.name}: ${(s.description || '').slice(0, 80)}`)
+    .map(s => `- ${s.id || s.name}: ${(s.description || '').slice(0, 160)}`)
     .join('\n')
-    .slice(0, 2000);
+    .slice(0, 8000);
   return {
     type: 'object',
     properties: {
       skill_id: {
         type: 'string',
-        description: `Full skill id from the hub agent card. Examples:\n${skillDescriptions}`,
-        enum: skillEnum.length <= 40 ? skillEnum : undefined
+        description: `Full skill id from the hub agent card. This is the COMPLETE list of routable skills:\n${skillDescriptions}\n\nIf no skill is an exact topical match, prefer a generic runner/dispatch skill (e.g. one whose id ends in skill_runner, query_all, agent_delegate, or script_runner) and describe the goal in "task". Do not decline for lack of a tool without trying a generic runner first.`,
+        enum: skillEnum.length ? skillEnum : undefined
       },
       task: {
         type: 'string',
@@ -781,6 +784,8 @@ function buildHubMetaToolDescription(server, metaSkills) {
   const lines = [
     `Delegate a task to a named skill on the "${agentName}" hub.`,
     'Use for domain-specific workflows (cloud queries, formatting, external service lookups, translations, web searches).',
+    'The skill_id enum lists every routable skill — consult it before concluding a capability is unavailable.',
+    'If nothing matches topically, use a generic runner skill (skill_runner, query_all, agent_delegate, script_runner) and describe the goal in "task".',
     'The skill may respond with a clarifying question — treat that as needing more info from the user before you follow up.',
     `Available categories: ${[...new Set(metaSkills.map(s => {
       const cap = String(s.id || '').split('.').slice(1).join('.');
@@ -895,21 +900,23 @@ function buildA2aRoutingSystemPrompt(systemPrompt) {
 
 TOOL ROUTING (MANDATORY):
 
-You have registered A2A tools available. Some tools are direct (one per skill). One special tool named "invoke_skill" is a meta-tool: it routes to any of many named skills on a hub. The invoke_skill tool's skill_id parameter enumerates every available skill_id — check that list before answering.
+You have registered A2A tools available. Some tools are direct (one per skill). One special tool named "invoke_skill" is a meta-tool: it routes to any of many named skills on a hub. The invoke_skill tool's skill_id parameter enumerates every available skill_id — that enum is the complete, authoritative list. Read it before answering.
 
 RULES:
-1. For questions about cloud resources (aws, gcp, azure, alibaba, openstack, cloud VMs, buckets, functions, databases) → CALL invoke_skill with the matching skill_id (e.g. skill_id="omnilauncher.skill:gcp"). Do NOT say "let me search for a tool" — the tools are already registered and visible to you. Do NOT answer from your own knowledge.
-2. For directory/inventory queries (ldap, netbox, inventory, jira, tapestry) → CALL invoke_skill with the matching skill_id.
-3. For file, shell, or system operations → look for a direct tool first (calculator, web_search, web_fetch), otherwise CALL invoke_skill.
-4. When you call invoke_skill, you MUST supply BOTH: skill_id (exact ID from the enum in the parameter description) AND task (natural-language description of the request).
-5. Compound prompts ("VMs in aws AND azure") → emit multiple parallel tool calls, one per skill.
-6. Only answer without calling tools when no registered skill matches (e.g. general chat, definitions, opinions).
+1. Before saying you lack a tool, scan the full skill_id enum on invoke_skill. Never claim a capability is missing without checking that list.
+2. If a skill_id topically matches the request (cloud resources, inventory/directory lookups, ticketing, dashboards, translation, search) → CALL invoke_skill with that skill_id. Do NOT answer from your own knowledge.
+3. If no skill_id is an exact topical match, look for a generic runner or dispatch skill — ids ending in skill_runner, query_all, agent_delegate, or script_runner can execute capabilities that are not individually enumerated. Call one of those with the goal described in "task" rather than declining.
+4. Only decline when the enum has neither a topical match nor a generic runner, or the request needs no tool at all (general chat, definitions, opinions).
+5. When you call invoke_skill, you MUST supply BOTH: skill_id (exact id copied from the enum) AND task (natural-language description of the request).
+6. Compound prompts ("VMs in aws AND azure") → emit multiple parallel tool calls, one per skill.
+7. A skill may respond with a clarifying question — treat that as needing more info from the user, not as a failure.
 
 EXAMPLE:
-- User: "how many VMs in gcp"
-- CORRECT: call invoke_skill with { skill_id: "omnilauncher.skill:gcp", task: "how many VMs in gcp" }
-- WRONG: "Let me search for a tool to query GCP" — you already HAVE the tool.
-- WRONG: "You have X VMs" — you don't know without calling the tool.`;
+- User asks about a system you have no dedicated skill for.
+- CORRECT: pick the closest match or a generic runner from the enum and call invoke_skill with { skill_id: "<exact id from enum>", task: "<the user's full request>" }.
+- WRONG: "I don't have a tool for that" — you have not checked the enum, and generic runners exist.
+- WRONG: "Let me search for a tool" — the tools are already registered and visible to you.
+- WRONG: answering with a number or fact you did not get from a tool call.`;
 }
 
 function getA2aToolsForApiShape(toolSchemas, apiShape) {

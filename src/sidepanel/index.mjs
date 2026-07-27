@@ -135,7 +135,11 @@
         body.scrollTop = body.scrollHeight;
       } else if (msg.type === 'status') {
         if (!msgDiv) msgDiv = createStreamingMsg();
-        if (!accumulated) msgDiv.textContent = msg.status === 'delegating' ? 'Delegating…' : 'Working…';
+        if (!accumulated) {
+          msgDiv.textContent = msg.status === 'delegating'
+            ? 'Delegating…'
+            : msg.status === 'thinking' ? 'Thinking…' : 'Working…';
+        }
       } else if (msg.type === 'error') {
         if (!accumulated) addErrorMsg(msg.error);
       } else if (msg.type === 'done') {

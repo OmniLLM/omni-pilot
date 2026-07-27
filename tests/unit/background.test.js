@@ -3771,8 +3771,12 @@ async function assertStreamingChatAutoRouteHandlesA2aToolCalls() {
     messages: [{ role: 'user', content: 'How many VMs in Alibaba now' }]
   });
 
+  // 'working' follows the dispatch: once the tool result is back, the runner
+  // makes another provider round to compose the answer, and the spinner must
+  // stop claiming it is still delegating.
   assert.deepStrictEqual(JSON.parse(JSON.stringify(portMessages)), [
     { type: 'status', status: 'delegating' },
+    { type: 'status', status: 'working' },
     { type: 'chunk', text: '11053 Alibaba VMs' },
     { type: 'done' }
   ]);

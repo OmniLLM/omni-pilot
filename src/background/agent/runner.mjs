@@ -29,6 +29,7 @@ function createRunner({
   async function run() {
     let lastSettled = null;
     let apiShape = null;
+    let nudged = false;
 
     for (let round = 0; round < maxTurns; round += 1) {
       const built = buildApiRequest({
@@ -44,6 +45,12 @@ function createRunner({
         : built.requestBody;
 
       safeEmit('provider.request', { requestUrl: built.requestUrl, apiShape, model: config.model, round });
+      // Keep the spinner alive across follow-up provider rounds. Round 0 is
+      // already covered by the UI's default "Thinking…" label, but later
+      // rounds — the nudge round, or a post-dispatch round that only produces
+      // text — would otherwise leave a stale "Delegating…" on screen while
+      // the model is actually working.
+      if (round > 0) onStatus?.('working');
       const response = await fetch(built.requestUrl, {
         method: 'POST',
         headers: built.requestHeaders,
@@ -78,6 +85,23 @@ function createRunner({
 
       if (!toolCalls.length) {
         const content = built.parseContent(data);
+        // A model that announces a delegation ("I'll query X for you.") but
+        // emits no tool call would otherwise have that preamble returned as
+        // the final answer — the user sees an intent with no result. Nudge
+        // once to convert the stated intent into an actual call. Bounded by
+        // `nudged` so a model that simply has nothing to call still ends the
+        // turn normally on the next pass.
+        if (content && !nudged && !lastSettled && looksLikeUnfulfilledToolIntent(content)) {
+          nudged = true;
+          safeEmit('runner.nudge', { round, textLen: content.length });
+          session.appendMessage({ role: 'assistant', content });
+          session.appendMessage({
+            role: 'user',
+            content: 'You stated an intent to use a tool but did not emit a tool call. '
+              + 'Emit the tool call now, or explain plainly that you cannot. Do not restate the intent.'
+          });
+          continue;
+        }
         if (content) return content;
         if (lastSettled) return renderA2aSettledSections(lastSettled);
         throw new Error('The API returned an empty or unexpected response.');
@@ -164,4 +188,24 @@ function createRunner({
   }
 
   return { run };
+}
+
+// Heuristic: does this final text read as a stated-but-unfulfilled intent to
+// call a tool? Deliberately conservative — it only fires on short text (a real
+// answer carries substance) that announces a forthcoming action in the first
+// person. Over-matching would burn a round trip and delay a legitimate short
+// reply, so ambiguous cases are left alone.
+const UNFULFILLED_TOOL_INTENT_RE = new RegExp(
+  String.raw`^\s*(?:i(?:'ll| will| am going to)|let me|checking|querying|looking up|fetching|searching)\b`,
+  'i'
+);
+const UNFULFILLED_TOOL_INTENT_MAX_LEN = 240;
+
+function looksLikeUnfulfilledToolIntent(text) {
+  const trimmed = String(text || '').trim();
+  if (!trimmed || trimmed.length > UNFULFILLED_TOOL_INTENT_MAX_LEN) return false;
+  if (!UNFULFILLED_TOOL_INTENT_RE.test(trimmed)) return false;
+  // A question is a clarifying request, not an unfulfilled delegation.
+  if (trimmed.endsWith('?')) return false;
+  return true;
 }
