@@ -1493,8 +1493,28 @@ function extractA2aText(payload) {
   return '';
 }
 
+/**
+ * Normalizes an A2A task state to the short, lowercase form.
+ *
+ * A2A v1.0 serializes TaskState as the protobuf enum name
+ * ("TASK_STATE_COMPLETED"); pre-1.0 peers send the short form ("completed").
+ * Accept both so a hub speaking either version is understood — otherwise an
+ * unrecognized state never matches the terminal set and polling spins for the
+ * full A2A_MAX_POLL_ATTEMPTS budget before failing.
+ */
+function normalizeA2aTaskState(state) {
+  const raw = String(state ?? '').trim();
+  if (!raw) return '';
+  const upper = raw.toUpperCase();
+  if (upper === 'TASK_STATE_UNSPECIFIED') return '';
+  if (upper.startsWith('TASK_STATE_')) {
+    return upper.slice('TASK_STATE_'.length).toLowerCase().replace(/_/g, '-');
+  }
+  return raw.toLowerCase();
+}
+
 function getA2aTaskState(task) {
-  return task?.state || task?.status?.state || '';
+  return normalizeA2aTaskState(task?.state || task?.status?.state || '');
 }
 
 function getA2aTaskId(task) {
@@ -1509,12 +1529,18 @@ function assertA2aTaskNotFailed(task) {
   if (state === 'canceled') {
     throw new Error('A2A task was canceled.');
   }
+  if (state === 'rejected') {
+    throw new Error(extractA2aText(task.status) || extractA2aText(task) || 'A2A task was rejected.');
+  }
   return task;
 }
 
 function isA2aTaskTerminal(task) {
   const state = getA2aTaskState(task);
-  return ['completed', 'input-required', 'canceled'].includes(state);
+  // `failed` and `rejected` are terminal too, but assertA2aTaskNotFailed raises
+  // on those before we get here — listed anyway so this predicate is correct
+  // standalone and polling can never spin on an already-settled task.
+  return ['completed', 'input-required', 'canceled', 'failed', 'rejected'].includes(state);
 }
 
 // Kept for backwards compatibility.
@@ -1819,7 +1845,8 @@ function parseA2aSseTaskEvent(jsonStr) {
 }
 
 function isA2aSseTerminalState(state) {
-  return ['completed', 'failed', 'canceled', 'input-required'].includes(state);
+  return ['completed', 'failed', 'canceled', 'rejected', 'input-required']
+    .includes(normalizeA2aTaskState(state));
 }
 
 async function delegateA2aTaskStreaming({ serverId, skillId, task, contextText, contextId, onChunk, onDone, onError }) {
@@ -1893,7 +1920,7 @@ async function delegateA2aTaskStreaming({ serverId, skillId, task, contextText, 
         const event = parseA2aSseTaskEvent(trimmed.slice(6));
         if (!event) continue;
 
-        const state = event.status?.state || event.state || '';
+        const state = normalizeA2aTaskState(event.status?.state || event.state || '');
 
         // Extract intermediate text from status.message or artifacts
         const eventText = extractA2aText(event);
@@ -2517,6 +2544,7 @@ Object.assign(globalThis, {
   removeA2aServer,
   cancelA2aTask,
   checkA2aHealth,
+  normalizeA2aTaskState,
   // A2A RPC error classification
   createA2aRpcError,
   classifyA2aRpcError,
