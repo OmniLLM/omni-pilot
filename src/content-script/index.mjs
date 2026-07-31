@@ -109,11 +109,6 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
   loadThemePreference();
   loadLanguagePreference();
 
-  // Rehydrate a panel left open before a refresh/navigation in this tab.
-  if (document.body) restoreSessionState();
-  else document.addEventListener('DOMContentLoaded', restoreSessionState, { once: true });
-
-  window.addEventListener?.('pagehide', saveSessionState);
 
   safeAddListener(chrome.storage?.onChanged, (changes, areaName) => {
     if (changes.model) { currentModel = changes.model.newValue; updatePanelMeta(); }
@@ -709,6 +704,14 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
     } finally {
       sessionRestoring = false;
     }
+  }
+
+  // Rehydrate a panel left open before a refresh/navigation in this tab. Must run
+  // after the session helpers above are initialized (they use `const` bindings).
+  function initSessionRestore() {
+    if (document.body) restoreSessionState();
+    else document.addEventListener('DOMContentLoaded', restoreSessionState, { once: true });
+    window.addEventListener?.('pagehide', saveSessionState);
   }
 
   // ── Minimize / restore ───────────────────────────────────────────────────────
@@ -2418,4 +2421,5 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
     };
   }
 
+  initSessionRestore();
 })();
