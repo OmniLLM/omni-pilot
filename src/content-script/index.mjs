@@ -9,6 +9,8 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
   let bubble = null;
   let dropdown = null;
   let panel = null;
+  let minimizedOrb = null; // floating icon shown while the panel is minimized
+  let panelMinimized = false;
   let lastSelection = '';
   let lastSelectionRect = null;
   let currentTheme = 'dark';
@@ -61,7 +63,7 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
     currentTheme = theme;
     document.documentElement.setAttribute('data-op-theme', theme);
     document.body?.setAttribute('data-op-theme', theme);
-    [bubble, dropdown, panel].forEach(applyThemeTo);
+    [bubble, dropdown, panel, minimizedOrb].forEach(applyThemeTo);
   }
 
   function loadThemePreference() {
@@ -106,6 +108,12 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
 
   loadThemePreference();
   loadLanguagePreference();
+
+  // Rehydrate a panel left open before a refresh/navigation in this tab.
+  if (document.body) restoreSessionState();
+  else document.addEventListener('DOMContentLoaded', restoreSessionState, { once: true });
+
+  window.addEventListener?.('pagehide', saveSessionState);
 
   safeAddListener(chrome.storage?.onChanged, (changes, areaName) => {
     if (changes.model) { currentModel = changes.model.newValue; updatePanelMeta(); }
@@ -570,6 +578,7 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
     if (!panel) {
       showPanel('', false, false);
     } else {
+      restorePanel();
       panel.style.display = 'flex';
     }
     const body = panel.querySelector('.omnipilot-panel-body');
@@ -604,6 +613,182 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
     if (!panel.dataset.dragged) {
       positionPanel();
     }
+  }
+
+  // ── Session persistence (survive page refresh) ───────────────────────────────
+  // The panel is only dismissed when the user explicitly closes it, so its state
+  // is mirrored into sessionStorage (per-tab, cleared when the tab closes) and
+  // rehydrated on load.
+
+  const SESSION_KEY = 'omnipilot:panel-session:v1';
+  let sessionRestoring = false;
+  let saveSessionTimer = null;
+
+  function readSessionState() {
+    try {
+      const raw = window.sessionStorage?.getItem(SESSION_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch { return null; }
+  }
+
+  function clearSessionState() {
+    try { window.sessionStorage?.removeItem(SESSION_KEY); } catch { /* ignore */ }
+  }
+
+  function saveSessionState() {
+    if (sessionRestoring || !panel) return;
+    if (panel.style.display === 'none' && !panelMinimized) return;
+    try {
+      const body = panel.querySelector('.omnipilot-panel-body');
+      const state = {
+        minimized: panelMinimized,
+        html: body ? body.innerHTML : '',
+        history: conversationHistory,
+        action: currentAction,
+        lastAppendedSelectionContext,
+        selectionContextSeq,
+        dragged: panel.dataset.dragged === '1',
+        userResized: panel.dataset.userResized === '1',
+        left: panel.style.left,
+        top: panel.style.top,
+        width: panel.style.width,
+        height: panel.style.height,
+        orbLeft: minimizedOrb?.style.left || '',
+        orbTop: minimizedOrb?.style.top || ''
+      };
+      window.sessionStorage?.setItem(SESSION_KEY, JSON.stringify(state));
+    } catch { /* quota / serialization issues are non-fatal */ }
+  }
+
+  function scheduleSessionSave() {
+    if (sessionRestoring) return;
+    if (typeof setTimeout !== 'function' || typeof clearTimeout !== 'function') { saveSessionState(); return; }
+    clearTimeout(saveSessionTimer);
+    saveSessionTimer = setTimeout(saveSessionState, 250);
+  }
+
+  function restoreSessionState() {
+    const state = readSessionState();
+    if (!state || (!state.html && !(state.history || []).length)) return;
+
+    sessionRestoring = true;
+    try {
+      conversationHistory = Array.isArray(state.history) ? state.history : [];
+      currentAction = state.action || currentAction;
+      lastAppendedSelectionContext = state.lastAppendedSelectionContext || '';
+      selectionContextSeq = Number(state.selectionContextSeq) || 0;
+
+      showPanel('', false, false);
+      const body = panel.querySelector('.omnipilot-panel-body');
+      if (body) {
+        body.innerHTML = state.html || '';
+        // A request that was in flight when the page reloaded is gone — drop any
+        // stale spinners so the user is not left staring at one forever.
+        removeLoadingIndicators(body);
+        body.scrollTop = body.scrollHeight;
+      }
+
+      if (state.left) panel.style.left = state.left;
+      if (state.top) panel.style.top = state.top;
+      if (state.width) panel.style.width = state.width;
+      if (state.height) panel.style.height = state.height;
+      if (state.dragged) panel.dataset.dragged = '1';
+      if (state.userResized) panel.dataset.userResized = '1';
+      panelPositionFixed = true;
+      updatePanelMeta();
+
+      if (state.minimized) {
+        minimizePanel();
+        if (state.orbLeft && minimizedOrb) {
+          minimizedOrb.style.left = state.orbLeft;
+          minimizedOrb.style.top = state.orbTop;
+          minimizedOrb.style.right = 'auto';
+          minimizedOrb.style.bottom = 'auto';
+        }
+      }
+    } finally {
+      sessionRestoring = false;
+    }
+  }
+
+  // ── Minimize / restore ───────────────────────────────────────────────────────
+
+  function ensureMinimizedOrb() {
+    if (minimizedOrb) return minimizedOrb;
+    const orb = document.createElement('button');
+    orb.id = 'omnipilot-minimized-orb';
+    orb.type = 'button';
+    orb.innerHTML = '<span class="omnipilot-orb-icon">✦</span>';
+    orb.setAttribute('title', label('restorePanel') || 'Restore OmniPilot');
+    orb.setAttribute('aria-label', label('restorePanel') || 'Restore OmniPilot');
+
+    // Drag support — click without drag restores the panel.
+    let dragging = false;
+    let moved = false;
+    let offsetX = 0;
+    let offsetY = 0;
+
+    orb.addEventListener('mousedown', e => {
+      if (e.button !== 0) return;
+      dragging = true;
+      moved = false;
+      const rect = orb.getBoundingClientRect();
+      offsetX = e.clientX - rect.left;
+      offsetY = e.clientY - rect.top;
+      e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', e => {
+      if (!dragging) return;
+      moved = true;
+      const size = orb.offsetWidth || 44;
+      const left = Math.max(4, Math.min(window.innerWidth - size - 4, e.clientX - offsetX));
+      const top = Math.max(4, Math.min(window.innerHeight - size - 4, e.clientY - offsetY));
+      orb.style.left = `${left}px`;
+      orb.style.top = `${top}px`;
+      orb.style.right = 'auto';
+      orb.style.bottom = 'auto';
+    });
+
+    document.addEventListener('mouseup', () => {
+      if (!dragging) return;
+      dragging = false;
+      if (moved) scheduleSessionSave();
+      else restorePanel();
+    });
+
+    orb.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        restorePanel();
+      }
+    });
+
+    document.body.appendChild(orb);
+    applyThemeTo(orb);
+    minimizedOrb = orb;
+    return orb;
+  }
+
+  function minimizePanel() {
+    if (!panel) return;
+    panelMinimized = true;
+    panel.style.display = 'none';
+    const orb = ensureMinimizedOrb();
+    orb.style.display = 'flex';
+    saveSessionState();
+  }
+
+  function restorePanel() {
+    panelMinimized = false;
+    if (minimizedOrb) minimizedOrb.style.display = 'none';
+    if (panel) panel.style.display = 'flex';
+    scheduleSessionSave();
+  }
+
+  function hideMinimizedOrb() {
+    panelMinimized = false;
+    if (minimizedOrb) minimizedOrb.style.display = 'none';
   }
 
   function calcInitialPanelSize() {
@@ -689,15 +874,28 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
       });
       header.appendChild(exportBtn);
 
+      const minimizeBtn = document.createElement('button');
+      minimizeBtn.className = 'omnipilot-minimize-btn';
+      minimizeBtn.innerHTML = '—';
+      minimizeBtn.setAttribute('title', label('minimizePanel') || 'Minimize panel');
+      minimizeBtn.setAttribute('aria-label', label('minimizePanel') || 'Minimize panel');
+      minimizeBtn.addEventListener('click', e => {
+        e.stopPropagation();
+        minimizePanel();
+      });
+      header.appendChild(minimizeBtn);
+
       const closeBtn = document.createElement('button');
       closeBtn.className = 'omnipilot-close-btn';
       closeBtn.innerHTML = '✕';
       closeBtn.setAttribute('aria-label', label('closePanel') || 'Close panel');
       closeBtn.addEventListener('click', () => {
         panel.style.display = 'none';
+        hideMinimizedOrb();
         conversationHistory = [];
         lastAppendedSelectionContext = '';
         panelPositionFixed = false;
+        clearSessionState();
       });
       header.appendChild(closeBtn);
 
@@ -707,7 +905,7 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
       let dragOffsetY = 0;
 
       header.addEventListener('mousedown', e => {
-        if (e.target === closeBtn || e.target === exportBtn || e.target.closest('.omnipilot-panel-title') || e.target.closest('.omnipilot-meta-action-wrap') || e.target.closest('.omnipilot-meta-provider-wrap') || e.target.closest('.omnipilot-meta-model-wrap')) return;
+        if (e.target === closeBtn || e.target === exportBtn || e.target === minimizeBtn || e.target.closest('.omnipilot-panel-title') || e.target.closest('.omnipilot-meta-action-wrap') || e.target.closest('.omnipilot-meta-provider-wrap') || e.target.closest('.omnipilot-meta-model-wrap')) return;
         dragging = true;
         const panelLeft = parseFloat(panel.style.left) || 0;
         const panelTop = parseFloat(panel.style.top) || 0;
@@ -729,6 +927,7 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
       document.addEventListener('mouseup', () => {
         if (dragging) {
           panel.dataset.dragged = '1';
+          scheduleSessionSave();
         }
         dragging = false;
         panel.style.transition = '';
@@ -764,6 +963,7 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
           resizing = false;
           panel.style.transition = '';
           panel.dataset.userResized = '1';
+          scheduleSessionSave();
         }
       });
 
@@ -849,9 +1049,15 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
         }
       });
       panelResizeObserver.observe(panel);
+
+      // Persist panel content whenever it changes so a refresh can rehydrate it.
+      if (typeof MutationObserver === 'function') {
+        new MutationObserver(scheduleSessionSave).observe(body, { childList: true, subtree: true, characterData: true });
+      }
     }
 
     const body = panel.querySelector('.omnipilot-panel-body');
+    restorePanel();
     panel.style.display = 'flex';
 
     if (isLoading) {
@@ -1009,6 +1215,7 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
     if (!panel) {
       showPanel('', false, false); // creates the panel
     } else {
+      restorePanel();
       panel.style.display = 'flex';
     }
     const body = panel.querySelector('.omnipilot-panel-body');
@@ -1050,6 +1257,7 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
     if (!panel) {
       showPanel('', false, false);
     } else {
+      restorePanel();
       panel.style.display = 'flex';
     }
 
@@ -2000,6 +2208,7 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
     if (!panel) {
       showPanel('', false, false);
     } else {
+      restorePanel();
       panel.style.display = 'flex';
     }
 
