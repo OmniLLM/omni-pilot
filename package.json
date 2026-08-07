@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "build": "node build.mjs",
-    "test:unit": "node build.mjs && node tests/unit/timeout.test.js && node tests/unit/background.test.js && node tests/unit/options.test.js && node tests/unit/popup.test.js && node tests/unit/i18n.test.js && node tests/unit/content-language.test.js && node tests/unit/options-language.test.js && node tests/unit/provider-message-sanitization.test.js && node tests/unit/policy-compliance.test.js",
+    "test:unit": "node build.mjs && node tests/unit/timeout.test.js && node tests/unit/background.test.js && node tests/unit/options.test.js && node tests/unit/popup.test.js && node tests/unit/i18n.test.js && node tests/unit/content-language.test.js && node tests/unit/options-language.test.js && node tests/unit/provider-message-sanitization.test.js && node tests/unit/policy-compliance.test.js && node tests/unit/square-corners.test.js",
     "test:playwright": "node build.mjs && npx playwright test",
     "test": "npm run test:unit && npm run test:playwright"
   },

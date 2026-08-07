@@ -665,6 +665,7 @@ async function main() {
   await testStoredPopupInitialSizeSetsFirstPanelSize();
   await testStoredPopupInitialSizeIsClampedToViewport();
   await testOpenPanelAppendsNewSelectionContext();
+  await testOpenPanelPreservesCompleteLongSelection();
   await testOpenPanelCanRemoveAccidentalSelectionContext();
   await testOpenPanelIgnoresDuplicateAndPanelSelections();
 }
@@ -718,6 +719,28 @@ async function testOpenPanelAppendsNewSelectionContext() {
   assert.ok(messages.some(message => message.content.includes('first selected text')));
   assert.ok(messages.some(message => message.content.includes('second selected context')));
   assert.ok(messages.some(message => message.content === 'Use all context'));
+}
+
+async function testOpenPanelPreservesCompleteLongSelection() {
+  const { documentRef, portMessages, setSelectionText } = await createContentContext({ apiKey: 'test-key', languagePreference: 'en' });
+  const selectedText = `${'long selected context '.repeat(20)}<complete suffix>`;
+
+  await selectText(documentRef, setSelectionText, selectedText);
+  documentRef.getElementById('omnipilot-bubble').listeners.click({ preventDefault() {}, stopPropagation() {} });
+  documentRef.getElementById('omnipilot-dropdown').children[0].listeners.click({ preventDefault() {}, stopPropagation() {} });
+
+  const panel = documentRef.getElementById('omnipilot-panel');
+  const body = panel.querySelector('.omnipilot-panel-body');
+  assert.ok(body.innerHTML.includes('&lt;complete suffix&gt;'), 'context card should render the complete escaped selection');
+  assert.ok(!body.innerHTML.includes('…'), 'context card should not replace selected text with an ellipsis');
+
+  const input = panel.querySelector('.omnipilot-panel-input');
+  input.value = 'Use the complete selection';
+  input.listeners.keydown({ key: 'Enter', shiftKey: false, preventDefault() {}, stopPropagation() {} });
+
+  const chatMessage = portMessages.findLast(message => message.type === 'AI_CHAT_STREAM');
+  const selectionMessage = chatMessage?.messages.find(message => message.kind === 'selection-context');
+  assert.strictEqual(selectionMessage?.content, `Additional selected context:\n${selectedText}`);
 }
 
 async function testOpenPanelCanRemoveAccidentalSelectionContext() {

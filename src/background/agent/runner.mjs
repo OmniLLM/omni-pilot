@@ -80,6 +80,13 @@ function createRunner({
       }
 
       const data = await response.json();
+      const termination = classifyApiTermination(apiShape, data);
+      if (termination?.status === 'truncated') {
+        throw new Error('The response reached the provider output limit before it completed. Try again or ask the model to continue.');
+      }
+      if (termination?.status === 'error') {
+        throw new Error(`The provider ended the response unexpectedly (${termination.reason}).`);
+      }
       const toolCalls = extractA2aToolCallsFromResponse(data, apiShape);
       safeEmit('provider.response', { round, toolCallCount: toolCalls.length, textLen: (built.parseContent(data) || '').length });
 
