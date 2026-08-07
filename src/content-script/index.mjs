@@ -1155,10 +1155,9 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
   }
 
   function renderSelectionContext(selectedText, contextId = '') {
-    const truncated = selectedText.length > 200 ? selectedText.slice(0, 200) + '…' : selectedText;
     const contextAttr = contextId ? ` data-context-id="${escapeHtml(contextId)}"` : '';
     const removeButton = contextId ? `<button type="button" class="omnipilot-context-remove" data-context-id="${escapeHtml(contextId)}" title="${label('remove')}" aria-label="${label('remove')}">✕</button>` : '';
-    return `<div class="omnipilot-selected-context"${contextAttr}><div class="omnipilot-context-header"><span class="omnipilot-context-label">${label('selectedText')}</span>${removeButton}</div><div class="omnipilot-context-text">${escapeHtml(truncated)}</div></div>`;
+    return `<div class="omnipilot-selected-context"${contextAttr}><div class="omnipilot-context-header"><span class="omnipilot-context-label">${label('selectedText')}</span>${removeButton}</div><div class="omnipilot-context-text">${escapeHtml(selectedText)}</div></div>`;
   }
 
   function removeSelectionContext(contextId) {
@@ -2111,6 +2110,7 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
 
     port.onMessage.addListener(msg => {
       if (signal.aborted) { try { port.disconnect(); } catch {} return; }
+      if (settled) return;
       if (useWatchdog) armWatchdog();
 
       if (msg.type === 'chunk') {
@@ -2127,10 +2127,18 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
       } else if (msg.type === 'status' && onStatus) {
         onStatus(msg);
       } else if (msg.type === 'error') {
+        settled = true;
+        clearWatchdog();
         removeLoadingIndicators(body);
-        if (!accumulated) {
-          body.appendChild(createErrorElement(humanizeError(msg.error || label('unknownError'))));
+        if (accumulated && streamMsgDiv) {
+          finalizeStreamingMessage(streamMsgDiv);
+          conversationHistory.push({ role: 'assistant', content: accumulated, incomplete: true });
         }
+        body.appendChild(createErrorElement(humanizeError(msg.error || label('unknownError'))));
+        currentAction = '';
+        updatePanelMeta();
+        body.scrollTop = body.scrollHeight;
+        try { port.disconnect(); } catch {}
       } else if (msg.type === 'done') {
         settled = true;
         clearWatchdog();

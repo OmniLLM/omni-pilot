@@ -91,7 +91,7 @@ async function assertOpenAICompatibleDefault() {
 
   const parsedBody = JSON.parse(request.options.body);
   assert.strictEqual(parsedBody.model, 'deepseek-v4-flash');
-  assert.strictEqual(parsedBody.max_tokens, 1024);
+  assert.strictEqual(parsedBody.max_tokens, 16384);
   assert.deepStrictEqual(parsedBody.messages.map(message => message.role), ['system', 'user']);
   assert.ok(!JSON.stringify(logPayload).includes('hello'));
 }
@@ -130,6 +130,8 @@ async function assertRootEndpointUsesV1Routes() {
     });
 
     assert.strictEqual(request.url, expectedUrl);
+    const body = JSON.parse(request.options.body);
+    if (apiShape === 'openai-responses') assert.strictEqual(body.max_output_tokens, 16384);
   }
 }
 
@@ -150,7 +152,7 @@ async function assertAnthropicMessagesShape() {
 
   const parsedBody = JSON.parse(request.options.body);
   assert.strictEqual(parsedBody.model, 'deepseek-v4-flash');
-  assert.strictEqual(parsedBody.max_tokens, 1024);
+  assert.strictEqual(parsedBody.max_tokens, 16384);
   assert.ok(parsedBody.system.includes('Summarize'));
   assert.deepStrictEqual(parsedBody.messages, [{ role: 'user', content: 'hello' }]);
   assert.ok(!JSON.stringify(logPayload).includes('hello'));
@@ -231,6 +233,8 @@ async function createBackgroundContext({
   const context = {
     URL,
     URLSearchParams,
+    TextDecoder,
+    TextEncoder,
     setTimeout,
     clearTimeout,
     setInterval,
@@ -954,7 +958,7 @@ async function assertCopilotApiRequestUsesDirectChatCompletionsWithCachedToken()
 
   const body = JSON.parse(requests[0].options.body);
   assert.strictEqual(body.model, 'gpt-4o');
-  assert.strictEqual(body.max_tokens, 1024);
+  assert.strictEqual(body.max_tokens, 16384);
   assert.deepStrictEqual(body.messages.map(message => message.role), ['system', 'user']);
 }
 
@@ -987,7 +991,7 @@ async function assertCopilotGpt54UsesMaxCompletionTokens() {
 
   const body = JSON.parse(requests[0].options.body);
   assert.strictEqual(body.model, 'gpt-5.4');
-  assert.strictEqual(body.max_completion_tokens, 1024);
+  assert.strictEqual(body.max_completion_tokens, 16384);
   assert.ok(!Object.prototype.hasOwnProperty.call(body, 'max_tokens'));
   assert.deepStrictEqual(body.messages.map(message => message.role), ['system', 'user']);
 }
@@ -1222,7 +1226,7 @@ async function assertCopilotGpt5FamilyChatModelsUseChatCompletionsWithMaxComplet
     );
     const body = JSON.parse(requests[0].options.body);
     assert.strictEqual(body.model, model);
-    assert.strictEqual(body.max_completion_tokens, 1024, `${model} should use max_completion_tokens`);
+    assert.strictEqual(body.max_completion_tokens, 16384, `${model} should use max_completion_tokens`);
     assert.ok(
       !Object.prototype.hasOwnProperty.call(body, 'max_tokens'),
       `${model} must not send max_tokens`
@@ -1416,7 +1420,7 @@ async function assertAzureFoundryGpt54UsesMaxCompletionTokens() {
   const body = JSON.parse(request.options.body);
   assert.strictEqual(request.url, 'https://example.services.ai.azure.com/v1/chat/completions');
   assert.strictEqual(body.model, 'gpt-5.4');
-  assert.strictEqual(body.max_completion_tokens, 1024);
+  assert.strictEqual(body.max_completion_tokens, 16384);
   assert.ok(!Object.prototype.hasOwnProperty.call(body, 'max_tokens'));
 }
 
@@ -1433,7 +1437,7 @@ async function assertAzureFoundryOtherGptModelsKeepMaxTokens() {
   });
 
   const body = JSON.parse(request.options.body);
-  assert.strictEqual(body.max_tokens, 1024);
+  assert.strictEqual(body.max_tokens, 16384);
   assert.ok(!Object.prototype.hasOwnProperty.call(body, 'max_completion_tokens'));
 }
 
@@ -1450,7 +1454,7 @@ async function assertCustomProviderGpt54KeepsMaxTokens() {
   });
 
   const body = JSON.parse(request.options.body);
-  assert.strictEqual(body.max_tokens, 1024);
+  assert.strictEqual(body.max_tokens, 16384);
   assert.ok(!Object.prototype.hasOwnProperty.call(body, 'max_completion_tokens'));
 }
 
@@ -3705,6 +3709,112 @@ async function assertStreamingRequestSetsSseFlag() {
   assert.deepStrictEqual(chunks, ['streamed result']);
 }
 
+async function assertStreamingContinuesAfterOutputLimit() {
+  const encoder = new TextEncoder();
+  const requests = [];
+  const events = [
+    [
+      { choices: [{ delta: { content: 'first ' } }] },
+      { choices: [{ delta: {}, finish_reason: 'length' }] }
+    ],
+    [
+      { choices: [{ delta: { content: 'second' } }] },
+      { choices: [{ delta: {}, finish_reason: 'stop' }] }
+    ]
+  ];
+  const { context } = await createBackgroundContext({
+    storage: {
+      endpoint: 'http://localhost:5000/v1',
+      apiKey: 'test-key',
+      model: 'gpt-4o'
+    },
+    fetchImpl: async (_url, options) => {
+      const requestIndex = requests.length;
+      requests.push(JSON.parse(options.body));
+      const payload = events[requestIndex].map(event => `data: ${JSON.stringify(event)}\n`).join('') + 'data: [DONE]\n';
+      let read = false;
+      return {
+        ok: true,
+        body: {
+          getReader() {
+            return {
+              async read() {
+                if (read) return { done: true };
+                read = true;
+                return { done: false, value: encoder.encode(payload) };
+              }
+            };
+          }
+        }
+      };
+    }
+  });
+
+  const chunks = [];
+  let doneCount = 0;
+  let error = '';
+  await context.executeApiRequestStreaming({
+    messages: [{ role: 'user', content: 'write a long answer' }],
+    systemPrompt: 'be helpful',
+    onChunk: text => chunks.push(text),
+    onDone: () => { doneCount += 1; },
+    onError: message => { error = message; }
+  });
+
+  assert.deepStrictEqual(chunks, ['first ', 'second']);
+  assert.strictEqual(doneCount, 1);
+  assert.strictEqual(error, '');
+  assert.strictEqual(requests.length, 2);
+  assert.deepStrictEqual(requests[1].messages.map(message => message.role), ['system', 'user', 'assistant', 'user']);
+  assert.strictEqual(requests[1].messages.at(-2).content, 'first ');
+}
+
+async function assertStreamingBoundsOutputLimitContinuation() {
+  const encoder = new TextEncoder();
+  let requestCount = 0;
+  const { context } = await createBackgroundContext({
+    storage: {
+      endpoint: 'http://localhost:5000/v1',
+      apiKey: 'test-key',
+      model: 'gpt-4o'
+    },
+    fetchImpl: async () => {
+      requestCount += 1;
+      let read = false;
+      const payload = `data: ${JSON.stringify({ choices: [{ delta: { content: 'partial' } }] })}\n`
+        + `data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: 'length' }] })}\n`;
+      return {
+        ok: true,
+        body: {
+          getReader() {
+            return {
+              async read() {
+                if (read) return { done: true };
+                read = true;
+                return { done: false, value: encoder.encode(payload) };
+              }
+            };
+          }
+        }
+      };
+    }
+  });
+
+  let doneCalled = false;
+  let error = '';
+  await context.executeApiRequestStreaming({
+    messages: [{ role: 'user', content: 'write a long answer' }],
+    systemPrompt: 'be helpful',
+    onChunk: () => {},
+    onDone: () => { doneCalled = true; },
+    onError: message => { error = message; }
+  });
+
+  assert.strictEqual(requestCount, 2);
+  assert.strictEqual(doneCalled, false);
+  assert.match(error, /output limit/i);
+}
+
 async function assertStreamingChatAutoRouteHandlesA2aToolCalls() {
   const portMessages = [];
   const { connectListeners, requests } = await createBackgroundContext({
@@ -4468,6 +4578,15 @@ async function assertStreamChunkParsersHandleEdgeCases() {
   assert.strictEqual(context.parseStreamChunkAnthropic({ type: 'message_stop' }), '');
   // Responses: non-text event
   assert.strictEqual(context.parseStreamChunkOpenAIResponses({ type: 'response.done' }), '');
+  assert.strictEqual(context.classifyApiTermination('openai-compatible', { choices: [{ finish_reason: 'stop' }] }).status, 'complete');
+  assert.strictEqual(context.classifyApiTermination('openai-compatible', { choices: [{ finish_reason: 'length' }] }).status, 'truncated');
+  assert.strictEqual(context.classifyApiTermination('openai-compatible', { choices: [{ finish_reason: 'content_filter' }] }).status, 'error');
+  assert.strictEqual(context.classifyApiTermination('anthropic-messages', { type: 'message_delta', delta: { stop_reason: 'end_turn' } }).status, 'complete');
+  assert.strictEqual(context.classifyApiTermination('anthropic-messages', { type: 'message_delta', delta: { stop_reason: 'max_tokens' } }).status, 'truncated');
+  assert.strictEqual(context.classifyApiTermination('anthropic-messages', { type: 'message_delta', delta: { stop_reason: 'model_context_window_exceeded' } }).status, 'error');
+  assert.strictEqual(context.classifyApiTermination('openai-responses', { type: 'response.completed' }).status, 'complete');
+  assert.strictEqual(context.classifyApiTermination('openai-responses', { type: 'response.incomplete', response: { incomplete_details: { reason: 'max_output_tokens' } } }).status, 'truncated');
+  assert.strictEqual(context.classifyApiTermination('openai-responses', { type: 'response.incomplete', response: { incomplete_details: { reason: 'content_filter' } } }).status, 'error');
 }
 
 
@@ -4667,6 +4786,46 @@ async function assertContextAssemblerAlwaysKeepsPinnedLatestUserMessage() {
   const built = asm.buildMessages(messages);
 
   assert.strictEqual(built.messages[built.messages.length - 1].content, 'latest question');
+}
+
+async function assertContextAssemblerPinsSelectionContext() {
+  const { context } = await createBackgroundContext({ storage: {} });
+
+  const asm = context.createContextAssembler({ maxTokens: 62 });
+  asm.addSection(10, 'system-prompt', 'system');
+  const firstSelection = { role: 'user', content: `Additional selected context:\n${'a'.repeat(80)}`, kind: 'selection-context', contextId: 'selection-1' };
+  const secondSelection = { role: 'user', content: `Additional selected context:\n${'b'.repeat(80)}`, kind: 'selection-context', contextId: 'selection-2' };
+  const messages = [
+    { role: 'user', content: 'old question' },
+    { role: 'assistant', content: 'old reply' },
+    firstSelection,
+    { role: 'assistant', content: 'intermediate reply' },
+    secondSelection,
+    { role: 'user', content: 'latest question' }
+  ];
+  const built = asm.buildMessages(messages);
+
+  assert.strictEqual(built.mandatoryOverflow, null);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(built.messages)), JSON.parse(JSON.stringify([
+    firstSelection,
+    secondSelection,
+    messages.at(-1)
+  ])));
+
+  const overflowAsm = context.createContextAssembler({ maxTokens: 30 });
+  overflowAsm.addSection(10, 'system-prompt', 'system');
+  const overflow = overflowAsm.buildMessages([
+    firstSelection,
+    secondSelection,
+    { role: 'user', content: 'latest question' }
+  ]);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(overflow.messages)), JSON.parse(JSON.stringify([
+    firstSelection,
+    secondSelection,
+    { role: 'user', content: 'latest question' }
+  ])));
+  assert.ok(overflow.mandatoryOverflow, 'mandatory messages should report overflow');
+  assert.ok(overflow.mandatoryOverflow.requiredTokens > overflow.mandatoryOverflow.availableTokens);
 }
 
 async function assertContextAssemblerEstimateTokensIsCharDiv4() {
@@ -4925,6 +5084,7 @@ async function main() {
   await assertContextAssemblerBasicRoundTrip();
   await assertContextAssemblerDropsLowestPriorityOnOverflow();
   await assertContextAssemblerAlwaysKeepsPinnedLatestUserMessage();
+  await assertContextAssemblerPinsSelectionContext();
   await assertContextAssemblerEstimateTokensIsCharDiv4();
   await assertGuardrailsDenyByDomain();
   await assertGuardrailsDenyByDestructiveTag();
@@ -5030,6 +5190,8 @@ async function main() {
   await assertSummarizePageActionPromptExists();
   await assertSummarizePageRejectsUnknownAction();
   await assertStreamingRequestSetsSseFlag();
+  await assertStreamingContinuesAfterOutputLimit();
+  await assertStreamingBoundsOutputLimitContinuation();
   await assertStreamingChatAutoRouteHandlesA2aToolCalls();
   await assertStreamingChatPlainChatStreams();
   await assertStreamingChatDoesNotShowDelegatingBeforeToolSelection();

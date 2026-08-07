@@ -45,7 +45,16 @@ async function createAgent(overrides = {}) {
       const recentText = formatRecentActivity(memoryRecentSections);
       asm.addSection(40, 'memory-recent-activity', recentText);
     }
-    return asm.buildMessages(messages);
+    const built = asm.buildMessages(messages);
+    if (built.mandatoryOverflow) {
+      const selectionOverflow = built.mandatoryOverflow.hasSelectionContext;
+      const error = new Error(selectionOverflow
+        ? 'Selected context is too large for the configured context budget. Shorten the selection or increase Context max tokens in Settings.'
+        : 'The latest message is too large for the configured context budget. Shorten the message or increase Context max tokens in Settings.');
+      error.code = selectionOverflow ? 'SELECTION_CONTEXT_TOO_LARGE' : 'MESSAGE_CONTEXT_TOO_LARGE';
+      throw error;
+    }
+    return built;
   }
 
   async function chat(messages) {

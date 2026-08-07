@@ -37,10 +37,10 @@
     0 8px 24px rgba(60, 64, 67, 0.15);
 
   /* Shape */
-  --op-radius-xs:    4px;
-  --op-radius-sm:    8px;
-  --op-radius-md:    12px;
-  --op-radius-pill:  100px;
+  --op-radius-xs:    0;
+  --op-radius-sm:    0;
+  --op-radius-md:    0;
+  --op-radius-pill:  0;
 
   /* Typography */
   --op-font: 'Google Sans', Roboto, 'Noto Sans', Arial, sans-serif;
@@ -62,7 +62,7 @@
   background: var(--op-bg);
   color: var(--op-accent);
   border: 1.5px solid var(--op-border);
-  border-radius: var(--op-radius-pill);
+  border-radius: 0;
   font-family: var(--op-font);
   font-size: 13px;
   font-weight: 500;
@@ -137,7 +137,7 @@
   flex-direction: column;
   background: var(--op-bg);
   border: 1px solid var(--op-border);
-  border-radius: var(--op-radius-sm);
+  border-radius: 0;
   overflow: hidden;
   z-index: 2147483647;
   box-shadow: var(--op-shadow-4);
@@ -194,7 +194,7 @@
   flex-direction: column;
   background: var(--op-bg);
   border: 1px solid var(--op-border);
-  border-radius: var(--op-radius-md);
+  border-radius: 0;
   min-width: 300px;
   min-height: 180px;
   max-width: calc(100vw - 24px);
@@ -243,7 +243,7 @@
   letter-spacing: 0.01em;
   text-decoration: none;
   cursor: pointer;
-  border-radius: var(--op-radius-xs);
+  border-radius: 0;
   outline: none;
 }
 
@@ -282,7 +282,7 @@
   gap: 2px;
   cursor: pointer;
   padding: 2px 6px;
-  border-radius: var(--op-radius-xs);
+  border-radius: 0;
   border: 1px solid transparent;
   transition:
     background    0.12s var(--op-ease-standard),
@@ -314,7 +314,7 @@
   z-index: 2147483647;
   background: var(--op-bg);
   border: 1px solid var(--op-border);
-  border-radius: var(--op-radius-sm);
+  border-radius: 0;
   box-shadow: var(--op-shadow-4);
   padding: 8px 0 4px;
   min-width: 200px;
@@ -330,7 +330,7 @@
   padding: 7px 12px;
   background: var(--op-bg2);
   border: 1px solid var(--op-border);
-  border-radius: 24px;
+  border-radius: 0;
   color: var(--op-ink);
   font-family: var(--op-font);
   font-size: 13px;
@@ -395,7 +395,7 @@
   gap: 2px;
   cursor: pointer;
   padding: 2px 6px;
-  border-radius: var(--op-radius-xs);
+  border-radius: 0;
   border: 1px solid transparent;
   transition:
     background   0.12s var(--op-ease-standard),
@@ -418,7 +418,7 @@
   z-index: 2147483647;
   background: var(--op-bg);
   border: 1px solid var(--op-border);
-  border-radius: var(--op-radius-sm);
+  border-radius: 0;
   box-shadow: var(--op-shadow-4);
   padding: 8px 0;
   min-width: 156px;
@@ -492,7 +492,7 @@
   counter-increment: step;
   min-width: 20px;
   height: 20px;
-  border-radius: 50%;
+  border-radius: 0;
   background: var(--op-accent-dim);
   color: var(--op-accent);
   font-weight: 600;
@@ -511,7 +511,7 @@
   background: var(--op-accent);
   color: #fff;
   border: none;
-  border-radius: var(--op-radius-pill);
+  border-radius: 0;
   padding: 9px 20px;
   font-family: var(--op-font);
   font-size: 13px;
@@ -534,7 +534,7 @@
   font-size: 16px;
   width: 36px;
   height: 36px;
-  border-radius: 50%;
+  border-radius: 0;
   transition:
     color      0.12s var(--op-ease-standard),
     background 0.12s var(--op-ease-standard);
@@ -589,7 +589,7 @@
   height: 9px;
   border-right: 2px solid var(--op-ink2);
   border-bottom: 2px solid var(--op-ink2);
-  border-radius: 0 0 2px 0;
+  border-radius: 0;
 }
 
 /* ── Result & error text ────────────────────────────── */
@@ -622,7 +622,7 @@
   height: 18px;
   border: 2.5px solid rgba(26, 115, 232, 0.18);
   border-top-color: var(--op-accent);
-  border-radius: 50%;
+  border-radius: 0;
   animation: op-spin 0.75s linear infinite;
   flex-shrink: 0;
 }
@@ -644,7 +644,7 @@
   font-size: 12px;
   width: 28px;
   height: 28px;
-  border-radius: 50%;
+  border-radius: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -680,7 +680,7 @@
 
 .omnipilot-panel-body::-webkit-scrollbar-thumb {
   background: rgba(60, 64, 67, 0.22);
-  border-radius: 10px;
+  border-radius: 0;
 }
 
 .omnipilot-panel-body::-webkit-scrollbar-thumb:hover {
@@ -699,12 +699,12 @@
   flex-shrink: 0;
 }
 
-/* Google Search–style pill input */
+/* Search-style input */
 .omnipilot-panel-input {
   flex: 1;
   background: var(--op-bg2);
   border: 1.5px solid var(--op-border);
-  border-radius: 24px;
+  border-radius: 0;
   padding: 8px 16px;
   color: var(--op-ink);
   font-family: var(--op-font);
@@ -741,11 +741,11 @@
   display: none;                    /* Chrome/Edge/Safari */
 }
 
-/* Circular FAB send button */
+/* Send button */
 .omnipilot-send-btn {
   background: var(--op-accent);
   border: none;
-  border-radius: 50%;
+  border-radius: 0;
   width: 36px;
   height: 36px;
   min-width: 36px;
@@ -808,7 +808,7 @@
 .omnipilot-msg-header-avatar {
   width: 16px;
   height: 16px;
-  border-radius: 50%;
+  border-radius: 0;
   background: var(--op-accent-dim);
   color: var(--op-accent);
   display: flex;
@@ -836,7 +836,7 @@
   background: var(--op-accent);
   color: #ffffff;
   align-self: flex-end;
-  border-radius: 16px 16px 4px 16px;
+  border-radius: 0;
   border: none;
 }
 
@@ -844,7 +844,7 @@
   background: var(--op-bg2);
   color: var(--op-ink);
   align-self: flex-start;
-  border-radius: 4px 16px 16px 16px;
+  border-radius: 0;
   border: 1px solid var(--op-border);
 }
 
@@ -876,7 +876,7 @@
   cursor: pointer;
   font-size: 14px;
   padding: 2px 4px;
-  border-radius: 4px;
+  border-radius: 0;
   opacity: 0.5;
   transition: opacity 0.15s, background 0.15s;
 }
@@ -898,7 +898,7 @@
   font-size: 14px;
   opacity: 0.5;
   padding: 2px 4px;
-  border-radius: 4px;
+  border-radius: 0;
   transition: opacity 0.15s, background 0.15s;
 }
 
@@ -919,7 +919,7 @@
   line-height: 1;
   opacity: 0.5;
   padding: 2px 4px;
-  border-radius: 4px;
+  border-radius: 0;
   transition: opacity 0.15s, background 0.15s;
 }
 
@@ -933,7 +933,7 @@
   outline-offset: 2px;
 }
 
-/* ── Minimized floating orb ─────────────────────────────────── */
+/* ── Minimized floating control ─────────────────────────────── */
 
 #omnipilot-minimized-orb {
   position: fixed;
@@ -945,7 +945,7 @@
   width: 44px;
   height: 44px;
   padding: 0;
-  border-radius: 50%;
+  border-radius: 0;
   border: 1px solid var(--op-border);
   background: var(--op-bg);
   color: var(--op-accent);
@@ -975,7 +975,7 @@
 
 .omnipilot-think-block {
   margin: 10px 0;
-  border-radius: 8px;
+  border-radius: 0;
   border: 1px solid var(--op-border);
   overflow: hidden;
 }
@@ -1097,7 +1097,7 @@
   font-size: 12px;
   background: rgba(60, 64, 67, 0.08);
   padding: 2px 5px;
-  border-radius: 4px;
+  border-radius: 0;
 }
 
 [data-op-theme="dark"] .omnipilot-msg-assistant code {
@@ -1107,7 +1107,7 @@
 .omnipilot-code-block-card {
   margin: 10px 0;
   border: 1px solid var(--op-border);
-  border-radius: 8px;
+  border-radius: 0;
   overflow: hidden;
   background: var(--op-bg2);
   box-shadow: var(--op-shadow-1);
@@ -1129,7 +1129,7 @@
 .omnipilot-code-block-copy-btn {
   background: none;
   border: 1px solid var(--op-border);
-  border-radius: 4px;
+  border-radius: 0;
   padding: 2px 8px;
   font-size: 10px;
   color: var(--op-ink2);
@@ -1207,7 +1207,7 @@
   line-height: 1.55;
   padding: 10px 12px;
   background: var(--op-bg2);
-  border-radius: var(--op-radius-xs) var(--op-radius-sm) var(--op-radius-sm) var(--op-radius-xs);
+  border-radius: 0;
   border-left: 3px solid var(--op-accent);
   font-family: var(--op-font);
 }
@@ -1236,7 +1236,7 @@
   width: 22px;
   height: 22px;
   border: none;
-  border-radius: 50%;
+  border-radius: 0;
   background: transparent;
   color: var(--op-ink2);
   cursor: pointer;
@@ -1258,7 +1258,7 @@
   background: var(--op-pressed);
 }
 
-/* ── Quick Action Chips ──────────────────────────────── */
+/* ── Quick Actions ───────────────────────────────────── */
 
 .omnipilot-quick-actions {
   display: flex;
@@ -1267,11 +1267,11 @@
   margin-top: 14px;
 }
 
-/* MD3 Assist Chip */
+/* Quick action */
 .omnipilot-quick-action {
   background: var(--op-bg);
   border: 1.5px solid var(--op-border);
-  border-radius: var(--op-radius-pill);
+  border-radius: 0;
   padding: 6px 14px;
   color: var(--op-accent);
   font-family: var(--op-font);
@@ -1309,7 +1309,7 @@
   width: 100%;
   box-sizing: border-box;
   border: 1px solid var(--op-border);
-  border-radius: var(--op-radius-sm);
+  border-radius: 0;
   background: var(--op-bg);
   color: var(--op-ink);
   font-family: var(--op-font);
@@ -1333,7 +1333,7 @@
 .omnipilot-a2a-submit {
   align-self: flex-end;
   border: none;
-  border-radius: var(--op-radius-pill);
+  border-radius: 0;
   background: var(--op-accent);
   color: #fff;
   font-family: var(--op-font);

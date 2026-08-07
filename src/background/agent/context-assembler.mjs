@@ -45,11 +45,12 @@ function createContextAssembler({ maxTokens = CONTEXT_DEFAULT_MAX_TOKENS } = {})
     }
 
     const systemPrompt = kept.map(s => s.content).join('\n\n');
-    const messages = pinAndTrimMessages(baseMessages, maxTokens - used);
+    const packed = pinAndTrimMessages(baseMessages, maxTokens - used);
 
     return {
       systemPrompt,
-      messages,
+      messages: packed.messages,
+      mandatoryOverflow: packed.mandatoryOverflow,
       dropped: dropped.map(item => ({
         name: item.name,
         priority: item.priority,
@@ -59,21 +60,50 @@ function createContextAssembler({ maxTokens = CONTEXT_DEFAULT_MAX_TOKENS } = {})
   }
 
   function pinAndTrimMessages(messages, budget) {
-    if (!Array.isArray(messages) || messages.length === 0) return [];
-    if (budget <= 0) {
-      const last = messages[messages.length - 1];
-      return last ? [last] : [];
+    if (!Array.isArray(messages) || messages.length === 0) {
+      return { messages: [], mandatoryOverflow: null };
     }
-    const included = [];
+
+    const messageCost = message => estimateTokens(
+      typeof message.content === 'string'
+        ? message.content
+        : JSON.stringify(message.content || '')
+    );
+    const lastIndex = messages.length - 1;
+    const pinnedIndexes = new Set([lastIndex]);
+    messages.forEach((message, index) => {
+      if (message?.kind === 'selection-context') pinnedIndexes.add(index);
+    });
+
     let remaining = budget;
-    for (let i = messages.length - 1; i >= 0; i -= 1) {
-      const m = messages[i];
-      const cost = estimateTokens(typeof m.content === 'string' ? m.content : JSON.stringify(m.content || ''));
-      if (cost > remaining && i !== messages.length - 1) break;
-      included.unshift(m);
+    let mandatoryTokens = 0;
+    for (const index of pinnedIndexes) {
+      const cost = messageCost(messages[index]);
+      mandatoryTokens += cost;
       remaining -= cost;
     }
-    return included;
+
+    const includedIndexes = new Set(pinnedIndexes);
+    if (remaining >= 0) {
+      for (let i = lastIndex - 1; i >= 0; i -= 1) {
+        if (includedIndexes.has(i)) continue;
+        const cost = messageCost(messages[i]);
+        if (cost > remaining) continue;
+        includedIndexes.add(i);
+        remaining -= cost;
+      }
+    }
+
+    return {
+      messages: messages.filter((_, index) => includedIndexes.has(index)),
+      mandatoryOverflow: mandatoryTokens > budget
+        ? {
+            requiredTokens: mandatoryTokens,
+            availableTokens: Math.max(0, budget),
+            hasSelectionContext: messages.some(message => message?.kind === 'selection-context')
+          }
+        : null
+    };
   }
 
   return { addSection, buildMessages };

@@ -86,6 +86,10 @@ const PROVIDER_CONFIG_FIELDS = ['endpoint', 'apiKey', 'model', 'models', 'apiSha
 // concatenated into this bundle by build.mjs and available as top-level
 // bindings here.
 
+const OUTPUT_TOKEN_LIMIT = 16384;
+const MAX_STREAM_CONTINUATIONS = 1;
+const STREAM_CONTINUATION_PROMPT = 'Continue exactly where the previous response stopped. Do not repeat text already provided.';
+
 const API_SHAPES = {
   OPENAI_COMPATIBLE: 'openai-compatible',
   ANTHROPIC_MESSAGES: 'anthropic-messages',
@@ -1180,8 +1184,8 @@ function getOpenAIChatTokenLimitParams(config) {
   // fails on Copilot's newer reasoning models.
   if (providerType === PROVIDER_TYPES.GITHUB_COPILOT) {
     return copilotModelUsesMaxCompletionTokens(config.model)
-      ? { max_completion_tokens: 1024 }
-      : { max_tokens: 1024 };
+      ? { max_completion_tokens: OUTPUT_TOKEN_LIMIT }
+      : { max_tokens: OUTPUT_TOKEN_LIMIT };
   }
 
   // Azure Foundry: preserve the historical narrow `gpt-5.4` rule. The
@@ -1191,8 +1195,8 @@ function getOpenAIChatTokenLimitParams(config) {
     && providerType === PROVIDER_TYPES.AZURE_FOUNDRY;
 
   return usesMaxCompletionTokens
-    ? { max_completion_tokens: 1024 }
-    : { max_tokens: 1024 };
+    ? { max_completion_tokens: OUTPUT_TOKEN_LIMIT }
+    : { max_tokens: OUTPUT_TOKEN_LIMIT };
 }
 
 // `isCopilotResponsesOnlyModel` lives in `copilot-model-shapes.mjs` and
@@ -1208,7 +1212,7 @@ function getOpenAIChatTokenLimitParams(config) {
 // output, function_call_output items in the Responses input list, etc.)
 // while stripping only the fields the content script attaches to
 // conversationHistory for its own bookkeeping.
-const EXTENSION_ONLY_MESSAGE_FIELDS = ['kind', 'contextId'];
+const EXTENSION_ONLY_MESSAGE_FIELDS = ['kind', 'contextId', 'incomplete'];
 
 function sanitizeVendorMessages(messages) {
   if (!Array.isArray(messages)) return messages;
@@ -1239,6 +1243,7 @@ function buildApiRequest({ config, messages, systemPrompt, copilotToken, tools }
           model: config.model,
           instructions: systemPrompt,
           input: messages,
+          max_output_tokens: OUTPUT_TOKEN_LIMIT,
           ...(hasTools ? { tools, tool_choice: 'auto', parallel_tool_calls: true } : {})
         },
         parseContent: parseOpenAIResponsesText
@@ -1270,7 +1275,7 @@ function buildApiRequest({ config, messages, systemPrompt, copilotToken, tools }
       requestHeaders,
       requestBody: {
         model: config.model,
-        max_tokens: 1024,
+        max_tokens: OUTPUT_TOKEN_LIMIT,
         system: systemPrompt,
         messages,
         ...(hasTools ? { tools, tool_choice: { type: 'auto', disable_parallel_tool_use: false } } : {})
@@ -1288,6 +1293,7 @@ function buildApiRequest({ config, messages, systemPrompt, copilotToken, tools }
         model: config.model,
         instructions: systemPrompt,
         input: messages,
+        max_output_tokens: OUTPUT_TOKEN_LIMIT,
         ...(hasTools ? { tools, tool_choice: 'auto', parallel_tool_calls: true } : {})
       },
       parseContent: parseOpenAIResponsesText
@@ -2289,6 +2295,14 @@ async function executeApiRequestWithConfig({ config, messages, systemPrompt, cop
     deadline
   });
 
+  const termination = classifyApiTermination(raw.apiShape, raw.rawData);
+  if (termination?.status === 'truncated') {
+    throw new Error('The response reached the provider output limit before it completed. Try again or ask the model to continue.');
+  }
+  if (termination?.status === 'error') {
+    throw new Error(`The provider ended the response unexpectedly (${termination.reason}).`);
+  }
+
   if (!raw.content) {
     console.error('OmniPilot unexpected API response', raw.rawData);
     throw new Error('The API returned an empty or unexpected response. Check that the endpoint and model match the selected API format.');
@@ -2412,13 +2426,59 @@ function parseStreamChunkOpenAIResponses(json) {
   return '';
 }
 
+function classifyOpenAIChatTermination(json) {
+  const reason = json.choices?.[0]?.finish_reason;
+  if (!reason) return null;
+  if (reason === 'length') return { status: 'truncated', reason };
+  if (reason === 'stop' || reason === 'tool_calls' || reason === 'function_call') {
+    return { status: 'complete', reason };
+  }
+  return { status: 'error', reason };
+}
+
+function classifyAnthropicTermination(json) {
+  const reason = json.type === 'message_delta'
+    ? json.delta?.stop_reason
+    : json.stop_reason;
+  if (!reason) return null;
+  if (reason === 'max_tokens') return { status: 'truncated', reason };
+  if (reason === 'model_context_window_exceeded' || reason === 'refusal') {
+    return { status: 'error', reason };
+  }
+  return { status: 'complete', reason };
+}
+
+function classifyOpenAIResponsesTermination(json) {
+  if (json.type === 'response.completed' || json.status === 'completed') {
+    return { status: 'complete', reason: 'completed' };
+  }
+  if (json.type === 'response.incomplete' || json.status === 'incomplete') {
+    const reason = json.response?.incomplete_details?.reason
+      || json.incomplete_details?.reason
+      || 'incomplete';
+    return reason === 'max_output_tokens'
+      ? { status: 'truncated', reason }
+      : { status: 'error', reason };
+  }
+  if (json.type === 'response.failed' || json.status === 'failed') {
+    return { status: 'error', reason: 'failed' };
+  }
+  return null;
+}
+
+function classifyApiTermination(apiShape, json) {
+  if (apiShape === API_SHAPES.ANTHROPIC_MESSAGES) return classifyAnthropicTermination(json);
+  if (apiShape === API_SHAPES.OPENAI_RESPONSES) return classifyOpenAIResponsesTermination(json);
+  return classifyOpenAIChatTermination(json);
+}
+
 function getStreamChunkParser(apiShape) {
   if (apiShape === API_SHAPES.ANTHROPIC_MESSAGES) return parseStreamChunkAnthropic;
   if (apiShape === API_SHAPES.OPENAI_RESPONSES) return parseStreamChunkOpenAIResponses;
   return parseStreamChunkOpenAIChat;
 }
 
-async function executeApiRequestStreaming({ config: preloadedConfig, messages, systemPrompt, onChunk, onDone, onError, deadline }) {
+async function executeApiRequestStreaming({ config: preloadedConfig, messages, systemPrompt, onChunk, onDone, onError, deadline, continuationAttempt = 0 }) {
   const config = preloadedConfig || await loadConfig();
   let copilotToken;
   try {
@@ -2485,6 +2545,32 @@ async function executeApiRequestStreaming({ config: preloadedConfig, messages, s
           : parseOpenAIChatText;
       const content = parseContent(data);
       if (content) onChunk(content);
+      const termination = classifyApiTermination(apiShape, data);
+      if (termination?.status === 'truncated') {
+        if (continuationAttempt >= MAX_STREAM_CONTINUATIONS) {
+          onError('The response reached the provider output limit and is still incomplete. Ask the model to continue.');
+          return;
+        }
+        await executeApiRequestStreaming({
+          config,
+          messages: [
+            ...messages,
+            ...(content ? [{ role: 'assistant', content }] : []),
+            { role: 'user', content: STREAM_CONTINUATION_PROMPT }
+          ],
+          systemPrompt,
+          onChunk,
+          onDone,
+          onError,
+          deadline,
+          continuationAttempt: continuationAttempt + 1
+        });
+        return;
+      }
+      if (termination?.status === 'error') {
+        onError(`The provider ended the response unexpectedly (${termination.reason}).`);
+        return;
+      }
       onDone();
     } catch (err) {
       onError('Failed to parse API response.');
@@ -2496,6 +2582,8 @@ async function executeApiRequestStreaming({ config: preloadedConfig, messages, s
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
+  let accumulated = '';
+  let termination = null;
 
   try {
     while (true) {
@@ -2517,7 +2605,11 @@ async function executeApiRequestStreaming({ config: preloadedConfig, messages, s
           try {
             const json = JSON.parse(jsonStr);
             const text = parseChunk(json);
-            if (text) onChunk(text);
+            if (text) {
+              accumulated += text;
+              onChunk(text);
+            }
+            termination = classifyApiTermination(apiShape, json) || termination;
           } catch {
             // Ignore malformed JSON chunks
           }
@@ -2526,6 +2618,35 @@ async function executeApiRequestStreaming({ config: preloadedConfig, messages, s
           continue;
         }
       }
+    }
+    if (termination?.status === 'truncated') {
+      if (continuationAttempt >= MAX_STREAM_CONTINUATIONS) {
+        onError('The response reached the provider output limit and is still incomplete. Ask the model to continue.');
+        return;
+      }
+      await executeApiRequestStreaming({
+        config,
+        messages: [
+          ...messages,
+          ...(accumulated ? [{ role: 'assistant', content: accumulated }] : []),
+          { role: 'user', content: STREAM_CONTINUATION_PROMPT }
+        ],
+        systemPrompt,
+        onChunk,
+        onDone,
+        onError,
+        deadline,
+        continuationAttempt: continuationAttempt + 1
+      });
+      return;
+    }
+    if (termination?.status === 'error') {
+      onError(`The provider ended the response unexpectedly (${termination.reason}).`);
+      return;
+    }
+    if (!termination && apiShape !== API_SHAPES.OPENAI_COMPATIBLE) {
+      onError('The response stream ended without a completion event.');
+      return;
     }
     onDone();
   } catch (err) {
@@ -2571,6 +2692,7 @@ Object.assign(globalThis, {
   parseStreamChunkOpenAIChat,
   parseStreamChunkAnthropic,
   parseStreamChunkOpenAIResponses,
+  classifyApiTermination,
   executeApiRequestStreaming,
   // Public entry points
   handleAIAction,
