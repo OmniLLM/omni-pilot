@@ -23,9 +23,6 @@
       "js": [
         "dist/content.js"
       ],
-      "css": [
-        "dist/styles.css"
-      ],
       "run_at": "document_idle"
     }
   ],

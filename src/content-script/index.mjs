@@ -54,12 +54,33 @@ import { createAppearanceController } from '../utils/appearance.mjs';
   }
 
   let omniPilotRoot = null;
+  let omniPilotHost = null;
 
+  // The UI lives inside a shadow root so that neither our styles nor the host
+  // page's styles can reach across. Before this, dist/styles.css was injected
+  // into every page by the manifest, which is why the content script could
+  // never safely use a CSS framework.
   function ensureOmniPilotRoot() {
     if (omniPilotRoot?.isConnected === true || (omniPilotRoot?.isConnected === undefined && omniPilotRoot?.parentNode)) {
       return omniPilotRoot;
     }
-    if (omniPilotRoot?.parentNode) omniPilotRoot.remove();
+    if (omniPilotHost?.parentNode) omniPilotHost.remove();
+    omniPilotRoot = null;
+    omniPilotHost = null;
+
+    omniPilotHost = document.createElement('div');
+    omniPilotHost.id = 'omnipilot-extension-host-7f3a9c';
+    omniPilotHost.setAttribute('data-omnipilot-owned', 'true');
+
+    // Open, so Playwright locators and debugging still pierce it.
+    let mount = omniPilotHost;
+    if (typeof omniPilotHost.attachShadow === 'function') {
+      const shadow = omniPilotHost.attachShadow({ mode: 'open' });
+      const style = document.createElement('style');
+      style.textContent = typeof OMNIPILOT_CONTENT_CSS === 'string' ? OMNIPILOT_CONTENT_CSS : '';
+      shadow.appendChild(style);
+      mount = shadow;
+    }
 
     omniPilotRoot = document.createElement('div');
     omniPilotRoot.id = 'omnipilot-extension-root-7f3a9c';
@@ -69,9 +90,10 @@ import { createAppearanceController } from '../utils/appearance.mjs';
     omniPilotRoot.setAttribute('data-theme-preference', 'dark');
     omniPilotRoot.setAttribute('data-theme', 'dark');
     omniPilotRoot.setAttribute('data-visual-style', 'current');
+    mount.appendChild(omniPilotRoot);
 
-    if (document.body && !omniPilotRoot.parentNode) {
-      document.body.appendChild(omniPilotRoot);
+    if (document.body && !omniPilotHost.parentNode) {
+      document.body.appendChild(omniPilotHost);
     }
     return omniPilotRoot;
   }

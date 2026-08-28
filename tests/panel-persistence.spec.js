@@ -4,14 +4,13 @@ const fs = require('fs');
 const http = require('http');
 
 const contentSource = fs.readFileSync(path.resolve(__dirname, '..', 'dist', 'content.js'), 'utf8');
-const stylesSource = fs.readFileSync(path.resolve(__dirname, '..', 'dist', 'styles.css'), 'utf8');
 
 // A real HTTP origin is required: sessionStorage is unavailable on about:blank,
 // and page.reload() only re-runs a document served over the network.
 function startServer() {
   const server = http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/html' });
-    res.end(`<!DOCTYPE html><html><head><style>${stylesSource}</style></head>` +
+    res.end(`<!DOCTYPE html><html><head></head>` +
       `<body style="padding:40px"><p id="para">Bonjour le monde ceci est un texte de test.</p></body></html>`);
   });
   return new Promise(resolve => server.listen(0, () => resolve(server)));

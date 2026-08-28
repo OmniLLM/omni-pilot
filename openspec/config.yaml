@@ -22,10 +22,11 @@ context: |
     1. NO IIFE / module-scoped output. All 13 Node unit tests load `dist/*.js` through
        `vm.runInContext` and assert on TOP-LEVEL declarations. Any bundler default
        (esbuild, rollup, vite) hides those declarations and breaks every unit test.
-    2. The content script has NO Shadow DOM. `dist/styles.css` is injected into every
-       website the user visits. Any global CSS reset / preflight / unprefixed utility
-       classes would leak into and visually break third-party pages. CSS frameworks
-       must never reach the content-script surface.
+    2. The content script mounts its UI in an OPEN Shadow DOM and injects its own
+       stylesheet inside it; nothing is injected into host documents by the manifest.
+       Styles therefore cannot leak in either direction. The content script's UI has
+       NOT been converted to the component runtime, so the runtime must still stay
+       out of `dist/content.js` — that conversion is a separate future change.
     3. Manifest V3 CSP: no remote CDN scripts or stylesheets, no `eval`, no runtime
        JIT compilers. Every framework or CSS toolchain must run at BUILD time and ship
        fully static assets inside the extension package.

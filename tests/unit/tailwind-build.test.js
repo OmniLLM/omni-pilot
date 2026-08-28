@@ -14,7 +14,12 @@ const root = path.resolve(__dirname, '..', '..');
 const read = relativePath => fs.readFileSync(path.join(root, relativePath), 'utf8');
 
 const tailwindCss = read('dist/tailwind.css');
-const contentCss = read('dist/styles.css');
+// The content script's CSS is inlined into its bundle and injected into a
+// shadow root, so read it back out of the bundle rather than from a file.
+const contentBundle = read('dist/content.js');
+const contentCssMatch = contentBundle.match(/^const OMNIPILOT_CONTENT_CSS = (".*");$/m);
+assert.ok(contentCssMatch, 'dist/content.js must inline the content stylesheet as OMNIPILOT_CONTENT_CSS');
+const contentCss = JSON.parse(contentCssMatch[1]);
 
 // Comments carry URLs like `tailwindcss.com` that would otherwise look like
 // class selectors to the scanner below.
@@ -135,7 +140,7 @@ for (const scale of ['none', 'xs', 'sm', 'md', 'lg', 'xl', '2xl', '3xl', '4xl', 
 // ── The content script must never be styled by utilities ──────────────────
 assert.ok(
   !contentCss.includes('op\\:'),
-  'dist/styles.css must not contain utility selectors — it is injected into every third-party page'
+  'the content script stylesheet must not contain utility selectors — it is injected into every third-party page'
 );
 const appearanceCss = read('src/styles/appearance.css');
 const contentAppearanceCss = appearanceCss
@@ -145,7 +150,19 @@ const contentAppearanceCss = appearanceCss
 assert.strictEqual(
   contentCss,
   `${contentAppearanceCss}\n${read('src/content-script/styles.css')}`,
-  'dist/styles.css must remain exactly the transformed appearance CSS plus the hand-written content CSS'
+  'the inlined content stylesheet must remain exactly the transformed appearance CSS plus the hand-written content CSS'
+);
+// The whole point of the shadow root: nothing is injected into the host page.
+const manifest = JSON.parse(read('manifest.json'));
+for (const entry of manifest.content_scripts ?? []) {
+  assert.ok(
+    !entry.css,
+    'manifest content_scripts must not inject CSS into host pages — the content script styles its own shadow root'
+  );
+}
+assert.ok(
+  !fs.existsSync(path.join(root, 'dist/styles.css')),
+  'dist/styles.css must no longer be emitted — the content stylesheet is inlined into dist/content.js'
 );
 // Match `op:` only as a class token, so CSS text like `top: 0` cannot false-match.
 const UTILITY_TOKEN = /(?<![\w-])op:[a-z0-9[]/;

@@ -51,14 +51,16 @@ Introducing the component runtime SHALL NOT introduce a bundler, a module system
 - **WHEN** the build pipeline is inspected
 - **THEN** no JSX or syntax-transform step exists, because templates are expressed as native tagged template literals
 
-#### Scenario: Untouched surfaces are byte-identical
+#### Scenario: The service worker is untouched by rendering changes
 
-- **WHEN** the build runs before and after this change
-- **THEN** `dist/background.js` and `dist/content.js` are byte-for-byte identical
+- **WHEN** the build runs before and after a change that adopts or extends the component runtime
+- **THEN** `dist/background.js` is byte-for-byte identical
 
 ### Requirement: Component runtime is confined to extension pages
 
-The component runtime SHALL be inlined only into bundles for extension pages. It SHALL NOT reach the content script, which is injected into arbitrary websites without style or DOM isolation.
+The component runtime SHALL be inlined only into bundles for extension pages. It SHALL NOT reach the content script or the background service worker.
+
+The original rationale for this requirement was that the content script is injected into arbitrary websites without style or DOM isolation. That is no longer true — the content script now isolates its UI in a shadow root. The requirement stands on narrower grounds: the content script's interface has not been converted to the component runtime, so shipping the runtime there would be dead weight in a bundle that is parsed on every page the user visits. Converting it remains a separate, future change.
 
 #### Scenario: Content script excludes the runtime
 
@@ -69,11 +71,6 @@ The component runtime SHALL be inlined only into bundles for extension pages. It
 
 - **WHEN** `dist/background.js` is inspected
 - **THEN** it contains no component runtime source, as the service worker renders no UI
-
-#### Scenario: Runtime inlining is opt-in per entry
-
-- **WHEN** `build.mjs` is inspected
-- **THEN** runtime inlining is controlled by an explicit per-entry flag, enabled only for the popup, sidepanel, and options entries
 
 ### Requirement: Side panel renders from a message model
 

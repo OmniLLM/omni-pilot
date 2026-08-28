@@ -9,7 +9,7 @@ BUILD_OUTPUTS := \
 	dist/options.html dist/options.js \
 	dist/popup.html dist/popup.js \
 	dist/sidepanel.html dist/sidepanel.js \
-	dist/styles.css
+	dist/tailwind.css
 
 .PHONY: build package clean-package clean
 

@@ -104,7 +104,7 @@ function readPreactRuntime() {
 
 const entries = [
   { name: 'background', src: 'src/background/index.mjs', needsI18n: false, needsAppearance: false, needsAgent: true,  needsPreact: false },
-  { name: 'content',    src: 'src/content-script/index.mjs', needsI18n: true,  needsAppearance: true,  needsAgent: false, needsPreact: false },
+  { name: 'content',    src: 'src/content-script/index.mjs', needsI18n: true,  needsAppearance: true,  needsAgent: false, needsPreact: false, needsContentCss: true },
   { name: 'popup',      src: 'src/popup/index.mjs', needsI18n: true,  needsAppearance: true,  needsAgent: false, needsPreact: true  },
   { name: 'options',    src: 'src/options/index.mjs', needsI18n: true,  needsAppearance: true,  needsAgent: false, needsPreact: true  },
   { name: 'sidepanel',  src: 'src/sidepanel/index.mjs', needsI18n: false, needsAppearance: true,  needsAgent: false, needsPreact: true  },
@@ -114,11 +114,27 @@ const agentPrimitives = concatAgentPrimitives()
 const backgroundProviders = concatBackgroundProviders()
 const preactRuntime = readPreactRuntime()
 
-for (const { name, src, needsI18n, needsAppearance, needsAgent, needsPreact } of entries) {
+// The content script's stylesheet is inlined into its bundle so it can be
+// injected synchronously into a shadow root. That keeps it out of the host
+// page entirely — no manifest CSS injection, and no unstyled flash while a
+// web-accessible stylesheet loads.
+const appearanceCss = fs.readFileSync('src/styles/appearance.css', 'utf8')
+const contentAppearanceCss = appearanceCss
+  .replace(/\[data-appearance-root\]\[data-surface\], /g, '')
+  .replace(/, \[data-appearance-preview\]/g, '')
+  .replace(/:where\(#omnipilot-extension-root-7f3a9c\[data-surface="content"\], \[data-appearance-root\]\[data-surface="sidepanel"\]\)/g, '#omnipilot-extension-root-7f3a9c[data-surface="content"]')
+const contentCss = fs.readFileSync('src/content-script/styles.css', 'utf8')
+const contentStyles = `${contentAppearanceCss}\n${contentCss}`
+const contentStylesInlined =
+  `// ── inlined: dist/styles.css, injected into the content script's shadow root ──\n` +
+  `const OMNIPILOT_CONTENT_CSS = ${JSON.stringify(contentStyles)};\n`
+
+for (const { name, src, needsI18n, needsAppearance, needsAgent, needsPreact, needsContentCss } of entries) {
   const raw = fs.readFileSync(src, 'utf8')
   const stripped = stripUtilityImports(raw)
   const parts = [timeoutInlined]
   if (needsPreact) parts.push(preactRuntime)
+  if (needsContentCss) parts.push(contentStylesInlined)
   if (needsI18n) parts.push(i18nInlined)
   if (needsAppearance) parts.push(appearanceInlined)
   if (needsAgent) parts.push(agentPrimitives)
@@ -133,14 +149,7 @@ for (const { name, src, needsI18n, needsAppearance, needsAgent, needsPreact } of
 fs.copyFileSync('src/popup/index.html',        `${outdir}/popup.html`)
 fs.copyFileSync('src/options/index.html',      `${outdir}/options.html`)
 fs.copyFileSync('src/sidepanel/index.html',    `${outdir}/sidepanel.html`)
-const appearanceCss = fs.readFileSync('src/styles/appearance.css', 'utf8')
 fs.writeFileSync(`${outdir}/appearance.css`, appearanceCss)
-const contentAppearanceCss = appearanceCss
-  .replace(/\[data-appearance-root\]\[data-surface\], /g, '')
-  .replace(/, \[data-appearance-preview\]/g, '')
-  .replace(/:where\(#omnipilot-extension-root-7f3a9c\[data-surface="content"\], \[data-appearance-root\]\[data-surface="sidepanel"\]\)/g, '#omnipilot-extension-root-7f3a9c[data-surface="content"]')
-const contentCss = fs.readFileSync('src/content-script/styles.css', 'utf8')
-fs.writeFileSync(`${outdir}/styles.css`, `${contentAppearanceCss}\n${contentCss}`)
 
 buildTailwind()
 
