@@ -3,8 +3,15 @@
 <head>
   <meta charset="UTF-8">
   <link rel="stylesheet" href="appearance.css">
+  <link rel="stylesheet" href="tailwind.css">
   <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    /* In @layer base so utilities can override it. Unlayered CSS beats layered
+       CSS regardless of specificity, so an unlayered `*` reset would silently
+       cancel every utility margin and padding. Layer order is declared in
+       src/styles/tailwind.css as: base < theme < utilities < unlayered. */
+    @layer base {
+      *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    }
 
     :root {
       --bg: var(--appearance-canvas);
@@ -26,20 +33,11 @@
       padding: 16px;
     }
 
-    .header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 12px;
-    }
+    /* Interactive states and var()-driven values that utilities cannot express.
+       Static layout, spacing, color, and typography now live on op: utilities
+       in the markup below. */
+
     .header-left {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      color: inherit;
-      text-decoration: none;
-      border-radius: 0;
-      outline: none;
       transition: color 0.12s, transform 0.12s;
     }
     .header-left:hover,
@@ -47,80 +45,16 @@
       color: var(--accent);
       transform: translateY(-1px);
     }
-    .logo {
-      width: 24px; height: 24px;
-      background: var(--accent);
-      border-radius: 0;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 11px; color: var(--appearance-on-accent);
-    }
+    .header-left:focus-visible { outline: none; }
+
     .title {
-      font-family: var(--appearance-font-display);
-      font-size: var(--appearance-font-size-md);
-      font-weight: var(--appearance-weight-strong);
-      letter-spacing: var(--appearance-heading-tracking);
       text-transform: var(--appearance-heading-transform);
     }
 
-    .divider {
-      height: 1px;
-      background: var(--border);
-      margin-bottom: 12px;
-    }
-
-    .desc {
-      font-size: var(--appearance-font-size-sm);
-      color: var(--ink2);
-      line-height: var(--appearance-line-height-body);
-      margin-bottom: 12px;
-    }
-
-    .status-row {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      font-size: 12px;
-      color: var(--ink2);
-      margin-bottom: 12px;
-    }
-
     .theme-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
       margin-bottom: var(--appearance-row-gap);
-      padding: 10px 12px;
-      background: var(--bg2);
       border: var(--appearance-border-width) solid var(--border);
-      border-radius: 0;
-      box-shadow: var(--appearance-shadow-1);
     }
-
-    .theme-copy {
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
-    }
-
-    .theme-label {
-      font-size: 12px;
-      font-weight: 600;
-      color: var(--ink);
-    }
-
-    .theme-value {
-      font-size: 11px;
-      color: var(--ink2);
-    }
-
-    .dot {
-      width: 6px; height: 6px;
-      border-radius: 0;
-      background: var(--danger);
-      flex-shrink: 0;
-    }
-    .dot.ok { background: var(--success); }
 
     .appearance-controls .theme-copy { width: 100%; }
     .appearance-controls .theme-label { margin-bottom: 8px; }
@@ -134,11 +68,6 @@
     }
 
     .preference-row:last-child { margin-bottom: 0; }
-
-    .preference-row label {
-      font-size: 11px;
-      color: var(--ink2);
-    }
 
     input, select {
       font-family: inherit;
@@ -169,21 +98,13 @@
       font-size: 12px;
     }
 
+    /* Status dot: `.ok` is toggled from src/popup/index.mjs via classList,
+       so this state pair must stay a CSS rule. */
+    .dot { background: var(--danger); }
+    .dot.ok { background: var(--success); }
+
     .settings-btn {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 6px;
-      width: 100%;
-      padding: 8px;
-      background: var(--bg2);
-      color: var(--ink);
       border: 1px solid var(--border);
-      border-radius: 0;
-      font-size: 12px;
-      font-weight: 500;
-      cursor: pointer;
-      font-family: inherit;
       transition: background 0.12s, border-color 0.12s;
     }
     .settings-btn:hover {
@@ -194,27 +115,27 @@
   </style>
 </head>
 <body>
-  <div class="header">
-    <a class="header-left" href="https://github.com/OmniLLM/omni-pilot" target="_blank" rel="noopener noreferrer" title="Open OmniPilot on GitHub">
-      <div class="logo">✦</div>
-      <span class="title">OmniPilot</span>
+  <div class="op:flex op:items-center op:justify-between op:mb-3">
+    <a class="header-left op:flex op:items-center op:gap-2 op:text-inherit op:no-underline" href="https://github.com/OmniLLM/omni-pilot" target="_blank" rel="noopener noreferrer" title="Open OmniPilot on GitHub">
+      <div class="op:w-6 op:h-6 op:bg-accent op:flex op:items-center op:justify-center op:text-xs op:text-on-accent">✦</div>
+      <span class="title op:font-display op:text-md op:font-strong op:tracking-heading">OmniPilot</span>
     </a>
   </div>
 
-  <div class="divider"></div>
+  <div class="op:h-px op:bg-line op:mb-3"></div>
 
-  <div class="desc" id="desc" data-i18n="selectTextDesc">Select text on any page for AI actions.</div>
+  <div class="op:text-sm op:text-ink-muted op:leading-body op:mb-3" id="desc" data-i18n="selectTextDesc">Select text on any page for AI actions.</div>
 
-  <div class="status-row">
-    <span class="dot" id="statusDot"></span>
+  <div class="op:flex op:items-center op:gap-2 op:text-sm op:text-ink-muted op:mb-3">
+    <span class="dot op:w-1.5 op:h-1.5 op:shrink-0" id="statusDot"></span>
     <span id="statusText" aria-live="polite">Checking…</span>
   </div>
 
-  <div class="theme-row appearance-controls" aria-labelledby="appearanceLabel">
-    <div class="theme-copy">
-      <span class="theme-label" id="appearanceLabel" data-i18n="appearance">Appearance</span>
+  <div class="theme-row appearance-controls op:flex op:items-center op:justify-between op:gap-3 op:py-2.5 op:px-3 op:bg-surface op:shadow-1" aria-labelledby="appearanceLabel">
+    <div class="theme-copy op:flex op:flex-col op:gap-0.5">
+      <span class="theme-label op:text-sm op:font-strong op:text-ink" id="appearanceLabel" data-i18n="appearance">Appearance</span>
       <div class="preference-row">
-        <label for="themePreferenceSelect" data-i18n="themePreference">Color theme</label>
+        <label class="op:text-xs op:text-ink-muted" for="themePreferenceSelect" data-i18n="themePreference">Color theme</label>
         <select id="themePreferenceSelect">
           <option value="system" data-i18n="themeSystem">System</option>
           <option value="light" data-i18n="light">Light</option>
@@ -222,7 +143,7 @@
         </select>
       </div>
       <div class="preference-row">
-        <label for="visualStylePreferenceSelect" data-i18n="visualStyle">Visual style</label>
+        <label class="op:text-xs op:text-ink-muted" for="visualStylePreferenceSelect" data-i18n="visualStyle">Visual style</label>
         <select id="visualStylePreferenceSelect">
           <option value="current" data-i18n="visualStyleCurrent">Current</option>
           <option value="clean-minimal" data-i18n="visualStyleCleanMinimal">Clean Minimal</option>
@@ -234,9 +155,9 @@
     </div>
   </div>
 
-  <div class="theme-row">
-    <div class="theme-copy">
-      <span class="theme-label" id="languageLabel" data-i18n="language">Language</span>
+  <div class="theme-row op:flex op:items-center op:justify-between op:gap-3 op:py-2.5 op:px-3 op:bg-surface op:shadow-1">
+    <div class="theme-copy op:flex op:flex-col op:gap-0.5">
+      <span class="theme-label op:text-sm op:font-strong op:text-ink" id="languageLabel" data-i18n="language">Language</span>
     </div>
     <select id="languageSelect" aria-label="Language">
       <option value="en">English</option>
@@ -244,7 +165,7 @@
     </select>
   </div>
 
-  <button class="settings-btn" id="settingsBtn">
+  <button class="settings-btn op:flex op:items-center op:justify-center op:gap-1.5 op:w-full op:p-2 op:bg-surface op:text-ink op:text-sm op:font-medium op:font-body op:cursor-pointer" id="settingsBtn">
     <span>⚙</span> <span id="settingsLabel" data-i18n="settings">Settings</span>
   </button>
 

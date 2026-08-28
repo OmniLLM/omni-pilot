@@ -5,8 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>OmniPilot Settings</title>
   <link rel="stylesheet" href="appearance.css">
+  <link rel="stylesheet" href="tailwind.css">
   <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    /* In @layer base so utilities can override it. See src/styles/tailwind.css
+       for the declared layer order: base < theme < utilities < unlayered. */
+    @layer base {
+      *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    }
 
     :root {
       --bg: var(--appearance-canvas);

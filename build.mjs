@@ -15,9 +15,16 @@
 // In both cases, `export ...` lines are stripped so declarations land at
 // top level in the concatenated script.
 //
+// Styles are emitted two ways:
+//   * `dist/styles.css` — hand-written CSS for the content script, which is
+//     injected into every page with no Shadow DOM. Never framework-generated.
+//   * `dist/tailwind.css` — build-time Tailwind utilities for the popup,
+//     options, and sidepanel pages only. See `src/styles/tailwind.css`.
+//
 // Run with: npm run build
 import fs from 'fs'
 import path from 'path'
+import { spawnSync } from 'child_process'
 
 const outdir = 'dist'
 
@@ -112,4 +119,33 @@ const contentAppearanceCss = appearanceCss
 const contentCss = fs.readFileSync('src/content-script/styles.css', 'utf8')
 fs.writeFileSync(`${outdir}/styles.css`, `${contentAppearanceCss}\n${contentCss}`)
 
+buildTailwind()
+
 console.log('✓ built dist/')
+
+// Compile the utility stylesheet for the popup/options/sidepanel pages.
+//
+// Invoke the resolved local CLI entry rather than `npx`, which can hit the
+// registry and make the build network-dependent — unacceptable because
+// `npm run test:unit` runs this build every time.
+//
+// `src/styles/tailwind.css` scopes scanning to the three extension pages and
+// never imports Preflight, so nothing here can reach the content script.
+function buildTailwind() {
+  const cli = path.join('node_modules', '@tailwindcss', 'cli', 'dist', 'index.mjs')
+  if (!fs.existsSync(cli)) {
+    throw new Error(`Tailwind CLI not found at ${cli}. Run \`npm install\` before building.`)
+  }
+  const out = `${outdir}/tailwind.css`
+  const result = spawnSync(
+    process.execPath,
+    [cli, '-i', 'src/styles/tailwind.css', '-o', out, '--minify'],
+    { encoding: 'utf8' }
+  )
+  if (result.error) throw result.error
+  if (result.status !== 0) {
+    throw new Error(`Tailwind build failed (exit ${result.status}):\n${result.stderr || result.stdout}`)
+  }
+  const sizeKb = (fs.statSync(out).size / 1024).toFixed(1)
+  console.log(`  ${out}  ${sizeKb}kb`)
+}

@@ -5,8 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>OmniPilot</title>
   <link rel="stylesheet" href="appearance.css">
+  <link rel="stylesheet" href="tailwind.css">
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
+    /* In @layer base so utilities can override it. See src/styles/tailwind.css
+       for the declared layer order: base < theme < utilities < unlayered. */
+    @layer base {
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+    }
 
     body {
       font-family: var(--appearance-font-body);
