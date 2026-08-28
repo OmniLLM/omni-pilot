@@ -96,21 +96,51 @@ const API_SHAPES = {
   OPENAI_RESPONSES: 'openai-responses'
 };
 
-const ACTION_PROMPTS = {
+// Models left to their own devices return a single undifferentiated wall of
+// text, which is unreadable in a narrow panel. This is appended to every prompt
+// whose output is prose rather than a verbatim transformation, so the floating
+// panel, the side panel and the popup all format the same way.
+const FORMATTING_GUIDANCE = [
+  '',
+  'Formatting rules — follow these for every response:',
+  '- Write in Markdown.',
+  '- Break the answer into short paragraphs separated by a blank line. Never return one long unbroken block of text.',
+  '- When the content compares items across shared attributes — figures, prices, counts, options, pros and cons, before and after — present it as a Markdown table rather than describing it in prose.',
+  '- Use a bulleted list for three or more enumerated items.',
+  '- Use `##` headings when the answer covers more than one distinct topic.',
+  '- Put code in fenced blocks tagged with its language.',
+  '- Be dense. Do not pad, restate the question, or add a closing summary of what you just said.'
+].join('\n');
+
+// Actions whose value is the transformed text itself. Adding structure to these
+// would corrupt the output the user asked for.
+const VERBATIM_ACTIONS = new Set([
+  'translate', 'translate-en', 'translate-zh', 'translate-bidi',
+  'improve', 'divide-paragraphs'
+]);
+
+const RAW_ACTION_PROMPTS = {
   translate: 'Translate the following text to English. If already English, translate to Chinese. Return only the translation, no explanations.',
   'translate-en': 'Translate the following text into English. Return only the translation, no explanations.',
   'translate-zh': 'Translate the following text into Chinese. Return only the translation, no explanations.',
   'translate-bidi': 'Translate the following text. If it is in the user\'s preferred language, translate to English. If it is in English, translate to the user\'s preferred language. Return only the translation, no explanations.',
-  summarize: 'Summarize the following text in 2-3 concise sentences. Return only the summary.',
+  summarize: 'Summarize the following text. Return only the summary.',
   explain: 'Explain the following text clearly and simply. Be concise.',
   improve: 'Improve the writing of the following text. Keep the same language and meaning but make it clearer and more polished. Return only the improved text.',
-  sentiment: 'Analyze the sentiment of the following text. Provide a brief summary of the overall emotional tone, labeling it with a short descriptive word or phrase. Be concise.',
+  sentiment: 'Analyze the sentiment of the following text. Give the overall emotional tone a short descriptive label, then explain what supports it.',
   'code-explain': 'You are a senior software engineer. Break down the following code step by step, explain how each part works and why it was designed that way, note any potential issues, and summarize the overall purpose.',
   'divide-paragraphs': 'Divide the following text into clear, easy-to-read paragraphs. Return only the reformatted text.',
   ask: 'Analyze the following content carefully and provide a concise answer or opinion with a short explanation.',
-  'summarize-page': 'Summarize the following page content concisely. Provide a clear, well-structured summary that captures the key points, main arguments, and important details. Use 3-5 sentences.',
-  'summarize-github': 'You are an expert in analyzing GitHub discussions. Please provide a concise summary of the following GitHub issue or pull request thread. Identify the main problem reported, key points discussed by participants, proposed solutions (if any), and the current status or next steps. Present the summary in a structured markdown format.'
+  'summarize-page': 'Summarize the following page content, capturing the key points, main arguments, and important details. Lead with the single most important takeaway.',
+  'summarize-github': 'You are an expert in analyzing GitHub discussions. Summarize the following GitHub issue or pull request thread. Identify the main problem reported, key points discussed by participants, proposed solutions, and the current status or next steps.'
 };
+
+const ACTION_PROMPTS = Object.fromEntries(
+  Object.entries(RAW_ACTION_PROMPTS).map(([id, prompt]) => [
+    id,
+    VERBATIM_ACTIONS.has(id) ? prompt : prompt + '\n' + FORMATTING_GUIDANCE
+  ])
+);
 
 const CHAT_SYSTEM_PROMPT = 'You are a helpful assistant. Continue the conversation naturally.';
 
@@ -203,24 +233,31 @@ if (chrome.contextMenus) {
     }
 
     if (action === 'summarize-page') {
-      chrome.tabs.sendMessage(tab.id, {
-        type: 'CONTEXT_MENU_PAGE_SUMMARY'
-      });
+      notifyContentScript(tab.id, { type: 'CONTEXT_MENU_PAGE_SUMMARY' });
     } else if (action === 'summarize-github') {
-      chrome.tabs.sendMessage(tab.id, {
-        type: 'CONTEXT_MENU_GITHUB_SUMMARY'
-      });
+      notifyContentScript(tab.id, { type: 'CONTEXT_MENU_GITHUB_SUMMARY' });
     } else {
       const selectedText = info.selectionText;
       if (!selectedText) return;
       // Send selected text action to content script
-      chrome.tabs.sendMessage(tab.id, {
+      notifyContentScript(tab.id, {
         type: 'CONTEXT_MENU_ACTION',
         action,
         text: selectedText
       });
     }
   });
+}
+
+// A tab with no content script — a browser-internal page, the web store, or a
+// tab opened before the extension was installed — rejects the message. That is
+// an ordinary outcome of a context-menu click, not a fault, so it must not
+// surface as an unhandled rejection in the service worker's error log.
+function notifyContentScript(tabId, message) {
+  try {
+    const result = chrome.tabs.sendMessage(tabId, message);
+    if (result && typeof result.catch === 'function') result.catch(() => {});
+  } catch {}
 }
 
 function isDisconnectedPortError(error) {

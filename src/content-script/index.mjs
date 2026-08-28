@@ -265,9 +265,60 @@ import { renderMarkdown, escapeHtml } from '../utils/markdown.mjs';
     'medium.com': ['article']
   };
 
+  // Elements that carry chrome rather than content. Banners, nav, cookie
+  // dialogs and promo strips are what made "summarize this page" occasionally
+  // summarize an advertisement instead of the article.
+  const BOILERPLATE_SELECTOR = [
+    'script', 'style', 'noscript', 'template', 'svg', 'canvas', 'iframe', 'object',
+    'nav', 'header', 'footer', 'aside', 'form', 'dialog', 'button', 'select', 'option',
+    '[role="navigation"]', '[role="banner"]', '[role="contentinfo"]', '[role="complementary"]',
+    '[role="search"]', '[role="dialog"]', '[role="alertdialog"]', '[role="menu"]', '[role="menubar"]',
+    '[role="toolbar"]', '[role="tablist"]', '[aria-hidden="true"]', '[hidden]'
+  ].join(',');
+
+  const BLOCK_TAGS = new Set([
+    'P', 'DIV', 'SECTION', 'ARTICLE', 'MAIN', 'UL', 'OL', 'LI', 'DL', 'DT', 'DD',
+    'TABLE', 'TR', 'TD', 'TH', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6',
+    'BLOCKQUOTE', 'PRE', 'BR', 'HR', 'FIGURE', 'FIGCAPTION'
+  ]);
+
+  // Below this, a candidate is treated as too thin to be the page's main
+  // content — a promo banner or a breadcrumb rather than an article — and the
+  // next candidate is tried.
+  const MIN_MAIN_CONTENT_CHARS = 400;
+
   function getElementArea(el) {
     const rect = el.getBoundingClientRect();
     return rect.width * rect.height;
+  }
+
+  /**
+   * Text of `root` with boilerplate subtrees skipped and block boundaries kept
+   * as newlines. Walks the live tree rather than cloning, because `innerText`
+   * on a detached clone has no layout and collapses to `textContent`.
+   */
+  function collectText(root) {
+    if (!root || root.nodeType !== 1) return '';
+    const out = [];
+
+    const visit = node => {
+      if (node.nodeType === 3) {                 // TEXT_NODE
+        const text = node.nodeValue;
+        if (text && text.trim()) out.push(text.replace(/\s+/g, ' ').trim());
+        return;
+      }
+      if (node.nodeType !== 1) return;           // ELEMENT_NODE
+      if (node.matches?.(BOILERPLATE_SELECTOR)) return;
+      if (isOmniPilotElement(node)) return;
+
+      const isBlock = BLOCK_TAGS.has(node.tagName);
+      if (isBlock) out.push('\n');
+      for (let i = 0; i < node.childNodes.length; i++) visit(node.childNodes[i]);
+      if (isBlock) out.push('\n');
+    };
+
+    visit(root);
+    return cleanExtractedText(out.join(' ').replace(/[ \t]*\n[ \t]*/g, '\n'));
   }
 
   function findLargestContentElement(root) {
@@ -300,45 +351,48 @@ import { renderMarkdown, escapeHtml } from '../utils/markdown.mjs';
       if (hostname.includes(site)) {
         for (const sel of selectors) {
           const el = document.querySelector(sel);
-          if (el?.innerText?.trim()) {
-            const text = cleanExtractedText(el.innerText);
-            if (text.length > 50) {
-              return text.length > PAGE_CONTENT_MAX_CHARS
-                ? text.slice(0, PAGE_CONTENT_MAX_CHARS) + '\n\n[Content truncated]'
-                : text;
-            }
-          }
+          const text = collectText(el);
+          if (text.length > 50) return truncateContent(text);
         }
         break;
       }
     }
 
-    // Try <article> tag
-    const article = document.querySelector('article');
-    if (article?.innerText?.trim().length > 50) {
-      const text = cleanExtractedText(article.innerText);
-      return text.length > PAGE_CONTENT_MAX_CHARS
-        ? text.slice(0, PAGE_CONTENT_MAX_CHARS) + '\n\n[Content truncated]'
-        : text;
-    }
+    // Candidates in descending order of how likely they are to BE the content.
+    // The first tier carrying enough text wins; the richest seen is kept as a
+    // fallback for pages that are legitimately short.
+    //
+    // Articles form a tier of their own, resolved among themselves before the
+    // generic heuristics get a turn. Otherwise a container holding both a promo
+    // card and the real article would out-measure the article and win.
+    const tiers = [
+      [document.querySelector('main')],
+      [document.querySelector('[role="main"]')],
+      // Not `querySelector('article')` — taking the first article in document
+      // order picks up promo and announcement cards that sites place above the
+      // real one. Rank them by how much text they actually carry.
+      Array.from(document.querySelectorAll('article')),
+      [document.querySelector('#main-content'), document.querySelector('#content'), document.querySelector('.content'), document.querySelector('#main')],
+      [findLargestContentElement(document.body)],
+      [document.body]
+    ];
 
-    // Heuristic: find largest content element
-    const largest = findLargestContentElement(document.body);
-    if (largest) {
-      const secondLargest = findLargestContentElement(largest);
-      const target = (secondLargest && getElementArea(secondLargest) > 0.5 * getElementArea(largest))
-        ? secondLargest : largest;
-      const text = cleanExtractedText(target.innerText || '');
-      if (text.length > 50) {
-        return text.length > PAGE_CONTENT_MAX_CHARS
-          ? text.slice(0, PAGE_CONTENT_MAX_CHARS) + '\n\n[Content truncated]'
-          : text;
+    let best = '';
+    for (const tier of tiers) {
+      let tierBest = '';
+      for (const candidate of tier) {
+        if (!candidate) continue;
+        const text = collectText(candidate);
+        if (text.length > tierBest.length) tierBest = text;
       }
+      if (tierBest.length >= MIN_MAIN_CONTENT_CHARS) return truncateContent(tierBest);
+      if (tierBest.length > best.length) best = tierBest;
     }
 
-    // Fallback to body
-    const text = cleanExtractedText(document.body?.innerText || '');
-    if (!text) return '';
+    return best ? truncateContent(best) : '';
+  }
+
+  function truncateContent(text) {
     return text.length > PAGE_CONTENT_MAX_CHARS
       ? text.slice(0, PAGE_CONTENT_MAX_CHARS) + '\n\n[Content truncated]'
       : text;

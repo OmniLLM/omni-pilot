@@ -13,7 +13,7 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
 import { PROVIDER_LABELS, getProviderEntries, ACTIONS } from '../utils/catalog.mjs';
 import { renderMarkdown } from '../utils/markdown.mjs';
 
-const { html, render, useState, useEffect, useRef } = htmPreact;
+const { html, render, useState, useEffect, useLayoutEffect, useRef } = htmPreact;
 
 const PORT_NAME = 'omnipilot-stream';
 const EMPTY_PROMPT = 'Start a conversation. Ask anything.';
@@ -331,8 +331,11 @@ function SidePanel() {
     return () => document.removeEventListener('mousedown', onMouseDown);
   }, [openSelector]);
 
-  // Keep the newest content in view as the transcript grows.
-  useEffect(() => {
+  // Keep the newest content in view as the transcript grows. This has to be a
+  // layout effect: Preact defers useEffect past paint, so a streaming chunk
+  // could be painted before the scroll caught up, leaving the newest text
+  // below the fold.
+  useLayoutEffect(() => {
     const body = bodyRef.current;
     if (body) body.scrollTop = body.scrollHeight;
   }, [messages]);
@@ -555,12 +558,23 @@ function SidePanel() {
 
   // Running a built-in function from the side panel treats the page as the
   // subject, the way the floating panel treats the selection as the subject.
-  const onChooseAction = actionId => {
+  //
+  // The page is re-read here rather than reusing the chip's snapshot. That
+  // snapshot is taken when the panel opens and on tab changes, so on a page
+  // that finishes rendering afterwards — a lesson body arriving after its
+  // promo banner, say — running a function against it would summarize whatever
+  // happened to be on screen first.
+  const onChooseAction = async actionId => {
     setOpenSelector(null);
     setAction(actionId);
     if (!actionId) return;
 
-    const current = pageRef.current;
+    const fresh = await fetchPageContext();
+    if (fresh) {
+      pageRef.current = fresh;
+      setPage(fresh);
+    }
+    const current = fresh?.content ? fresh : pageRef.current;
     if (!current?.content) {
       append({ id: nextId(), role: 'error', content: NO_PAGE_FOR_ACTION_ERROR });
       return;
