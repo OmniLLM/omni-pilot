@@ -2,6 +2,9 @@
 // Detects text selection and shows AI action bubble
 
 import { t, normalizeLanguage } from '../utils/i18n.mjs';
+import { createAppearanceController } from '../utils/appearance.mjs';
+import { PROVIDER_LABELS, getProviderEntries, ACTIONS } from '../utils/catalog.mjs';
+import { renderMarkdown, escapeHtml } from '../utils/markdown.mjs';
 
 (function () {
   'use strict';
@@ -13,7 +16,6 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
   let panelMinimized = false;
   let lastSelection = '';
   let lastSelectionRect = null;
-  let currentTheme = 'dark';
   let currentLanguage = 'en';
   let conversationHistory = []; // stores {role, content} for multi-turn chat
   let currentModel = '';
@@ -37,11 +39,6 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
   // a spinner that never resolves. Reset on every message, so healthy long
   // streams and delegations are unaffected.
   let streamWatchdogMs = RESPONSE_TIMEOUT_DEFAULT_MS;
-  const PROVIDER_LABELS = {
-    'custom-provider': 'Custom',
-    'github-copilot': 'GitHub Copilot',
-    'azure-foundry': 'Azure Foundry'
-  };
 
   function label(key) {
     return t(key, currentLanguage);
@@ -49,27 +46,68 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
 
   function applyLanguage(language) {
     currentLanguage = normalizeLanguage(language);
-    document.documentElement.lang = currentLanguage;
+    ensureOmniPilotRoot().lang = currentLanguage;
     updatePanelMeta();
   }
 
-  function applyThemeTo(el) {
-    if (!el) return;
-    if (currentTheme === 'light') el.setAttribute('data-op-theme', 'light');
-    else el.removeAttribute('data-op-theme');
+  let omniPilotRoot = null;
+  let omniPilotHost = null;
+
+  // The UI lives inside a shadow root so that neither our styles nor the host
+  // page's styles can reach across. Before this, dist/styles.css was injected
+  // into every page by the manifest, which is why the content script could
+  // never safely use a CSS framework.
+  function ensureOmniPilotRoot() {
+    if (omniPilotRoot?.isConnected === true || (omniPilotRoot?.isConnected === undefined && omniPilotRoot?.parentNode)) {
+      return omniPilotRoot;
+    }
+    if (omniPilotHost?.parentNode) omniPilotHost.remove();
+    omniPilotRoot = null;
+    omniPilotHost = null;
+
+    omniPilotHost = document.createElement('div');
+    omniPilotHost.id = 'omnipilot-extension-host-7f3a9c';
+    omniPilotHost.setAttribute('data-omnipilot-owned', 'true');
+
+    // Open, so Playwright locators and debugging still pierce it.
+    let mount = omniPilotHost;
+    if (typeof omniPilotHost.attachShadow === 'function') {
+      const shadow = omniPilotHost.attachShadow({ mode: 'open' });
+      const style = document.createElement('style');
+      style.textContent = typeof OMNIPILOT_CONTENT_CSS === 'string' ? OMNIPILOT_CONTENT_CSS : '';
+      shadow.appendChild(style);
+      mount = shadow;
+    }
+
+    omniPilotRoot = document.createElement('div');
+    omniPilotRoot.id = 'omnipilot-extension-root-7f3a9c';
+    omniPilotRoot.setAttribute('data-omnipilot-owned', 'true');
+    omniPilotRoot.setAttribute('data-appearance-root', '');
+    omniPilotRoot.setAttribute('data-surface', 'content');
+    omniPilotRoot.setAttribute('data-theme-preference', 'dark');
+    omniPilotRoot.setAttribute('data-theme', 'dark');
+    omniPilotRoot.setAttribute('data-visual-style', 'current');
+    mount.appendChild(omniPilotRoot);
+
+    if (document.body && !omniPilotHost.parentNode) {
+      document.body.appendChild(omniPilotHost);
+    }
+    return omniPilotRoot;
   }
 
-  function applyTheme(theme) {
-    currentTheme = theme;
-    document.documentElement.setAttribute('data-op-theme', theme);
-    document.body?.setAttribute('data-op-theme', theme);
-    [bubble, dropdown, panel, minimizedOrb].forEach(applyThemeTo);
+  function getUiMount() {
+    return ensureOmniPilotRoot();
   }
 
-  function loadThemePreference() {
-    safeStorageGet(chrome.storage?.sync, { themePreference: 'dark' }, config => {
-      applyTheme(config.themePreference);
-    });
+  // Our UI lives in a shadow root, so by the time an event reaches a listener on
+  // `document` the browser has retargeted `event.target` to the shadow host.
+  // `el.contains(e.target)` therefore always reports false for our own elements.
+  // `composedPath()` still carries the real inner target, so hit-test with that.
+  function eventPathContains(e, el) {
+    if (!el) return false;
+    const path = typeof e?.composedPath === 'function' ? e.composedPath() : null;
+    if (path && path.length) return path.indexOf(el) !== -1;
+    return typeof el.contains === 'function' && el.contains(e?.target);
   }
 
   function loadLanguagePreference() {
@@ -106,7 +144,6 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
     updatePanelMeta();
   });
 
-  loadThemePreference();
   loadLanguagePreference();
 
 
@@ -126,7 +163,6 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
     if (changes.apiKey || changes.authMethod || changes.providerType || a2aServersChanged) {
       hasApiKey = currentProviderType === 'github-copilot' || currentAuthMethod === 'github-copilot' || isA2aProviderType(currentProviderType) || Boolean(currentApiKey);
     }
-    if (changes.themePreference) applyTheme(changes.themePreference.newValue || 'dark');
     if (changes.languagePreference) applyLanguage(changes.languagePreference.newValue || 'en');
     if (changes.popupInitialWidth) popupInitialWidth = normalizePopupSizeValue(changes.popupInitialWidth.newValue, 300, 1200);
     if (changes.popupInitialHeight) popupInitialHeight = normalizePopupSizeValue(changes.popupInitialHeight.newValue, 180, 900);
@@ -165,11 +201,6 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
   function getA2aServerLabel(providerType) {
     const serverId = getA2aServerIdFromProviderType(providerType);
     return a2aServers.find(server => server.id === serverId)?.name || 'A2A';
-  }
-
-  function getProviderEntries() {
-    return Object.entries(PROVIDER_LABELS)
-      .map(([providerType, label]) => ({ providerType, label }));
   }
 
   function getProviderLabel(providerType, endpoint) {
@@ -219,17 +250,6 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
     }
   }
 
-  const ACTIONS = [
-    { id: 'translate', labelKey: 'translate', icon: '🌍' },
-    { id: 'summarize', labelKey: 'summarize', icon: '📝' },
-    { id: 'explain', labelKey: 'explain', icon: '💡' },
-    { id: 'improve', labelKey: 'improve', icon: '✨' },
-    { id: 'sentiment', labelKey: 'sentiment', icon: '😊' },
-    { id: 'code-explain', labelKey: 'codeExplain', icon: '🔧' },
-    { id: 'divide-paragraphs', labelKey: 'divideParagraphs', icon: '📋' },
-    { id: 'ask', labelKey: 'ask', icon: '❓' }
-  ];
-
   const PAGE_CONTENT_MAX_CHARS = 12000;
 
   // ── Smart Page Content Extraction ─────────────────────────────────────────────
@@ -245,9 +265,60 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
     'medium.com': ['article']
   };
 
+  // Elements that carry chrome rather than content. Banners, nav, cookie
+  // dialogs and promo strips are what made "summarize this page" occasionally
+  // summarize an advertisement instead of the article.
+  const BOILERPLATE_SELECTOR = [
+    'script', 'style', 'noscript', 'template', 'svg', 'canvas', 'iframe', 'object',
+    'nav', 'header', 'footer', 'aside', 'form', 'dialog', 'button', 'select', 'option',
+    '[role="navigation"]', '[role="banner"]', '[role="contentinfo"]', '[role="complementary"]',
+    '[role="search"]', '[role="dialog"]', '[role="alertdialog"]', '[role="menu"]', '[role="menubar"]',
+    '[role="toolbar"]', '[role="tablist"]', '[aria-hidden="true"]', '[hidden]'
+  ].join(',');
+
+  const BLOCK_TAGS = new Set([
+    'P', 'DIV', 'SECTION', 'ARTICLE', 'MAIN', 'UL', 'OL', 'LI', 'DL', 'DT', 'DD',
+    'TABLE', 'TR', 'TD', 'TH', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6',
+    'BLOCKQUOTE', 'PRE', 'BR', 'HR', 'FIGURE', 'FIGCAPTION'
+  ]);
+
+  // Below this, a candidate is treated as too thin to be the page's main
+  // content — a promo banner or a breadcrumb rather than an article — and the
+  // next candidate is tried.
+  const MIN_MAIN_CONTENT_CHARS = 400;
+
   function getElementArea(el) {
     const rect = el.getBoundingClientRect();
     return rect.width * rect.height;
+  }
+
+  /**
+   * Text of `root` with boilerplate subtrees skipped and block boundaries kept
+   * as newlines. Walks the live tree rather than cloning, because `innerText`
+   * on a detached clone has no layout and collapses to `textContent`.
+   */
+  function collectText(root) {
+    if (!root || root.nodeType !== 1) return '';
+    const out = [];
+
+    const visit = node => {
+      if (node.nodeType === 3) {                 // TEXT_NODE
+        const text = node.nodeValue;
+        if (text && text.trim()) out.push(text.replace(/\s+/g, ' ').trim());
+        return;
+      }
+      if (node.nodeType !== 1) return;           // ELEMENT_NODE
+      if (node.matches?.(BOILERPLATE_SELECTOR)) return;
+      if (isOmniPilotElement(node)) return;
+
+      const isBlock = BLOCK_TAGS.has(node.tagName);
+      if (isBlock) out.push('\n');
+      for (let i = 0; i < node.childNodes.length; i++) visit(node.childNodes[i]);
+      if (isBlock) out.push('\n');
+    };
+
+    visit(root);
+    return cleanExtractedText(out.join(' ').replace(/[ \t]*\n[ \t]*/g, '\n'));
   }
 
   function findLargestContentElement(root) {
@@ -280,45 +351,48 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
       if (hostname.includes(site)) {
         for (const sel of selectors) {
           const el = document.querySelector(sel);
-          if (el?.innerText?.trim()) {
-            const text = cleanExtractedText(el.innerText);
-            if (text.length > 50) {
-              return text.length > PAGE_CONTENT_MAX_CHARS
-                ? text.slice(0, PAGE_CONTENT_MAX_CHARS) + '\n\n[Content truncated]'
-                : text;
-            }
-          }
+          const text = collectText(el);
+          if (text.length > 50) return truncateContent(text);
         }
         break;
       }
     }
 
-    // Try <article> tag
-    const article = document.querySelector('article');
-    if (article?.innerText?.trim().length > 50) {
-      const text = cleanExtractedText(article.innerText);
-      return text.length > PAGE_CONTENT_MAX_CHARS
-        ? text.slice(0, PAGE_CONTENT_MAX_CHARS) + '\n\n[Content truncated]'
-        : text;
-    }
+    // Candidates in descending order of how likely they are to BE the content.
+    // The first tier carrying enough text wins; the richest seen is kept as a
+    // fallback for pages that are legitimately short.
+    //
+    // Articles form a tier of their own, resolved among themselves before the
+    // generic heuristics get a turn. Otherwise a container holding both a promo
+    // card and the real article would out-measure the article and win.
+    const tiers = [
+      [document.querySelector('main')],
+      [document.querySelector('[role="main"]')],
+      // Not `querySelector('article')` — taking the first article in document
+      // order picks up promo and announcement cards that sites place above the
+      // real one. Rank them by how much text they actually carry.
+      Array.from(document.querySelectorAll('article')),
+      [document.querySelector('#main-content'), document.querySelector('#content'), document.querySelector('.content'), document.querySelector('#main')],
+      [findLargestContentElement(document.body)],
+      [document.body]
+    ];
 
-    // Heuristic: find largest content element
-    const largest = findLargestContentElement(document.body);
-    if (largest) {
-      const secondLargest = findLargestContentElement(largest);
-      const target = (secondLargest && getElementArea(secondLargest) > 0.5 * getElementArea(largest))
-        ? secondLargest : largest;
-      const text = cleanExtractedText(target.innerText || '');
-      if (text.length > 50) {
-        return text.length > PAGE_CONTENT_MAX_CHARS
-          ? text.slice(0, PAGE_CONTENT_MAX_CHARS) + '\n\n[Content truncated]'
-          : text;
+    let best = '';
+    for (const tier of tiers) {
+      let tierBest = '';
+      for (const candidate of tier) {
+        if (!candidate) continue;
+        const text = collectText(candidate);
+        if (text.length > tierBest.length) tierBest = text;
       }
+      if (tierBest.length >= MIN_MAIN_CONTENT_CHARS) return truncateContent(tierBest);
+      if (tierBest.length > best.length) best = tierBest;
     }
 
-    // Fallback to body
-    const text = cleanExtractedText(document.body?.innerText || '');
-    if (!text) return '';
+    return best ? truncateContent(best) : '';
+  }
+
+  function truncateContent(text) {
     return text.length > PAGE_CONTENT_MAX_CHARS
       ? text.slice(0, PAGE_CONTENT_MAX_CHARS) + '\n\n[Content truncated]'
       : text;
@@ -441,8 +515,7 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
         hideDropdown();
       }
     });
-    document.body.appendChild(el);
-    applyThemeTo(el);
+    getUiMount().appendChild(el);
     return el;
   }
 
@@ -541,8 +614,7 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
       }
     });
 
-    document.body.appendChild(el);
-    applyThemeTo(el);
+    getUiMount().appendChild(el);
     return el;
   }
 
@@ -767,8 +839,7 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
       }
     });
 
-    document.body.appendChild(orb);
-    applyThemeTo(orb);
+    getUiMount().appendChild(orb);
     minimizedOrb = orb;
     return orb;
   }
@@ -1036,8 +1107,7 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
       panel.appendChild(body);
       panel.appendChild(inputArea);
       panel.appendChild(resizeHandle);
-      document.body.appendChild(panel);
-      applyThemeTo(panel);
+      getUiMount().appendChild(panel);
 
       // Observe panel size changes to scale textarea max-height proportionally
       const panelResizeObserver = new ResizeObserver(entries => {
@@ -1358,180 +1428,169 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
     }
   }
 
-  function showModelSelector(anchorEl) {
-    // Remove existing selector if any
-    const existing = document.getElementById('omnipilot-model-selector');
-    if (existing) { existing.remove(); return; }
+  // ── Floating selectors (component-rendered) ───────────────────────────────
+  //
+  // The action / provider / model chips each open a small floating list. They
+  // share one lifecycle (toggle, position below the anchor, dismiss on outside
+  // click) and one item shape, so both live here once rather than three times.
+
+  const { html: sHtml, render: sRender, useState: sUseState, useEffect: sUseEffect, useRef: sUseRef } = htmPreact;
+
+  function SelectorItem({ icon, text, current, onChoose }) {
+    return sHtml`
+      <div
+        class=${'omnipilot-model-item' + (current ? ' omnipilot-model-current' : '')}
+        onClick=${e => { e.stopPropagation(); onChoose(); }}
+      >
+        ${icon ? sHtml`<span style="margin-right:6px">${icon}</span>` : null}${text}
+      </div>`;
+  }
+
+  // Mounts a component into a positioned, dismissable floating host. Returns
+  // early (closing the open one) when the same chip is clicked twice.
+  function openFloatingSelector({ id, anchorEl, render: renderBody }) {
+    const mount = getUiMount();
+    const existing = mount.querySelector(`#${id}`);
+    if (existing) { existing.remove(); return null; }
 
     const selector = document.createElement('div');
-    selector.id = 'omnipilot-model-selector';
-    applyThemeTo(selector);
+    selector.id = id;
+    mount.appendChild(selector);
 
-    // Filter input
-    const filterInput = document.createElement('input');
-    filterInput.className = 'omnipilot-model-filter';
-    filterInput.placeholder = label('typeToFilter');
-    filterInput.addEventListener('mousedown', e => e.stopPropagation());
-    filterInput.addEventListener('keydown', e => e.stopPropagation());
-    selector.appendChild(filterInput);
-
-    const listContainer = document.createElement('div');
-    listContainer.className = 'omnipilot-model-list';
-    selector.appendChild(listContainer);
-
-    document.body.appendChild(selector);
-
-    // Position below the anchor
     const rect = anchorEl.getBoundingClientRect();
     selector.style.left = `${rect.left}px`;
     selector.style.top = `${rect.bottom + 4}px`;
 
-    // Fetch models from background
-    const runtime = globalThis.chrome?.runtime;
-    if (!runtime?.sendMessage) { selector.remove(); return; }
-
-    listContainer.innerHTML = `<div class="omnipilot-model-loading">${label('loadingModels')}</div>`;
-
-    let allModels = [];
-
-    function renderList(filter) {
-      const query = filter.toLowerCase();
-      const filtered = query ? allModels.filter(m => m.toLowerCase().includes(query)) : allModels;
-      listContainer.innerHTML = '';
-      if (!filtered.length) {
-        listContainer.innerHTML = `<div class="omnipilot-model-loading">${label('noMatches')}</div>`;
-        return;
-      }
-      filtered.forEach(model => {
-        const item = document.createElement('div');
-        item.className = 'omnipilot-model-item' + (model === currentModel ? ' omnipilot-model-current' : '');
-        item.textContent = model;
-        item.addEventListener('click', e => {
-          e.stopPropagation();
-          currentModel = model;
-          safeSendMessage(runtime, { type: 'SET_MODEL', model });
-          updatePanelMeta();
-          selector.remove();
-        });
-        listContainer.appendChild(item);
-      });
-    }
-
-    filterInput.addEventListener('input', () => renderList(filterInput.value));
-
-    const sent = safeSendMessage(runtime, { type: 'GET_MODELS' }, response => {
-      if (!response || !response.models || !response.models.length) {
-        allModels = [currentModel];
-      } else {
-        allModels = response.models;
-      }
-      renderList(filterInput.value);
-      filterInput.focus();
-    });
-    if (!sent) {
-      // Extension context was invalidated between opening the panel and clicking
-      // the model chip. Close the empty selector instead of leaving a permanent
-      // "loading models…" spinner.
+    const close = () => {
+      // Unmount first so component effects are torn down, then detach.
+      sRender(null, selector);
       selector.remove();
-      return;
-    }
+      document.removeEventListener('mousedown', closeHandler);
+    };
 
-    // Close on click outside
+    // Our UI is inside a shadow root, so `e.target` seen from `document` is the
+    // shadow host. `eventPathContains` looks through the boundary instead.
     const closeHandler = e => {
-      if (!selector.contains(e.target) && !anchorEl.contains(e.target)) {
-        selector.remove();
-        document.removeEventListener('mousedown', closeHandler);
-      }
+      if (!eventPathContains(e, selector) && !eventPathContains(e, anchorEl)) close();
     };
     setTimeout(() => document.addEventListener('mousedown', closeHandler), 0);
+
+    sRender(renderBody(close), selector);
+    return { selector, close };
+  }
+
+  function ModelSelector({ runtime, onChoose }) {
+    const [models, setModels] = sUseState(null);
+    const [filter, setFilter] = sUseState('');
+    const inputRef = sUseRef(null);
+
+    sUseEffect(() => {
+      const sent = safeSendMessage(runtime, { type: 'GET_MODELS' }, response => {
+        setModels(response?.models?.length ? response.models : [currentModel]);
+        inputRef.current?.focus();
+      });
+      // Extension context died between opening the panel and clicking the chip.
+      // Close rather than leave a permanent "loading models…" spinner.
+      if (!sent) onChoose(null);
+    }, []);
+
+    const query = filter.toLowerCase();
+    const visible = models === null
+      ? null
+      : (query ? models.filter(m => m.toLowerCase().includes(query)) : models);
+
+    return sHtml`
+      <input
+        class="omnipilot-model-filter"
+        placeholder=${label('typeToFilter')}
+        ref=${inputRef}
+        value=${filter}
+        onInput=${e => setFilter(e.target.value)}
+        onMouseDown=${e => e.stopPropagation()}
+        onKeyDown=${e => e.stopPropagation()}
+      />
+      <div class="omnipilot-model-list">
+        ${visible === null
+          ? sHtml`<div class="omnipilot-model-loading">${label('loadingModels')}</div>`
+          : visible.length
+            ? visible.map(model => sHtml`
+                <${SelectorItem}
+                  key=${model}
+                  text=${model}
+                  current=${model === currentModel}
+                  onChoose=${() => onChoose(model)}
+                />`)
+            : sHtml`<div class="omnipilot-model-loading">${label('noMatches')}</div>`}
+      </div>`;
+  }
+
+  function showModelSelector(anchorEl) {
+    const runtime = globalThis.chrome?.runtime;
+    const opened = openFloatingSelector({
+      id: 'omnipilot-model-selector',
+      anchorEl,
+      render: close => sHtml`
+        <${ModelSelector}
+          runtime=${runtime}
+          onChoose=${model => {
+            if (model !== null) {
+              currentModel = model;
+              safeSendMessage(runtime, { type: 'SET_MODEL', model });
+              updatePanelMeta();
+            }
+            close();
+          }}
+        />`
+    });
+    // Nothing to fetch models with — don't leave an empty box on screen.
+    if (opened && !runtime?.sendMessage) opened.close();
   }
 
   function showProviderSelector(anchorEl) {
-    const existing = document.getElementById('omnipilot-provider-selector');
-    if (existing) { existing.remove(); return; }
-
-    const selector = document.createElement('div');
-    selector.id = 'omnipilot-provider-selector';
-    applyThemeTo(selector);
-
-    getProviderEntries().forEach(({ providerType, label: providerLabel }) => {
-      const item = document.createElement('div');
-      item.className = 'omnipilot-model-item' + (providerType === currentProviderType ? ' omnipilot-model-current' : '');
-      item.textContent = providerLabel;
-      item.addEventListener('click', e => {
-        e.stopPropagation();
-        const runtime = globalThis.chrome?.runtime;
-        if (runtime?.sendMessage) {
-          safeSendMessage(runtime, { type: 'SET_PROVIDER', providerType });
-        }
-        selector.remove();
-      });
-      selector.appendChild(item);
+    openFloatingSelector({
+      id: 'omnipilot-provider-selector',
+      anchorEl,
+      render: close => getProviderEntries().map(({ providerType, label: providerLabel }) => sHtml`
+        <${SelectorItem}
+          key=${providerType}
+          text=${providerLabel}
+          current=${providerType === currentProviderType}
+          onChoose=${() => {
+            const runtime = globalThis.chrome?.runtime;
+            if (runtime?.sendMessage) safeSendMessage(runtime, { type: 'SET_PROVIDER', providerType });
+            close();
+          }}
+        />`)
     });
-
-    document.body.appendChild(selector);
-
-    const rect = anchorEl.getBoundingClientRect();
-    selector.style.left = `${rect.left}px`;
-    selector.style.top = `${rect.bottom + 4}px`;
-
-    const closeHandler = e => {
-      if (!selector.contains(e.target) && !anchorEl.contains(e.target)) {
-        selector.remove();
-        document.removeEventListener('mousedown', closeHandler);
-      }
-    };
-    setTimeout(() => document.addEventListener('mousedown', closeHandler), 0);
   }
 
   function showActionSelector(anchorEl) {
-    // Remove existing selector if any
-    const existing = document.getElementById('omnipilot-action-selector');
-    if (existing) { existing.remove(); return; }
-
-    const selector = document.createElement('div');
-    selector.id = 'omnipilot-action-selector';
-    applyThemeTo(selector);
-
     const allActions = [
       { id: '', labelKey: 'chat', icon: '💬' },
       ...ACTIONS
     ];
 
-    allActions.forEach(action => {
-      const item = document.createElement('div');
-      item.className = 'omnipilot-model-item' + (action.id === currentAction ? ' omnipilot-model-current' : '');
-      item.innerHTML = `<span style="margin-right:6px">${action.icon}</span>${label(action.labelKey)}`;
-      item.addEventListener('click', e => {
-        e.stopPropagation();
-        currentAction = action.id;
-        updatePanelMeta();
-        selector.remove();
-
-        // When switching actions from the panel header, keep existing context
-        // and run the new action as a continuation, not a fresh session.
-        if (action.id && (lastSelection || getActiveSelectionContextText())) {
-          runActionInContext(action.id);
-        }
-      });
-      selector.appendChild(item);
+    openFloatingSelector({
+      id: 'omnipilot-action-selector',
+      anchorEl,
+      render: close => allActions.map(action => sHtml`
+        <${SelectorItem}
+          key=${action.id}
+          icon=${action.icon}
+          text=${label(action.labelKey)}
+          current=${action.id === currentAction}
+          onChoose=${() => {
+            currentAction = action.id;
+            updatePanelMeta();
+            close();
+            // Switching actions from the panel header keeps existing context and
+            // runs the new action as a continuation, not a fresh session.
+            if (action.id && (lastSelection || getActiveSelectionContextText())) {
+              runActionInContext(action.id);
+            }
+          }}
+        />`)
     });
-
-    document.body.appendChild(selector);
-
-    // Position below the anchor
-    const rect = anchorEl.getBoundingClientRect();
-    selector.style.left = `${rect.left}px`;
-    selector.style.top = `${rect.bottom + 4}px`;
-
-    // Close on click outside
-    const closeHandler = e => {
-      if (!selector.contains(e.target) && !anchorEl.contains(e.target)) {
-        selector.remove();
-        document.removeEventListener('mousedown', closeHandler);
-      }
-    };
-    setTimeout(() => document.addEventListener('mousedown', closeHandler), 0);
   }
 
   function positionPanel() {
@@ -1576,148 +1635,11 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
     }
   }
 
+  // Rendering lives in src/utils/markdown.mjs so the side panel formats replies
+  // identically. Only the localized <think> label differs per surface.
   function formatResult(text) {
-    if (typeof text !== 'string') return '';
-
-    // Extract and protect <think> blocks for collapsible rendering
-    const thinkBlocks = [];
-    let formatted = text.replace(/<think>([\s\S]*?)<\/think>/gi, (match, content) => {
-      const placeholder = `__OP_THINK_PLACEHOLDER_${thinkBlocks.length}__`;
-      thinkBlocks.push(content.trim());
-      return placeholder;
-    });
-
-    // Extract fenced code blocks: ```lang\ncode\n```
-    const blocks = [];
-    formatted = formatted.replace(/```(\w*)\n([\s\S]*?)\n```/g, (match, lang, code) => {
-      const placeholder = `__OP_CODE_BLOCK_PLACEHOLDER_${blocks.length}__`;
-      blocks.push({ lang: lang || 'code', code });
-      return placeholder;
-    });
-
-    // Protect inline code: `code`
-    const inlineCodes = [];
-    formatted = formatted.replace(/`([^`\n]+)`/g, (match, code) => {
-      const placeholder = `__OP_INLINE_CODE_PLACEHOLDER_${inlineCodes.length}__`;
-      inlineCodes.push(code);
-      return placeholder;
-    });
-
-    // Extract markdown tables before escaping
-    const tables = [];
-    formatted = formatted.replace(/(?:^|\n)((?:\|[^\n]+\|\s*\n){2,})/gm, (match, tableBlock) => {
-      const placeholder = `__OP_TABLE_PLACEHOLDER_${tables.length}__`;
-      tables.push(tableBlock.trim());
-      return '\n' + placeholder + '\n';
-    });
-
-    // Escape HTML
-    formatted = escapeHtml(formatted);
-
-    // Markdown Headings: ### text
-    formatted = formatted.replace(/^#{3}\s+(.*?)$/gm, '<h4>$1</h4>');
-    formatted = formatted.replace(/^#{2}\s+(.*?)$/gm, '<h3>$1</h3>');
-    formatted = formatted.replace(/^#{1}\s+(.*?)$/gm, '<h3>$1</h3>');
-
-    // Markdown Links: [text](url)
-    formatted = formatted.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
-
-    // Strikethrough: ~~text~~
-    formatted = formatted.replace(/~~(.*?)~~/g, '<del>$1</del>');
-
-    // Bold: **text**
-    formatted = formatted.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-
-    // Italic: *text*
-    formatted = formatted.replace(/\*(.*?)\*/g, '<em>$1</em>');
-
-    // Blockquotes: > text
-    formatted = formatted.replace(/^&gt;\s+(.*?)$/gm, '<blockquote>$1</blockquote>');
-
-    // Horizontal rules: --- or ***
-    formatted = formatted.replace(/^(---|\*\*\*)$/gm, '<hr>');
-
-    // Unordered lists: - text
-    formatted = formatted.replace(/^\s*-\s+(.*?)$/gm, '<ul><li>$1</li></ul>');
-    formatted = formatted.replace(/<\/ul>\s*<ul>/g, '');
-
-    // Ordered lists: 1. text
-    formatted = formatted.replace(/^\s*\d+\.\s+(.*?)$/gm, '<ol><li>$1</li></ol>');
-    formatted = formatted.replace(/<\/ol>\s*<ol>/g, '');
-
-    // Newlines
-    formatted = formatted.replace(/\n/g, '<br>');
-
-    // Restore inline codes
-    inlineCodes.forEach((code, index) => {
-      formatted = formatted.replace(`__OP_INLINE_CODE_PLACEHOLDER_${index}__`, `<code>${escapeHtml(code)}</code>`);
-    });
-
-    // Restore tables as HTML tables
-    tables.forEach((tableText, index) => {
-      const rows = tableText.split('\n').filter(r => r.trim());
-      if (rows.length < 2) {
-        formatted = formatted.replace(`__OP_TABLE_PLACEHOLDER_${index}__`, escapeHtml(tableText));
-        return;
-      }
-      const parseRow = row => row.split('|').map(c => c.trim()).filter((c, i, a) => i > 0 && i < a.length);
-      const renderCell = cell => {
-        // Restore inline code placeholders that were extracted before the
-        // table was captured; escape everything else as plain text.
-        const parts = cell.split(/(__OP_INLINE_CODE_PLACEHOLDER_\d+__)/);
-        return parts.map(part => {
-          const m = part.match(/^__OP_INLINE_CODE_PLACEHOLDER_(\d+)__$/);
-          if (m) {
-            const code = inlineCodes[Number(m[1])];
-            return code !== undefined ? `<code>${escapeHtml(code)}</code>` : escapeHtml(part);
-          }
-          return escapeHtml(part);
-        }).join('');
-      };
-      const headerCells = parseRow(rows[0]);
-      const isSeparator = row => /^\|?[\s\-:|]+\|?$/.test(row);
-      const dataStartIdx = isSeparator(rows[1]) ? 2 : 1;
-      let tableHtml = '<table class="omnipilot-table"><thead><tr>';
-      headerCells.forEach(cell => { tableHtml += `<th>${renderCell(cell)}</th>`; });
-      tableHtml += '</tr></thead><tbody>';
-      for (let i = dataStartIdx; i < rows.length; i++) {
-        const cells = parseRow(rows[i]);
-        tableHtml += '<tr>';
-        cells.forEach(cell => { tableHtml += `<td>${renderCell(cell)}</td>`; });
-        tableHtml += '</tr>';
-      }
-      tableHtml += '</tbody></table>';
-      formatted = formatted.replace(`__OP_TABLE_PLACEHOLDER_${index}__`, tableHtml);
-    });
-
-    // Restore code blocks
-    blocks.forEach((block, index) => {
-      const cardHtml = `<div class="omnipilot-code-block-card">
-        <div class="omnipilot-code-block-header">
-          <span>${escapeHtml(block.lang)}</span>
-          <button class="omnipilot-code-block-copy-btn">Copy</button>
-        </div>
-        <pre class="omnipilot-code-block-body">${escapeHtml(block.code)}</pre>
-      </div>`;
-      formatted = formatted.replace(`__OP_CODE_BLOCK_PLACEHOLDER_${index}__`, cardHtml);
-    });
-
-    // Restore think blocks as collapsible sections
-    thinkBlocks.forEach((content, index) => {
-      const thinkHtml = `<details class="omnipilot-think-block" open>
-        <summary class="omnipilot-think-summary"><span class="omnipilot-think-icon">💭</span> ${label('thinkingContent')}</summary>
-        <div class="omnipilot-think-body">${escapeHtml(content).replace(/\n/g, '<br>')}</div>
-      </details>`;
-      formatted = formatted.replace(`__OP_THINK_PLACEHOLDER_${index}__`, thinkHtml);
-    });
-
-    return formatted;
+    return renderMarkdown(text, { thinkingLabel: label('thinkingContent') });
   }
-
-  function escapeHtml(str) {
-    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-  }
-
   // ── DOM Helpers (avoid innerHTML +=) ───────────────────────────────────────
 
   function createElementFromHtml(html) {
@@ -1979,6 +1901,31 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
       if (isExtensionContextInvalidatedError(err)) return false;
       throw err;
     }
+  }
+
+  const appearanceController = createAppearanceController({
+    root: ensureOmniPilotRoot(),
+    surface: 'content',
+    readPreferences(defaults, callback) {
+      safeStorageGet(chrome.storage?.sync, defaults, callback);
+    },
+    subscribeToChanges(listener) {
+      let active = true;
+      const subscribed = safeAddListener(chrome.storage?.onChanged, (...args) => {
+        if (active) listener(...args);
+      });
+      return subscribed ? () => { active = false; } : undefined;
+    },
+    matchMedia: typeof globalThis.matchMedia === 'function'
+      ? globalThis.matchMedia.bind(globalThis)
+      : undefined
+  });
+
+  if (!document.body) {
+    document.addEventListener('DOMContentLoaded', () => {
+      const root = ensureOmniPilotRoot();
+      if (!root.parentNode) document.body?.appendChild(root);
+    }, { once: true });
   }
 
   // Map a background 'status' signal to a localized spinner label. Falls back to
@@ -2348,6 +2295,16 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
       sendResponse({ success: true });
       return true;
     }
+    // Asked by the side panel so it can talk about the page the user is on.
+    if (request.type === 'GET_PAGE_CONTEXT') {
+      sendResponse({
+        success: true,
+        title: document.title || '',
+        url: location.href,
+        content: extractPageContent() || ''
+      });
+      return true;
+    }
   });
 
   // ── Selection Detection ───────────────────────────────────────────────────────
@@ -2411,7 +2368,8 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
       el.id?.startsWith('omnipilot-') ||
       el.closest?.('#omnipilot-bubble') ||
       el.closest?.('#omnipilot-dropdown') ||
-      el.closest?.('#omnipilot-panel')
+      el.closest?.('#omnipilot-panel') ||
+      el.closest?.('#omnipilot-extension-root-7f3a9c')
     );
   }
 

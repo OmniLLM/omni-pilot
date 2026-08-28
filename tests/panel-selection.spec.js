@@ -3,11 +3,10 @@ const path = require('path');
 const fs = require('fs');
 
 const contentSource = fs.readFileSync(path.resolve(__dirname, '..', 'dist', 'content.js'), 'utf8');
-const stylesSource = fs.readFileSync(path.resolve(__dirname, '..', 'dist', 'styles.css'), 'utf8');
 
 async function setupPage(page) {
   await page.goto('about:blank');
-  await page.setContent(`<!DOCTYPE html><html><head><style>${stylesSource}</style></head>` +
+  await page.setContent(`<!DOCTYPE html><html><head></head>` +
     `<body style="padding:40px">` +
     `<p id="para">Bonjour le monde ceci est un texte de test a traduire.</p>` +
     `<p id="p2">Comment allez vous aujourd hui mon ami.</p>` +
@@ -130,7 +129,7 @@ test('BUG1: single click on the ✕ removes the selection context', async ({ pag
 // modelling a service worker that streams, stalls, or dies mid-request.
 async function setupPageWithControllablePort(page) {
   await page.goto('about:blank');
-  await page.setContent(`<!DOCTYPE html><html><head><style>${stylesSource}</style></head>` +
+  await page.setContent(`<!DOCTYPE html><html><head></head>` +
     `<body style="padding:40px">` +
     `<p id="para">Bonjour le monde ceci est un texte de test a traduire.</p>` +
     `</body></html>`);

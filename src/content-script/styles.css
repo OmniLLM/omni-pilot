@@ -1,59 +1,40 @@
 /* OmniPilot — Google Material Design 3 */
 /* Palette: Google Blue #1a73e8, Surface #fff, Grey #f8f9fa, Text #202124 */
 
-:root {
-  /* Surfaces */
-  --op-bg:           #ffffff;
-  --op-bg2:          #f8f9fa;
-  --op-border:       #dadce0;
+#omnipilot-extension-root-7f3a9c {
+  display: contents;
 
-  /* Typography */
-  --op-ink:          #202124;
-  --op-ink2:         #5f6368;
-
-  /* Accent */
-  --op-accent:       #1a73e8;
-  --op-accent-dark:  #1557b0;
-  --op-accent-dim:   rgba(26, 115, 232, 0.08);
-  --op-accent-hover: rgba(26, 115, 232, 0.12);
-  --op-accent-ring:  rgba(26, 115, 232, 0.30);
-
-  /* Neutral hover */
-  --op-hover:        rgba(60, 64, 67, 0.06);
-  --op-pressed:      rgba(60, 64, 67, 0.10);
-
-  /* Elevation — Google Material shadow system */
-  --op-shadow-1:
-    0 1px 2px  rgba(60, 64, 67, 0.30),
-    0 1px 3px  rgba(60, 64, 67, 0.15);
-  --op-shadow-2:
-    0 1px 3px  rgba(60, 64, 67, 0.20),
-    0 2px 6px  rgba(60, 64, 67, 0.15);
-  --op-shadow-3:
-    0 2px 6px  rgba(60, 64, 67, 0.15),
-    0 4px 12px rgba(60, 64, 67, 0.12);
-  --op-shadow-4:
-    0 4px 8px  rgba(60, 64, 67, 0.20),
-    0 8px 24px rgba(60, 64, 67, 0.15);
-
-  /* Shape */
-  --op-radius-xs:    0;
-  --op-radius-sm:    0;
-  --op-radius-md:    0;
-  --op-radius-pill:  0;
-
-  /* Typography */
-  --op-font: 'Google Sans', Roboto, 'Noto Sans', Arial, sans-serif;
-
-  /* Timing */
-  --op-ease-standard: cubic-bezier(0.4, 0.0, 0.2, 1);
-  --op-ease-decel:    cubic-bezier(0.0, 0.0, 0.2, 1);
-  --op-ease-spring:   cubic-bezier(0.34, 1.56, 0.64, 1);
+  /* Compatibility aliases keep component rules semantic while the shared
+     appearance contract supplies every palette, type, density and elevation. */
+  --op-bg: var(--appearance-canvas);
+  --op-bg2: var(--appearance-surface);
+  --op-border: var(--appearance-border);
+  --op-ink: var(--appearance-text);
+  --op-ink2: var(--appearance-text-muted);
+  --op-accent: var(--appearance-accent);
+  --op-accent-dark: var(--appearance-accent-hover);
+  --op-accent-dim: var(--appearance-hover);
+  --op-accent-hover: var(--appearance-pressed);
+  --op-accent-ring: color-mix(in srgb, var(--appearance-focus) 30%, transparent);
+  --op-hover: var(--appearance-hover);
+  --op-pressed: var(--appearance-pressed);
+  --op-shadow-1: var(--appearance-shadow-1);
+  --op-shadow-2: var(--appearance-shadow-2);
+  --op-shadow-3: var(--appearance-shadow-3);
+  --op-shadow-4: var(--appearance-shadow-4);
+  --op-radius-xs: 0;
+  --op-radius-sm: 0;
+  --op-radius-md: 0;
+  --op-radius-pill: 0;
+  --op-font: var(--appearance-font-body);
+  --op-ease-standard: var(--appearance-transition-easing);
+  --op-ease-decel: var(--appearance-transition-easing);
+  --op-ease-spring: var(--appearance-transition-easing);
 }
 
 /* ── Bubble ──────────────────────────────────────────────── */
 
-#omnipilot-bubble {
+#omnipilot-extension-root-7f3a9c #omnipilot-bubble {
   position: fixed;
   display: none;
   align-items: center;
@@ -61,10 +42,10 @@
   padding: 5px 14px 5px 10px;
   background: var(--op-bg);
   color: var(--op-accent);
-  border: 1.5px solid var(--op-border);
+  border: var(--appearance-border-width) solid var(--op-border);
   border-radius: 0;
   font-family: var(--op-font);
-  font-size: 13px;
+  font-size: var(--appearance-font-size-md);
   font-weight: 500;
   letter-spacing: 0.01em;
   cursor: pointer;
@@ -79,13 +60,13 @@
   animation: op-pop 0.18s var(--op-ease-spring) both;
 }
 
-#omnipilot-bubble:hover {
+#omnipilot-extension-root-7f3a9c #omnipilot-bubble:hover {
   background: var(--op-accent-dim);
-  border-color: rgba(26, 115, 232, 0.35);
+  border-color: color-mix(in srgb, var(--appearance-accent) 35%, transparent);
   box-shadow: var(--op-shadow-3);
 }
 
-#omnipilot-bubble:active {
+#omnipilot-extension-root-7f3a9c #omnipilot-bubble:active {
   background: var(--op-accent-hover);
   box-shadow: var(--op-shadow-1);
 }
@@ -97,32 +78,32 @@
 
 /* ── Focus-visible (keyboard accessibility) ─────────── */
 
-#omnipilot-bubble:focus-visible {
+#omnipilot-extension-root-7f3a9c #omnipilot-bubble:focus-visible {
   outline: 2px solid var(--op-accent);
   outline-offset: 2px;
   box-shadow: var(--op-shadow-3), 0 0 0 4px var(--op-accent-ring);
 }
 
-.omnipilot-dropdown-item:focus-visible {
+#omnipilot-extension-root-7f3a9c .omnipilot-dropdown-item:focus-visible {
   outline: 2px solid var(--op-accent);
   outline-offset: -2px;
   background: var(--op-hover);
 }
 
-.omnipilot-close-btn:focus-visible,
-.omnipilot-cancel-btn:focus-visible,
-.omnipilot-send-btn:focus-visible {
+#omnipilot-extension-root-7f3a9c .omnipilot-close-btn:focus-visible,
+#omnipilot-extension-root-7f3a9c .omnipilot-cancel-btn:focus-visible,
+#omnipilot-extension-root-7f3a9c .omnipilot-send-btn:focus-visible {
   outline: 2px solid var(--op-accent);
   outline-offset: 2px;
 }
 
-.omnipilot-quick-action:focus-visible {
+#omnipilot-extension-root-7f3a9c .omnipilot-quick-action:focus-visible {
   outline: 2px solid var(--op-accent);
   outline-offset: 2px;
   box-shadow: 0 0 0 3px var(--op-accent-ring);
 }
 
-.omnipilot-icon {
+#omnipilot-extension-root-7f3a9c .omnipilot-icon {
   font-size: 14px;
   color: var(--op-accent);
   line-height: 1;
@@ -131,7 +112,7 @@
 
 /* ── Dropdown (context menu) ─────────────────────────────── */
 
-#omnipilot-dropdown {
+#omnipilot-extension-root-7f3a9c #omnipilot-dropdown {
   position: fixed;
   display: none;
   flex-direction: column;
@@ -153,7 +134,7 @@
   to   { opacity: 1; transform: scale(1)    translateY(0); }
 }
 
-.omnipilot-dropdown-item {
+#omnipilot-extension-root-7f3a9c .omnipilot-dropdown-item {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -169,15 +150,15 @@
   border-radius: 0;        /* Material menus: no per-item radius */
 }
 
-.omnipilot-dropdown-item:hover {
+#omnipilot-extension-root-7f3a9c .omnipilot-dropdown-item:hover {
   background: var(--op-hover);
 }
 
-.omnipilot-dropdown-item:active {
+#omnipilot-extension-root-7f3a9c .omnipilot-dropdown-item:active {
   background: var(--op-pressed);
 }
 
-.omnipilot-action-icon {
+#omnipilot-extension-root-7f3a9c .omnipilot-action-icon {
   font-size: 16px;
   width: 20px;
   text-align: center;
@@ -188,7 +169,7 @@
 
 /* ── Result Panel ────────────────────────────────────────── */
 
-#omnipilot-panel {
+#omnipilot-extension-root-7f3a9c #omnipilot-panel {
   position: fixed;
   display: none;
   flex-direction: column;
@@ -213,7 +194,7 @@
 
 /* ── Panel Header ───────────────────────────────────────── */
 
-.omnipilot-panel-header {
+#omnipilot-extension-root-7f3a9c .omnipilot-panel-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -229,11 +210,11 @@
   gap: 4px;
 }
 
-.omnipilot-panel-header:active {
+#omnipilot-extension-root-7f3a9c .omnipilot-panel-header:active {
   cursor: grabbing;
 }
 
-.omnipilot-panel-title {
+#omnipilot-extension-root-7f3a9c .omnipilot-panel-title {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -247,14 +228,14 @@
   outline: none;
 }
 
-.omnipilot-panel-title:hover,
-.omnipilot-panel-title:focus-visible {
+#omnipilot-extension-root-7f3a9c .omnipilot-panel-title:hover,
+#omnipilot-extension-root-7f3a9c .omnipilot-panel-title:focus-visible {
   text-decoration: underline;
 }
 
 /* ── Panel Meta (provider · model) ─────────────────────── */
 
-.omnipilot-meta {
+#omnipilot-extension-root-7f3a9c .omnipilot-meta {
   display: flex;
   align-items: center;
   gap: 4px;
@@ -265,18 +246,18 @@
   min-width: 0;
 }
 
-.omnipilot-meta-provider {
+#omnipilot-extension-root-7f3a9c .omnipilot-meta-provider {
   opacity: 0.8;
   letter-spacing: 0.01em;
 }
 
-.omnipilot-meta-sep {
+#omnipilot-extension-root-7f3a9c .omnipilot-meta-sep {
   opacity: 0.4;
   font-size: 11px;
 }
 
-.omnipilot-meta-model-wrap,
-.omnipilot-meta-provider-wrap {
+#omnipilot-extension-root-7f3a9c .omnipilot-meta-model-wrap,
+#omnipilot-extension-root-7f3a9c .omnipilot-meta-provider-wrap {
   display: flex;
   align-items: center;
   gap: 2px;
@@ -289,18 +270,18 @@
     border-color  0.12s var(--op-ease-standard);
 }
 
-.omnipilot-meta-model-wrap:hover,
-.omnipilot-meta-provider-wrap:hover {
+#omnipilot-extension-root-7f3a9c .omnipilot-meta-model-wrap:hover,
+#omnipilot-extension-root-7f3a9c .omnipilot-meta-provider-wrap:hover {
   background: var(--op-accent-dim);
-  border-color: rgba(26, 115, 232, 0.25);
+  border-color: color-mix(in srgb, var(--appearance-accent) 25%, transparent);
 }
 
-.omnipilot-meta-model {
+#omnipilot-extension-root-7f3a9c .omnipilot-meta-model {
   font-weight: 500;
   color: var(--op-accent);
 }
 
-.omnipilot-meta-arrow {
+#omnipilot-extension-root-7f3a9c .omnipilot-meta-arrow {
   font-size: 9px;
   opacity: 0.60;
   color: var(--op-accent);
@@ -308,8 +289,8 @@
 
 /* ── Model Selector Dropdown ───────────────────────────── */
 
-#omnipilot-model-selector,
-#omnipilot-provider-selector {
+#omnipilot-extension-root-7f3a9c #omnipilot-model-selector,
+#omnipilot-extension-root-7f3a9c #omnipilot-provider-selector {
   position: fixed;
   z-index: 2147483647;
   background: var(--op-bg);
@@ -323,7 +304,7 @@
   animation: op-menu-in 0.12s var(--op-ease-decel) both;
 }
 
-.omnipilot-model-filter {
+#omnipilot-extension-root-7f3a9c .omnipilot-model-filter {
   display: block;
   width: calc(100% - 24px);
   margin: 0 12px 4px;
@@ -333,7 +314,7 @@
   border-radius: 0;
   color: var(--op-ink);
   font-family: var(--op-font);
-  font-size: 13px;
+  font-size: var(--appearance-font-size-md);
   outline: none;
   box-sizing: border-box;
   transition:
@@ -342,24 +323,24 @@
     background   0.15s var(--op-ease-standard);
 }
 
-.omnipilot-model-filter:focus {
+#omnipilot-extension-root-7f3a9c .omnipilot-model-filter:focus {
   border-color: var(--op-accent);
   background: var(--op-bg);
   box-shadow: 0 0 0 2px var(--op-accent-ring);
 }
 
-.omnipilot-model-filter::placeholder {
+#omnipilot-extension-root-7f3a9c .omnipilot-model-filter::placeholder {
   color: var(--op-ink2);
 }
 
-.omnipilot-model-list {
+#omnipilot-extension-root-7f3a9c .omnipilot-model-list {
   max-height: 220px;
   overflow-y: auto;
 }
 
-.omnipilot-model-item {
+#omnipilot-extension-root-7f3a9c .omnipilot-model-item {
   padding: 9px 16px;
-  font-size: 13px;
+  font-size: var(--appearance-font-size-md);
   font-family: var(--op-font);
   color: var(--op-ink);
   cursor: pointer;
@@ -370,17 +351,17 @@
   border-radius: 0;
 }
 
-.omnipilot-model-item:hover {
+#omnipilot-extension-root-7f3a9c .omnipilot-model-item:hover {
   background: var(--op-hover);
 }
 
-.omnipilot-model-item.omnipilot-model-current {
+#omnipilot-extension-root-7f3a9c .omnipilot-model-item.omnipilot-model-current {
   color: var(--op-accent);
   font-weight: 500;
   background: var(--op-accent-dim);
 }
 
-.omnipilot-model-loading {
+#omnipilot-extension-root-7f3a9c .omnipilot-model-loading {
   padding: 10px 16px;
   font-size: 12px;
   color: var(--op-ink2);
@@ -389,7 +370,7 @@
 
 /* ── Action Selector ──────────────────────────────────── */
 
-.omnipilot-meta-action-wrap {
+#omnipilot-extension-root-7f3a9c .omnipilot-meta-action-wrap {
   display: flex;
   align-items: center;
   gap: 2px;
@@ -402,18 +383,18 @@
     border-color 0.12s var(--op-ease-standard);
 }
 
-.omnipilot-meta-action-wrap:hover {
+#omnipilot-extension-root-7f3a9c .omnipilot-meta-action-wrap:hover {
   background: var(--op-hover);
   border-color: var(--op-border);
 }
 
-.omnipilot-meta-action {
+#omnipilot-extension-root-7f3a9c .omnipilot-meta-action {
   font-weight: 500;
   color: var(--op-ink);
   font-size: 12px;
 }
 
-#omnipilot-action-selector {
+#omnipilot-extension-root-7f3a9c #omnipilot-action-selector {
   position: fixed;
   z-index: 2147483647;
   background: var(--op-bg);
@@ -428,20 +409,20 @@
 
 /* ── Misc inline elements ─────────────────────────────── */
 
-.omnipilot-error-link {
+#omnipilot-extension-root-7f3a9c .omnipilot-error-link {
   color: var(--op-accent);
   text-decoration: underline;
   cursor: pointer;
 }
 
-.omnipilot-setup-item {
+#omnipilot-extension-root-7f3a9c .omnipilot-setup-item {
   color: var(--op-accent);
   font-weight: 500;
 }
 
 /* ── Onboarding Panel ──────────────────────────────── */
 
-.omnipilot-onboarding {
+#omnipilot-extension-root-7f3a9c .omnipilot-onboarding {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -451,25 +432,25 @@
   font-family: var(--op-font);
 }
 
-.omnipilot-onboarding-icon {
+#omnipilot-extension-root-7f3a9c .omnipilot-onboarding-icon {
   font-size: 32px;
   line-height: 1;
 }
 
-.omnipilot-onboarding-title {
+#omnipilot-extension-root-7f3a9c .omnipilot-onboarding-title {
   font-size: 15px;
   font-weight: 600;
   color: var(--op-ink);
 }
 
-.omnipilot-onboarding-desc {
-  font-size: 13px;
+#omnipilot-extension-root-7f3a9c .omnipilot-onboarding-desc {
+  font-size: var(--appearance-font-size-md);
   color: var(--op-ink2);
   line-height: 1.55;
   max-width: 280px;
 }
 
-.omnipilot-onboarding-steps {
+#omnipilot-extension-root-7f3a9c .omnipilot-onboarding-steps {
   text-align: left;
   font-size: 12px;
   color: var(--op-ink2);
@@ -481,13 +462,13 @@
   max-width: 260px;
 }
 
-.omnipilot-onboarding-steps li {
+#omnipilot-extension-root-7f3a9c .omnipilot-onboarding-steps li {
   display: flex;
   align-items: flex-start;
   gap: 8px;
 }
 
-.omnipilot-onboarding-steps li::before {
+#omnipilot-extension-root-7f3a9c .omnipilot-onboarding-steps li::before {
   content: counter(step);
   counter-increment: step;
   min-width: 20px;
@@ -503,30 +484,30 @@
   flex-shrink: 0;
 }
 
-.omnipilot-onboarding-steps {
+#omnipilot-extension-root-7f3a9c .omnipilot-onboarding-steps {
   counter-reset: step;
 }
 
-.omnipilot-onboarding-btn {
+#omnipilot-extension-root-7f3a9c .omnipilot-onboarding-btn {
   background: var(--op-accent);
-  color: #fff;
+  color: var(--appearance-on-accent);
   border: none;
   border-radius: 0;
   padding: 9px 20px;
   font-family: var(--op-font);
-  font-size: 13px;
+  font-size: var(--appearance-font-size-md);
   font-weight: 500;
   cursor: pointer;
   transition: background 0.15s var(--op-ease-standard);
 }
 
-.omnipilot-onboarding-btn:hover {
+#omnipilot-extension-root-7f3a9c .omnipilot-onboarding-btn:hover {
   background: var(--op-accent-dark);
 }
 
 /* ── Icon buttons (close, cancel) ────────────────────── */
 
-.omnipilot-close-btn {
+#omnipilot-extension-root-7f3a9c .omnipilot-close-btn {
   background: none;
   border: none;
   color: var(--op-ink2);
@@ -546,18 +527,18 @@
   margin: -4px -4px -4px 0;   /* optical alignment */
 }
 
-.omnipilot-close-btn:hover {
+#omnipilot-extension-root-7f3a9c .omnipilot-close-btn:hover {
   color: var(--op-ink);
   background: var(--op-hover);
 }
 
-.omnipilot-close-btn:active {
+#omnipilot-extension-root-7f3a9c .omnipilot-close-btn:active {
   background: var(--op-pressed);
 }
 
 /* ── Panel Body ─────────────────────────────────────── */
 
-.omnipilot-panel-body {
+#omnipilot-extension-root-7f3a9c .omnipilot-panel-body {
   padding: 16px;
   overflow-y: auto;
   flex: 1;
@@ -565,7 +546,7 @@
 
 /* ── Resize handle ──────────────────────────────────── */
 
-#omnipilot-panel .omnipilot-resize-handle {
+#omnipilot-extension-root-7f3a9c #omnipilot-panel .omnipilot-resize-handle {
   position: absolute;
   bottom: 0;
   right: 0;
@@ -576,11 +557,11 @@
   transition: opacity 0.15s var(--op-ease-standard);
 }
 
-#omnipilot-panel .omnipilot-resize-handle:hover {
+#omnipilot-extension-root-7f3a9c #omnipilot-panel .omnipilot-resize-handle:hover {
   opacity: 0.65;
 }
 
-#omnipilot-panel .omnipilot-resize-handle::before {
+#omnipilot-extension-root-7f3a9c #omnipilot-panel .omnipilot-resize-handle::before {
   content: '';
   position: absolute;
   bottom: 4px;
@@ -594,7 +575,7 @@
 
 /* ── Result & error text ────────────────────────────── */
 
-.omnipilot-result {
+#omnipilot-extension-root-7f3a9c .omnipilot-result {
   color: var(--op-ink);
   font-size: 14px;
   line-height: 1.75;
@@ -602,25 +583,60 @@
   font-family: var(--op-font);
 }
 
-.omnipilot-error {
+/* Paragraph rhythm. Space is applied between blocks only, so the first and
+   last block sit flush against the bubble padding instead of adding a gap. */
+#omnipilot-extension-root-7f3a9c .omnipilot-result p,
+#omnipilot-extension-root-7f3a9c .omnipilot-result ul,
+#omnipilot-extension-root-7f3a9c .omnipilot-result ol,
+#omnipilot-extension-root-7f3a9c .omnipilot-result blockquote,
+#omnipilot-extension-root-7f3a9c .omnipilot-result table,
+#omnipilot-extension-root-7f3a9c .omnipilot-result pre {
+  margin: 0 0 0.85em 0;
+}
+
+#omnipilot-extension-root-7f3a9c .omnipilot-result > *:last-child {
+  margin-bottom: 0;
+}
+
+#omnipilot-extension-root-7f3a9c .omnipilot-result h3,
+#omnipilot-extension-root-7f3a9c .omnipilot-result h4 {
+  margin: 1.15em 0 0.5em 0;
+  line-height: 1.3;
+}
+
+#omnipilot-extension-root-7f3a9c .omnipilot-result > h3:first-child,
+#omnipilot-extension-root-7f3a9c .omnipilot-result > h4:first-child {
+  margin-top: 0;
+}
+
+#omnipilot-extension-root-7f3a9c .omnipilot-result ul,
+#omnipilot-extension-root-7f3a9c .omnipilot-result ol {
+  padding-left: 1.4em;
+}
+
+#omnipilot-extension-root-7f3a9c .omnipilot-result li {
+  margin: 0.2em 0;
+}
+
+#omnipilot-extension-root-7f3a9c .omnipilot-error {
   color: #c5221f;
-  font-size: 13px;
+  font-size: var(--appearance-font-size-md);
   line-height: 1.55;
   font-family: var(--op-font);
 }
 
 /* ── Loading indicator ──────────────────────────────── */
 
-.omnipilot-loading {
+#omnipilot-extension-root-7f3a9c .omnipilot-loading {
   display: flex;
   align-items: center;
   gap: 10px;
 }
 
-.omnipilot-spinner {
+#omnipilot-extension-root-7f3a9c .omnipilot-spinner {
   width: 18px;
   height: 18px;
-  border: 2.5px solid rgba(26, 115, 232, 0.18);
+  border: 2.5px solid color-mix(in srgb, var(--appearance-accent) 18%, transparent);
   border-top-color: var(--op-accent);
   border-radius: 0;
   animation: op-spin 0.75s linear infinite;
@@ -629,13 +645,13 @@
 
 @keyframes op-spin { to { transform: rotate(360deg); } }
 
-.omnipilot-loading-text {
+#omnipilot-extension-root-7f3a9c .omnipilot-loading-text {
   color: var(--op-ink2);
-  font-size: 13px;
+  font-size: var(--appearance-font-size-md);
   font-family: var(--op-font);
 }
 
-.omnipilot-cancel-btn {
+#omnipilot-extension-root-7f3a9c .omnipilot-cancel-btn {
   margin-left: auto;
   background: none;
   border: 1px solid var(--op-border);
@@ -655,41 +671,41 @@
   flex-shrink: 0;
 }
 
-.omnipilot-cancel-btn:hover {
+#omnipilot-extension-root-7f3a9c .omnipilot-cancel-btn:hover {
   color: var(--op-ink);
   background: var(--op-hover);
   border-color: var(--op-ink2);
 }
 
-.omnipilot-cancelled {
+#omnipilot-extension-root-7f3a9c .omnipilot-cancelled {
   color: var(--op-ink2);
-  font-size: 13px;
+  font-size: var(--appearance-font-size-md);
   font-style: italic;
   font-family: var(--op-font);
 }
 
 /* ── Scrollbar (panel body) ─────────────────────────── */
 
-.omnipilot-panel-body::-webkit-scrollbar {
+#omnipilot-extension-root-7f3a9c .omnipilot-panel-body::-webkit-scrollbar {
   width: 5px;
 }
 
-.omnipilot-panel-body::-webkit-scrollbar-track {
+#omnipilot-extension-root-7f3a9c .omnipilot-panel-body::-webkit-scrollbar-track {
   background: transparent;
 }
 
-.omnipilot-panel-body::-webkit-scrollbar-thumb {
+#omnipilot-extension-root-7f3a9c .omnipilot-panel-body::-webkit-scrollbar-thumb {
   background: rgba(60, 64, 67, 0.22);
   border-radius: 0;
 }
 
-.omnipilot-panel-body::-webkit-scrollbar-thumb:hover {
+#omnipilot-extension-root-7f3a9c .omnipilot-panel-body::-webkit-scrollbar-thumb:hover {
   background: rgba(60, 64, 67, 0.40);
 }
 
 /* ── Conversation Input ──────────────────────────────── */
 
-.omnipilot-panel-input-area {
+#omnipilot-extension-root-7f3a9c .omnipilot-panel-input-area {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -700,15 +716,15 @@
 }
 
 /* Search-style input */
-.omnipilot-panel-input {
+#omnipilot-extension-root-7f3a9c .omnipilot-panel-input {
   flex: 1;
   background: var(--op-bg2);
-  border: 1.5px solid var(--op-border);
+  border: var(--appearance-border-width) solid var(--op-border);
   border-radius: 0;
   padding: 8px 16px;
   color: var(--op-ink);
   font-family: var(--op-font);
-  font-size: 13px;
+  font-size: var(--appearance-font-size-md);
   line-height: 1.4;
   outline: none;
   resize: none;
@@ -720,36 +736,36 @@
     box-shadow   0.15s var(--op-ease-standard);
 }
 
-.omnipilot-panel-input:focus {
+#omnipilot-extension-root-7f3a9c .omnipilot-panel-input:focus {
   border-color: var(--op-accent);
   background: var(--op-bg);
   box-shadow: 0 0 0 2px var(--op-accent-ring);
 }
 
-.omnipilot-panel-input::placeholder {
+#omnipilot-extension-root-7f3a9c .omnipilot-panel-input::placeholder {
   color: var(--op-ink2);
   opacity: 0.85;
 }
 
 /* Hide the textarea scrollbar entirely (still scrollable via keyboard/wheel) */
-.omnipilot-panel-input {
+#omnipilot-extension-root-7f3a9c .omnipilot-panel-input {
   scrollbar-width: none;            /* Firefox */
   -ms-overflow-style: none;         /* legacy Edge/IE */
 }
 
-.omnipilot-panel-input::-webkit-scrollbar {
+#omnipilot-extension-root-7f3a9c .omnipilot-panel-input::-webkit-scrollbar {
   display: none;                    /* Chrome/Edge/Safari */
 }
 
 /* Send button */
-.omnipilot-send-btn {
+#omnipilot-extension-root-7f3a9c .omnipilot-send-btn {
   background: var(--op-accent);
   border: none;
   border-radius: 0;
   width: 36px;
   height: 36px;
   min-width: 36px;
-  color: #ffffff;
+  color: var(--appearance-on-accent);
   font-size: 16px;
   cursor: pointer;
   display: flex;
@@ -760,27 +776,22 @@
     box-shadow  0.15s var(--op-ease-standard),
     transform   0.10s var(--op-ease-standard);
   flex-shrink: 0;
-  box-shadow:
-    0 1px 3px rgba(26, 115, 232, 0.35),
-    0 2px 6px rgba(26, 115, 232, 0.20);
+  box-shadow: var(--op-shadow-2);
 }
 
-.omnipilot-send-btn:hover {
+#omnipilot-extension-root-7f3a9c .omnipilot-send-btn:hover {
   background: var(--op-accent-dark);
-  box-shadow:
-    0 2px 4px rgba(26, 115, 232, 0.40),
-    0 4px 10px rgba(26, 115, 232, 0.25);
+  box-shadow: var(--op-shadow-3);
 }
 
-.omnipilot-send-btn:active {
-  transform: scale(0.93);
-  box-shadow:
-    0 1px 2px rgba(26, 115, 232, 0.30);
+#omnipilot-extension-root-7f3a9c .omnipilot-send-btn:active {
+  transform: var(--appearance-active-transform);
+  box-shadow: var(--op-shadow-1);
 }
 
 /* ── Chat Messages ───────────────────────────────────── */
 
-.omnipilot-msg-container {
+#omnipilot-extension-root-7f3a9c .omnipilot-msg-container {
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -788,7 +799,7 @@
   width: 100%;
 }
 
-.omnipilot-msg-header {
+#omnipilot-extension-root-7f3a9c .omnipilot-msg-header {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -800,12 +811,12 @@
   user-select: none;
 }
 
-.omnipilot-msg-header-user {
+#omnipilot-extension-root-7f3a9c .omnipilot-msg-header-user {
   align-self: flex-end;
   flex-direction: row-reverse;
 }
 
-.omnipilot-msg-header-avatar {
+#omnipilot-extension-root-7f3a9c .omnipilot-msg-header-avatar {
   width: 16px;
   height: 16px;
   border-radius: 0;
@@ -817,14 +828,14 @@
   font-size: 10px;
 }
 
-.omnipilot-msg-header-user .omnipilot-msg-header-avatar {
+#omnipilot-extension-root-7f3a9c .omnipilot-msg-header-user .omnipilot-msg-header-avatar {
   background: var(--op-hover);
   color: var(--op-ink2);
 }
 
-.omnipilot-msg {
-  padding: 10px 14px;
-  font-size: 13.5px;
+#omnipilot-extension-root-7f3a9c .omnipilot-msg {
+  padding: var(--appearance-space-3) var(--appearance-space-4);
+  font-size: var(--appearance-font-size-md);
   font-family: var(--op-font);
   line-height: 1.6;
   max-width: 85%;
@@ -832,15 +843,15 @@
   box-shadow: var(--op-shadow-1);
 }
 
-.omnipilot-msg-user {
+#omnipilot-extension-root-7f3a9c .omnipilot-msg-user {
   background: var(--op-accent);
-  color: #ffffff;
+  color: var(--appearance-on-accent);
   align-self: flex-end;
   border-radius: 0;
   border: none;
 }
 
-.omnipilot-msg-assistant {
+#omnipilot-extension-root-7f3a9c .omnipilot-msg-assistant {
   background: var(--op-bg2);
   color: var(--op-ink);
   align-self: flex-start;
@@ -849,7 +860,7 @@
 }
 
 /* Streaming cursor — blinks while tokens arrive */
-.omnipilot-msg-assistant.omnipilot-streaming::after {
+#omnipilot-extension-root-7f3a9c .omnipilot-msg-assistant.omnipilot-streaming::after {
   content: '▊';
   display: inline;
   animation: omnipilot-blink 0.6s step-end infinite;
@@ -864,13 +875,13 @@
 
 /* ── Message Toolbar (copy, read aloud) ──────────────────────── */
 
-.omnipilot-msg-toolbar {
+#omnipilot-extension-root-7f3a9c .omnipilot-msg-toolbar {
   display: flex;
   gap: 4px;
   margin-left: auto;
 }
 
-.omnipilot-msg-toolbar-btn {
+#omnipilot-extension-root-7f3a9c .omnipilot-msg-toolbar-btn {
   background: none;
   border: none;
   cursor: pointer;
@@ -881,14 +892,14 @@
   transition: opacity 0.15s, background 0.15s;
 }
 
-.omnipilot-msg-toolbar-btn:hover {
+#omnipilot-extension-root-7f3a9c .omnipilot-msg-toolbar-btn:hover {
   opacity: 1;
   background: var(--op-hover);
 }
 
 /* ── Export Button ────────────────────────────────────────────── */
 
-.omnipilot-export-btn {
+#omnipilot-extension-root-7f3a9c .omnipilot-export-btn {
   position: absolute;
   top: 10px;
   right: 36px;
@@ -902,12 +913,12 @@
   transition: opacity 0.15s, background 0.15s;
 }
 
-.omnipilot-export-btn:hover {
+#omnipilot-extension-root-7f3a9c .omnipilot-export-btn:hover {
   opacity: 1;
   background: var(--op-hover);
 }
 
-.omnipilot-minimize-btn {
+#omnipilot-extension-root-7f3a9c .omnipilot-minimize-btn {
   position: absolute;
   top: 10px;
   right: 62px;
@@ -923,19 +934,19 @@
   transition: opacity 0.15s, background 0.15s;
 }
 
-.omnipilot-minimize-btn:hover {
+#omnipilot-extension-root-7f3a9c .omnipilot-minimize-btn:hover {
   opacity: 1;
   background: var(--op-hover);
 }
 
-.omnipilot-minimize-btn:focus-visible {
+#omnipilot-extension-root-7f3a9c .omnipilot-minimize-btn:focus-visible {
   outline: 2px solid var(--op-accent);
   outline-offset: 2px;
 }
 
 /* ── Minimized floating control ─────────────────────────────── */
 
-#omnipilot-minimized-orb {
+#omnipilot-extension-root-7f3a9c #omnipilot-minimized-orb {
   position: fixed;
   display: none;
   align-items: center;
@@ -956,16 +967,16 @@
   animation: op-panel-in 0.18s var(--op-ease-decel) both;
 }
 
-#omnipilot-minimized-orb:hover {
+#omnipilot-extension-root-7f3a9c #omnipilot-minimized-orb:hover {
   background: var(--op-hover);
 }
 
-#omnipilot-minimized-orb:focus-visible {
+#omnipilot-extension-root-7f3a9c #omnipilot-minimized-orb:focus-visible {
   outline: 2px solid var(--op-accent);
   outline-offset: 2px;
 }
 
-#omnipilot-minimized-orb .omnipilot-orb-icon {
+#omnipilot-extension-root-7f3a9c #omnipilot-minimized-orb .omnipilot-orb-icon {
   font-size: 20px;
   line-height: 1;
   pointer-events: none;
@@ -973,44 +984,44 @@
 
 /* ── Think Blocks (collapsible reasoning) ────────────────────── */
 
-.omnipilot-think-block {
+#omnipilot-extension-root-7f3a9c .omnipilot-think-block {
   margin: 10px 0;
   border-radius: 0;
   border: 1px solid var(--op-border);
   overflow: hidden;
 }
 
-.omnipilot-think-summary {
+#omnipilot-extension-root-7f3a9c .omnipilot-think-summary {
   cursor: pointer;
   padding: 8px 12px;
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 13px;
+  font-size: var(--appearance-font-size-md);
   font-weight: 500;
   color: var(--op-ink2);
   user-select: none;
   list-style: none;
 }
 
-.omnipilot-think-summary::-webkit-details-marker { display: none; }
+#omnipilot-extension-root-7f3a9c .omnipilot-think-summary::-webkit-details-marker { display: none; }
 
-.omnipilot-think-summary::after {
+#omnipilot-extension-root-7f3a9c .omnipilot-think-summary::after {
   content: '▼';
   font-size: 10px;
   margin-left: auto;
   transition: transform 0.2s;
 }
 
-.omnipilot-think-block[open] .omnipilot-think-summary::after {
+#omnipilot-extension-root-7f3a9c .omnipilot-think-block[open] .omnipilot-think-summary::after {
   transform: rotate(180deg);
 }
 
-.omnipilot-think-icon {
+#omnipilot-extension-root-7f3a9c .omnipilot-think-icon {
   font-size: 14px;
 }
 
-.omnipilot-think-body {
+#omnipilot-extension-root-7f3a9c .omnipilot-think-body {
   padding: 10px 14px;
   font-size: 12px;
   line-height: 1.6;
@@ -1020,79 +1031,67 @@
   white-space: pre-wrap;
 }
 
-[data-op-theme="dark"] .omnipilot-think-block {
-  border-color: rgba(255, 255, 255, 0.15);
-}
-
-[data-op-theme="dark"] .omnipilot-think-body {
-  border-color: rgba(255, 255, 255, 0.1);
-}
-
 /* ── Markdown Tables ─────────────────────────────────────────── */
 
-.omnipilot-table {
+#omnipilot-extension-root-7f3a9c .omnipilot-table {
   border-collapse: collapse;
   margin: 10px 0;
-  font-size: 13px;
+  font-size: var(--appearance-font-size-md);
   width: 100%;
 }
 
-.omnipilot-table th,
-.omnipilot-table td {
+#omnipilot-extension-root-7f3a9c .omnipilot-table th,
+#omnipilot-extension-root-7f3a9c .omnipilot-table td {
   border: 1px solid var(--op-border);
   padding: 6px 10px;
   text-align: left;
 }
 
-.omnipilot-table th {
+#omnipilot-extension-root-7f3a9c .omnipilot-table th {
   background: var(--op-bg2);
   font-weight: 600;
 }
 
-.omnipilot-table tr:nth-child(even) {
+#omnipilot-extension-root-7f3a9c .omnipilot-table tr:nth-child(even) {
   background: rgba(0, 0, 0, 0.02);
-}
-
-[data-op-theme="dark"] .omnipilot-table tr:nth-child(even) {
-  background: rgba(255, 255, 255, 0.03);
 }
 
 /* ── Headings in responses ───────────────────────────────────── */
 
-.omnipilot-msg-assistant h3 {
+#omnipilot-extension-root-7f3a9c .omnipilot-msg-assistant h3 {
   font-size: 15px;
   font-weight: 600;
   margin: 12px 0 6px;
 }
 
-.omnipilot-msg-assistant h4 {
+#omnipilot-extension-root-7f3a9c .omnipilot-msg-assistant h4 {
   font-size: 14px;
   font-weight: 600;
   margin: 10px 0 4px;
 }
 
-.omnipilot-msg-assistant a {
+#omnipilot-extension-root-7f3a9c .omnipilot-msg-assistant a {
   color: var(--op-accent);
   text-decoration: none;
 }
 
-.omnipilot-msg-assistant a:hover {
+#omnipilot-extension-root-7f3a9c .omnipilot-msg-assistant a:hover {
   text-decoration: underline;
 }
 
-.omnipilot-msg-assistant hr {
+#omnipilot-extension-root-7f3a9c .omnipilot-msg-assistant hr {
   border: none;
   border-top: 1px solid var(--op-border);
   margin: 10px 0;
 }
 
-.omnipilot-msg-assistant del {
+#omnipilot-extension-root-7f3a9c .omnipilot-msg-assistant del {
   text-decoration: line-through;
   opacity: 0.6;
 }
 
 /* Code Highlight & Markdown Elements */
-.omnipilot-msg-assistant code {
+#omnipilot-extension-root-7f3a9c .omnipilot-msg-assistant code {
   font-family: 'SF Mono', Consolas, 'Fira Code', Menlo, monospace;
   font-size: 12px;
   background: rgba(60, 64, 67, 0.08);
@@ -1100,11 +1099,7 @@
   border-radius: 0;
 }
 
-[data-op-theme="dark"] .omnipilot-msg-assistant code {
-  background: rgba(255, 255, 255, 0.12);
-}
-
-.omnipilot-code-block-card {
+#omnipilot-extension-root-7f3a9c .omnipilot-code-block-card {
   margin: 10px 0;
   border: 1px solid var(--op-border);
   border-radius: 0;
@@ -1113,7 +1108,7 @@
   box-shadow: var(--op-shadow-1);
 }
 
-.omnipilot-code-block-header {
+#omnipilot-extension-root-7f3a9c .omnipilot-code-block-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1126,7 +1121,7 @@
   color: var(--op-ink2);
 }
 
-.omnipilot-code-block-copy-btn {
+#omnipilot-extension-root-7f3a9c .omnipilot-code-block-copy-btn {
   background: none;
   border: 1px solid var(--op-border);
   border-radius: 0;
@@ -1137,17 +1132,17 @@
   transition: all 0.1s var(--op-ease-standard);
 }
 
-.omnipilot-code-block-copy-btn:hover {
+#omnipilot-extension-root-7f3a9c .omnipilot-code-block-copy-btn:hover {
   background: var(--op-bg);
   color: var(--op-accent);
   border-color: var(--op-accent);
 }
 
-.omnipilot-code-block-copy-btn:active {
+#omnipilot-extension-root-7f3a9c .omnipilot-code-block-copy-btn:active {
   transform: scale(0.95);
 }
 
-.omnipilot-code-block-body {
+#omnipilot-extension-root-7f3a9c .omnipilot-code-block-body {
   margin: 0;
   padding: 12px;
   overflow-x: auto;
@@ -1159,17 +1154,17 @@
 }
 
 /* Markdown Lists & Formatting */
-.omnipilot-msg-assistant ul,
-.omnipilot-msg-assistant ol {
+#omnipilot-extension-root-7f3a9c .omnipilot-msg-assistant ul,
+#omnipilot-extension-root-7f3a9c .omnipilot-msg-assistant ol {
   margin: 8px 0;
   padding-left: 20px;
 }
 
-.omnipilot-msg-assistant li {
+#omnipilot-extension-root-7f3a9c .omnipilot-msg-assistant li {
   margin: 4px 0;
 }
 
-.omnipilot-msg-assistant blockquote {
+#omnipilot-extension-root-7f3a9c .omnipilot-msg-assistant blockquote {
   margin: 8px 0;
   padding-left: 12px;
   border-left: 3px solid var(--op-accent);
@@ -1179,7 +1174,7 @@
 
 /* ── Selected Text Context ───────────────────────────── */
 
-.omnipilot-action-divider {
+#omnipilot-extension-root-7f3a9c .omnipilot-action-divider {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -1193,17 +1188,17 @@
   user-select: none;
 }
 
-.omnipilot-action-divider::before,
-.omnipilot-action-divider::after {
+#omnipilot-extension-root-7f3a9c .omnipilot-action-divider::before,
+#omnipilot-extension-root-7f3a9c .omnipilot-action-divider::after {
   content: '';
   flex: 1;
   height: 1px;
   background: var(--op-border);
 }
 
-.omnipilot-selected-context {
+#omnipilot-extension-root-7f3a9c .omnipilot-selected-context {
   color: var(--op-ink2);
-  font-size: 13px;
+  font-size: var(--appearance-font-size-md);
   line-height: 1.55;
   padding: 10px 12px;
   background: var(--op-bg2);
@@ -1212,7 +1207,7 @@
   font-family: var(--op-font);
 }
 
-.omnipilot-context-header {
+#omnipilot-extension-root-7f3a9c .omnipilot-context-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1220,7 +1215,7 @@
   margin-bottom: 4px;
 }
 
-.omnipilot-context-label {
+#omnipilot-extension-root-7f3a9c .omnipilot-context-label {
   font-weight: 600;
   color: var(--op-ink);
   font-size: 11px;
@@ -1228,11 +1223,11 @@
   text-transform: uppercase;
 }
 
-.omnipilot-context-text {
+#omnipilot-extension-root-7f3a9c .omnipilot-context-text {
   overflow-wrap: anywhere;
 }
 
-.omnipilot-context-remove {
+#omnipilot-extension-root-7f3a9c .omnipilot-context-remove {
   width: 22px;
   height: 22px;
   border: none;
@@ -1249,18 +1244,18 @@
   padding: 0;
 }
 
-.omnipilot-context-remove:hover {
+#omnipilot-extension-root-7f3a9c .omnipilot-context-remove:hover {
   color: var(--op-ink);
   background: var(--op-hover);
 }
 
-.omnipilot-context-remove:active {
+#omnipilot-extension-root-7f3a9c .omnipilot-context-remove:active {
   background: var(--op-pressed);
 }
 
 /* ── Quick Actions ───────────────────────────────────── */
 
-.omnipilot-quick-actions {
+#omnipilot-extension-root-7f3a9c .omnipilot-quick-actions {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
@@ -1268,14 +1263,14 @@
 }
 
 /* Quick action */
-.omnipilot-quick-action {
+#omnipilot-extension-root-7f3a9c .omnipilot-quick-action {
   background: var(--op-bg);
-  border: 1.5px solid var(--op-border);
+  border: var(--appearance-border-width) solid var(--op-border);
   border-radius: 0;
   padding: 6px 14px;
   color: var(--op-accent);
   font-family: var(--op-font);
-  font-size: 13px;
+  font-size: var(--appearance-font-size-md);
   font-weight: 500;
   cursor: pointer;
   transition:
@@ -1285,27 +1280,27 @@
   letter-spacing: 0.01em;
 }
 
-.omnipilot-quick-action:hover {
+#omnipilot-extension-root-7f3a9c .omnipilot-quick-action:hover {
   background: var(--op-accent-dim);
-  border-color: rgba(26, 115, 232, 0.38);
-  box-shadow: 0 1px 3px rgba(26, 115, 232, 0.18);
+  border-color: color-mix(in srgb, var(--appearance-accent) 38%, transparent);
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--appearance-accent) 18%, transparent);
 }
 
-.omnipilot-quick-action:active {
+#omnipilot-extension-root-7f3a9c .omnipilot-quick-action:active {
   background: var(--op-accent-hover);
   box-shadow: none;
 }
 
 /* ── A2A Delegation Form ─────────────────────────────── */
 
-.omnipilot-a2a-form {
+#omnipilot-extension-root-7f3a9c .omnipilot-a2a-form {
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
 
-.omnipilot-a2a-select,
-.omnipilot-a2a-textarea {
+#omnipilot-extension-root-7f3a9c .omnipilot-a2a-select,
+#omnipilot-extension-root-7f3a9c .omnipilot-a2a-textarea {
   width: 100%;
   box-sizing: border-box;
   border: 1px solid var(--op-border);
@@ -1313,120 +1308,57 @@
   background: var(--op-bg);
   color: var(--op-ink);
   font-family: var(--op-font);
-  font-size: 13px;
+  font-size: var(--appearance-font-size-md);
   padding: 10px 12px;
   outline: none;
 }
 
-.omnipilot-a2a-select:focus,
-.omnipilot-a2a-textarea:focus {
+#omnipilot-extension-root-7f3a9c .omnipilot-a2a-select:focus,
+#omnipilot-extension-root-7f3a9c .omnipilot-a2a-textarea:focus {
   border-color: var(--op-accent);
   box-shadow: 0 0 0 2px var(--op-accent-ring);
 }
 
-.omnipilot-a2a-textarea {
+#omnipilot-extension-root-7f3a9c .omnipilot-a2a-textarea {
   min-height: 110px;
   resize: vertical;
   line-height: 1.5;
 }
 
-.omnipilot-a2a-submit {
+#omnipilot-extension-root-7f3a9c .omnipilot-a2a-submit {
   align-self: flex-end;
   border: none;
   border-radius: 0;
   background: var(--op-accent);
-  color: #fff;
+  color: var(--appearance-on-accent);
   font-family: var(--op-font);
-  font-size: 13px;
+  font-size: var(--appearance-font-size-md);
   font-weight: 500;
   padding: 8px 16px;
   cursor: pointer;
 }
 
-.omnipilot-a2a-submit:hover {
+#omnipilot-extension-root-7f3a9c .omnipilot-a2a-submit:hover {
   background: var(--op-accent-dark);
 }
 
-/* ═══════════════════════════════════════════════════════════
-   DARK THEME
-   Applied when data-op-theme="dark" on <html> or <body>
-   ═══════════════════════════════════════════════════════════ */
-
-[data-op-theme="dark"] #omnipilot-bubble,
-[data-op-theme="dark"] #omnipilot-dropdown,
-[data-op-theme="dark"] #omnipilot-panel,
-[data-op-theme="dark"] #omnipilot-model-selector,
-[data-op-theme="dark"] #omnipilot-provider-selector,
-[data-op-theme="dark"] #omnipilot-action-selector {
-  --op-bg:           #202124;
-  --op-bg2:          #2d2e30;
-  --op-border:       rgba(255, 255, 255, 0.12);
-  --op-ink:          #e8eaed;
-  --op-ink2:         #9aa0a6;
-
-  --op-accent:       #8ab4f8;
-  --op-accent-dark:  #aecbfa;
-  --op-accent-dim:   rgba(138, 180, 248, 0.12);
-  --op-accent-hover: rgba(138, 180, 248, 0.18);
-  --op-accent-ring:  rgba(138, 180, 248, 0.35);
-
-  --op-hover:        rgba(255, 255, 255, 0.06);
-  --op-pressed:      rgba(255, 255, 255, 0.10);
-
-  --op-shadow-1:  0 1px 2px  rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.30);
-  --op-shadow-2:  0 1px 4px  rgba(0, 0, 0, 0.40), 0 2px 6px rgba(0, 0, 0, 0.25);
-  --op-shadow-3:  0 2px 8px  rgba(0, 0, 0, 0.45), 0 4px 12px rgba(0, 0, 0, 0.30);
-  --op-shadow-4:  0 4px 12px rgba(0, 0, 0, 0.55), 0 8px 28px rgba(0, 0, 0, 0.40);
+/* Theme-specific component exceptions remain local to the extension mount. */
+#omnipilot-extension-root-7f3a9c[data-theme="dark"] .omnipilot-msg-user {
+  background: color-mix(in srgb, var(--appearance-accent) 72%, var(--appearance-canvas));
 }
 
-[data-op-theme="dark"] .omnipilot-msg-assistant {
-  background: var(--op-bg2);
-  border-color: var(--op-border);
+#omnipilot-extension-root-7f3a9c[data-theme="dark"] .omnipilot-error {
+  color: var(--appearance-danger);
 }
 
-[data-op-theme="dark"] .omnipilot-msg-user {
-  background: #385ea5;
+#omnipilot-extension-root-7f3a9c[data-theme="dark"] .omnipilot-think-block,
+#omnipilot-extension-root-7f3a9c[data-theme="dark"] .omnipilot-think-body {
+  border-color: var(--appearance-border);
 }
 
-[data-op-theme="dark"] .omnipilot-error {
-  color: #f28b82;
-}
-
-[data-op-theme="dark"] .omnipilot-send-btn {
-  box-shadow:
-    0 1px 3px rgba(0, 0, 0, 0.50),
-    0 2px 6px rgba(0, 0, 0, 0.30);
-}
-
-[data-op-theme="dark"] .omnipilot-send-btn:hover {
-  box-shadow:
-    0 2px 6px rgba(0, 0, 0, 0.55),
-    0 4px 12px rgba(0, 0, 0, 0.35);
-}
-
-/* ═══════════════════════════════════════════════════════════
-   LIGHT THEME (explicit override)
-   ═══════════════════════════════════════════════════════════ */
-
-[data-op-theme="light"] #omnipilot-bubble,
-[data-op-theme="light"] #omnipilot-dropdown,
-[data-op-theme="light"] #omnipilot-panel,
-[data-op-theme="light"] #omnipilot-model-selector,
-[data-op-theme="light"] #omnipilot-provider-selector,
-[data-op-theme="light"] #omnipilot-action-selector {
-  --op-bg:           #ffffff;
-  --op-bg2:          #f8f9fa;
-  --op-border:       #dadce0;
-  --op-ink:          #202124;
-  --op-ink2:         #5f6368;
-  --op-accent:       #1a73e8;
-  --op-accent-dark:  #1557b0;
-  --op-accent-dim:   rgba(26, 115, 232, 0.08);
-  --op-accent-hover: rgba(26, 115, 232, 0.12);
-  --op-accent-ring:  rgba(26, 115, 232, 0.30);
-  --op-hover:        rgba(60, 64, 67, 0.06);
-  --op-pressed:      rgba(60, 64, 67, 0.10);
-  --op-shadow-4:     0 4px 8px rgba(60, 64, 67, 0.20), 0 8px 24px rgba(60, 64, 67, 0.15);
+#omnipilot-extension-root-7f3a9c[data-theme="dark"] .omnipilot-table tr:nth-child(even),
+#omnipilot-extension-root-7f3a9c[data-theme="dark"] .omnipilot-msg-assistant code {
+  background: var(--appearance-hover);
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -1435,35 +1367,35 @@
    ═══════════════════════════════════════════════════════════ */
 
 @media (prefers-reduced-motion: reduce) {
-  #omnipilot-bubble,
-  #omnipilot-dropdown,
-  #omnipilot-panel,
-  #omnipilot-model-selector,
-  #omnipilot-provider-selector,
-  #omnipilot-action-selector,
-  .omnipilot-dropdown-item,
-  .omnipilot-close-btn,
-  .omnipilot-cancel-btn,
-  .omnipilot-send-btn,
-  .omnipilot-panel-input,
-  .omnipilot-quick-action,
-  .omnipilot-meta-model-wrap,
-  .omnipilot-meta-provider-wrap,
-  .omnipilot-meta-action-wrap,
-  .omnipilot-model-filter,
-  .omnipilot-model-item,
-  .omnipilot-code-block-copy-btn,
-  .omnipilot-a2a-select,
-  .omnipilot-a2a-textarea,
-  .omnipilot-a2a-submit,
-  .omnipilot-resize-handle {
+  #omnipilot-extension-root-7f3a9c #omnipilot-bubble,
+  #omnipilot-extension-root-7f3a9c #omnipilot-dropdown,
+  #omnipilot-extension-root-7f3a9c #omnipilot-panel,
+  #omnipilot-extension-root-7f3a9c #omnipilot-model-selector,
+  #omnipilot-extension-root-7f3a9c #omnipilot-provider-selector,
+  #omnipilot-extension-root-7f3a9c #omnipilot-action-selector,
+  #omnipilot-extension-root-7f3a9c .omnipilot-dropdown-item,
+  #omnipilot-extension-root-7f3a9c .omnipilot-close-btn,
+  #omnipilot-extension-root-7f3a9c .omnipilot-cancel-btn,
+  #omnipilot-extension-root-7f3a9c .omnipilot-send-btn,
+  #omnipilot-extension-root-7f3a9c .omnipilot-panel-input,
+  #omnipilot-extension-root-7f3a9c .omnipilot-quick-action,
+  #omnipilot-extension-root-7f3a9c .omnipilot-meta-model-wrap,
+  #omnipilot-extension-root-7f3a9c .omnipilot-meta-provider-wrap,
+  #omnipilot-extension-root-7f3a9c .omnipilot-meta-action-wrap,
+  #omnipilot-extension-root-7f3a9c .omnipilot-model-filter,
+  #omnipilot-extension-root-7f3a9c .omnipilot-model-item,
+  #omnipilot-extension-root-7f3a9c .omnipilot-code-block-copy-btn,
+  #omnipilot-extension-root-7f3a9c .omnipilot-a2a-select,
+  #omnipilot-extension-root-7f3a9c .omnipilot-a2a-textarea,
+  #omnipilot-extension-root-7f3a9c .omnipilot-a2a-submit,
+  #omnipilot-extension-root-7f3a9c .omnipilot-resize-handle {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     transition-delay: 0ms !important;
   }
 
-  .omnipilot-spinner {
+  #omnipilot-extension-root-7f3a9c .omnipilot-spinner {
     animation-duration: 1.5s !important; /* keep spinner visible but slower */
   }
 }

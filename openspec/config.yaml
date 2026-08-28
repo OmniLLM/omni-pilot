@@ -1,0 +1,66 @@
+schema: spec-driven
+
+context: |
+  Project: OmniPilot — a Chrome Manifest V3 extension. "Select text -> AI actions"
+  (translate, summarize, explain, improve) plus a side panel chat and an options page.
+
+  Tech stack:
+    - Vanilla JavaScript ES modules (`.mjs`). No framework, no runtime dependencies.
+    - Only devDependency is `@playwright/test`.
+    - Build: `node build.mjs` — a hand-written CONCATENATION build, not a bundler.
+      It reads `src/**/*.mjs`, regex-strips `export` keywords, and concatenates shared
+      utilities (timeout/i18n/appearance/agent primitives) ahead of each entry file,
+      emitting flat non-IIFE scripts to `dist/`.
+    - Surfaces: `background` (service worker), `content` (content script injected into
+      every page), `popup`, `options`, `sidepanel`.
+    - Styling: hand-written CSS driven by a semantic design-token contract in
+      `src/styles/appearance.css` (`--appearance-*`), supporting 3 color themes
+      (system/light/dark) x 5 visual styles (current, clean-minimal, terminal,
+      warm-editorial, neo-brutalist).
+
+  Hard constraints (violating any of these breaks the product or the test suite):
+    1. NO IIFE / module-scoped output. All 13 Node unit tests load `dist/*.js` through
+       `vm.runInContext` and assert on TOP-LEVEL declarations. Any bundler default
+       (esbuild, rollup, vite) hides those declarations and breaks every unit test.
+    2. The content script mounts its UI in an OPEN Shadow DOM and injects its own
+       stylesheet inside it; nothing is injected into host documents by the manifest.
+       Styles therefore cannot leak in either direction, and the component runtime
+       is now allowed in `dist/content.js`. NOTE: because the UI is in a shadow root,
+       `event.target` seen by any `document`-level listener is retargeted to the
+       shadow host — hit-test our own elements with `composedPath()` instead
+       (`eventPathContains`), never `el.contains(e.target)`.
+       The streaming transcript is still built imperatively: panel persistence
+       serialises `body.innerHTML`, so its markup IS its state. Converting it
+       requires redesigning the persistence format.
+    3. Manifest V3 CSP: no remote CDN scripts or stylesheets, no `eval`, no runtime
+       JIT compilers. Every framework or CSS toolchain must run at BUILD time and ship
+       fully static assets inside the extension package.
+    4. `tests/unit/square-corners.test.js` forbids ANY nonzero `border-radius` in
+       authored UI sources and requires `--appearance-radius-*` / `--op-radius-*`
+       tokens to stay `0`. Square corners are a deliberate product decision.
+    5. `tests/unit/policy-compliance.test.js` requires `manifest.json`,
+       `package.json`, and `package-lock.json` versions to stay in sync, forbids the
+       `tabs` permission, and pins `pack.mjs` ENTRIES to
+       `['manifest.json', 'PRIVACY.md', 'icons', 'dist']`.
+    6. `src/content-script/index.mjs` (~2160 lines) and `src/background/index.mjs`
+       (~2390 lines) interleave UI rendering with functional logic (streaming ports,
+       provider routing, session persistence, A2A delegation). Treat the functional
+       logic as frozen unless a change explicitly scopes it.
+
+  Conventions:
+    - Validation command: `npm run test:unit` (fast, builds first). Full suite is
+      `npm test` (adds Playwright).
+    - Keep the extension dependency-light; prefer build-time tooling over runtime
+      libraries.
+    - Author: James Zhu <zhujian0805@gmail.com>. Never add `Co-Authored-By:` lines.
+
+rules:
+  proposal:
+    - State explicitly which of the six hard constraints the change touches and how it stays compliant.
+    - Always include a "Non-goals" section naming the surfaces deliberately left untouched.
+  design:
+    - Document the impact on `build.mjs` and on the `vm.runInContext` unit-test strategy.
+    - Name every existing test file that must be updated, and justify each update.
+  tasks:
+    - Order tasks so `npm run test:unit` passes after each task group, not only at the end.
+    - Include an explicit verification task that runs the build and the unit tests.

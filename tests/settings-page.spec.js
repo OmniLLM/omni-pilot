@@ -10,6 +10,7 @@ async function openOptionsPage(page, { syncStorage = {}, localStorage = {}, mode
     const writes = [];
     const messages = [];
     const tabs = [];
+    const storageListeners = [];
 
     function makeArea(store) {
       return {
@@ -29,8 +30,13 @@ async function openOptionsPage(page, { syncStorage = {}, localStorage = {}, mode
           callback({ ...store });
         },
         set(values, callback) {
+          const changes = {};
+          for (const [key, newValue] of Object.entries(values)) {
+            changes[key] = { oldValue: store[key], newValue };
+          }
           Object.assign(store, values);
           writes.push(values);
+          for (const listener of storageListeners) listener(changes, 'sync');
           callback?.();
         },
         remove(keys, callback) {
@@ -68,7 +74,14 @@ async function openOptionsPage(page, { syncStorage = {}, localStorage = {}, mode
       },
       storage: {
         sync: makeArea(syncStore),
-        local: makeArea(localStore)
+        local: makeArea(localStore),
+        onChanged: {
+          addListener(listener) { storageListeners.push(listener); },
+          removeListener(listener) {
+            const index = storageListeners.indexOf(listener);
+            if (index >= 0) storageListeners.splice(index, 1);
+          }
+        }
       },
       tabs: {
         create(details) {
@@ -89,6 +102,42 @@ async function openOptionsPage(page, { syncStorage = {}, localStorage = {}, mode
   await page.goto(optionsUrl);
   await page.waitForLoadState('domcontentloaded');
 }
+
+test('applies and persists theme and visual style immediately', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'light' });
+  await openOptionsPage(page, {
+    syncStorage: {
+      themePreference: 'system',
+      visualStylePreference: 'terminal',
+      languagePreference: 'en'
+    }
+  });
+
+  const root = page.locator('html');
+  await expect(root).toHaveAttribute('data-theme-preference', 'system');
+  await expect(root).toHaveAttribute('data-theme', 'light');
+  await expect(root).toHaveAttribute('data-visual-style', 'terminal');
+  await expect(page.locator('#themePreferenceSelect')).toHaveValue('system');
+  await expect(page.locator('input[name="visualStylePreference"][value="terminal"]')).toBeChecked();
+  await expect(page.locator('[data-appearance-preview]')).toHaveCount(5);
+
+  await page.locator('#themePreferenceSelect').selectOption('dark');
+  await expect(root).toHaveAttribute('data-theme', 'dark');
+
+  await page.locator('input[name="visualStylePreference"][value="warm-editorial"]').check();
+  await expect(root).toHaveAttribute('data-visual-style', 'warm-editorial');
+
+  const appearanceWrites = await page.evaluate(() => window.__omniPilotTestState.writes.filter(write => write.themePreference || write.visualStylePreference));
+  expect(appearanceWrites).toEqual(expect.arrayContaining([
+    { themePreference: 'dark' },
+    { visualStylePreference: 'warm-editorial' }
+  ]));
+
+  await page.locator('#saveBtn').click();
+  const lastWrite = await page.evaluate(() => window.__omniPilotTestState.writes.at(-1));
+  expect(lastWrite).not.toHaveProperty('themePreference');
+  expect(lastWrite).not.toHaveProperty('visualStylePreference');
+});
 
 test('loads saved custom-provider settings into every field and saves edits', async ({ page }) => {
   await openOptionsPage(page, {

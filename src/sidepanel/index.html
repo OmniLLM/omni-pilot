@@ -1,105 +1,343 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-appearance-root data-surface="sidepanel" data-theme-preference="dark" data-theme="dark" data-visual-style="current">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>OmniPilot</title>
+  <link rel="stylesheet" href="appearance.css">
+  <link rel="stylesheet" href="tailwind.css">
   <style>
-    :root {
-      --sp-bg: #ffffff;
-      --sp-bg2: #f8f9fa;
-      --sp-border: #dadce0;
-      --sp-ink: #202124;
-      --sp-ink2: #5f6368;
-      --sp-accent: #1a73e8;
-      --sp-hover: rgba(60, 64, 67, 0.06);
+    /* In @layer base so utilities can override it. See src/styles/tailwind.css
+       for the declared layer order: base < theme < utilities < unlayered. */
+    @layer base {
+      * { box-sizing: border-box; margin: 0; padding: 0; }
     }
-
-    [data-theme="dark"] {
-      --sp-bg: #1e1e1e;
-      --sp-bg2: #2d2d2d;
-      --sp-border: #444;
-      --sp-ink: #e8eaed;
-      --sp-ink2: #9aa0a6;
-      --sp-accent: #8ab4f8;
-      --sp-hover: rgba(255, 255, 255, 0.08);
-    }
-
-    * { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
-      font-family: 'Google Sans', 'Segoe UI', Roboto, sans-serif;
-      background: var(--sp-bg);
-      color: var(--sp-ink);
+      font-family: var(--appearance-font-body);
+      background: var(--appearance-canvas);
+      color: var(--appearance-text);
       height: 100vh;
       display: flex;
       flex-direction: column;
     }
 
+    /* The mount root must not become a flex item, or the header/body/input
+       would stop being direct children of the flex column on <body>. */
+    #root { display: contents; }
+
     .sp-header {
-      padding: 12px 16px;
-      border-bottom: 1px solid var(--sp-border);
+      padding: var(--appearance-space-3) var(--appearance-space-4);
+      border-bottom: var(--appearance-border-width) solid var(--appearance-border);
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: var(--appearance-space-2);
       flex-shrink: 0;
+      background: var(--appearance-surface);
     }
 
     .sp-header h1 {
-      font-size: 16px;
-      font-weight: 600;
+      font-family: var(--appearance-font-display);
+      font-size: var(--appearance-font-size-lg);
+      font-weight: var(--appearance-weight-strong);
+      letter-spacing: var(--appearance-heading-tracking);
+      text-transform: var(--appearance-heading-transform);
     }
 
-    .sp-header .sp-theme-btn {
-      margin-left: auto;
-      background: none;
-      border: none;
-      cursor: pointer;
-      font-size: 16px;
-      padding: 4px;
+    /* Session controls: which function, provider, and model this panel uses. */
+    .sp-meta {
+      display: flex;
+      align-items: center;
+      gap: var(--appearance-space-2);
+      padding: var(--appearance-space-2) var(--appearance-space-4);
+      border-bottom: var(--appearance-border-width) solid var(--appearance-border);
+      background: var(--appearance-surface);
+      flex-shrink: 0;
+      flex-wrap: wrap;
+    }
+
+    /* Anchors its selector, which is positioned against this box. */
+    .sp-chip-wrap { position: relative; }
+
+    .sp-chip {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      max-width: 160px;
+      padding: 2px var(--appearance-space-2);
+      border: var(--appearance-border-width) solid var(--appearance-border);
       border-radius: 0;
+      background: var(--appearance-canvas);
+      color: var(--appearance-text-muted);
+      font: inherit;
+      font-size: var(--appearance-font-size-sm);
+      cursor: pointer;
+      transition: border-color var(--appearance-transition-duration) var(--appearance-transition-easing);
     }
 
-    .sp-header .sp-theme-btn:hover {
-      background: var(--sp-hover);
+    .sp-chip:hover { border-color: var(--appearance-accent); }
+    .sp-chip:focus-visible {
+      outline: var(--appearance-border-width-strong) solid var(--appearance-focus);
+      outline-offset: 1px;
+    }
+
+    .sp-chip-label {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .sp-chip-caret { flex-shrink: 0; opacity: 0.7; }
+
+    .sp-selector {
+      position: absolute;
+      top: calc(100% + 4px);
+      left: 0;
+      z-index: 20;
+      min-width: 180px;
+      max-width: 260px;
+      background: var(--appearance-surface);
+      border: var(--appearance-border-width) solid var(--appearance-border);
+      border-radius: 0;
+      box-shadow: var(--appearance-shadow-2, var(--appearance-shadow-1));
+      padding: 4px;
+    }
+
+    /* The rightmost chip's selector would overflow the panel, which is narrow.
+       Anchor it to the chip's right edge instead. */
+    .sp-chip-wrap:last-child .sp-selector {
+      left: auto;
+      right: 0;
+    }
+
+    .sp-selector-list {      max-height: 240px;
+      overflow-y: auto;
+    }
+
+    .sp-selector-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: var(--appearance-space-2);
+      font-size: var(--appearance-font-size-sm);
+      color: var(--appearance-text);
+      cursor: pointer;
+      overflow-wrap: anywhere;
+    }
+
+    .sp-selector-item:hover { background: var(--appearance-canvas); }
+
+    .sp-selector-current {
+      color: var(--appearance-accent);
+      font-weight: var(--appearance-weight-strong);
+    }
+
+    .sp-selector-icon { flex-shrink: 0; }
+
+    .sp-selector-filter {
+      width: 100%;
+      border: var(--appearance-border-width) solid var(--appearance-border);
+      border-radius: 0;
+      background: var(--appearance-canvas);
+      color: var(--appearance-text);
+      font: inherit;
+      font-size: var(--appearance-font-size-sm);
+      padding: 4px var(--appearance-space-2);
+      margin-bottom: 4px;
+      outline: none;
+    }
+
+    .sp-selector-empty {
+      padding: var(--appearance-space-2);
+      font-size: var(--appearance-font-size-sm);
+      color: var(--appearance-text-muted);
+    }
+
+    /* Marks where the transcript switches to a built-in function's output. */
+    .sp-divider {
+      align-self: center;
+      font-size: var(--appearance-font-size-sm);
+      color: var(--appearance-text-muted);
+      border-bottom: var(--appearance-border-width) solid var(--appearance-border);
+      padding-bottom: 2px;
+    }
+
+    .sp-context {      display: flex;
+      align-items: center;
+      gap: var(--appearance-space-2);
+      padding: var(--appearance-space-2) var(--appearance-space-4);
+      border-bottom: var(--appearance-border-width) solid var(--appearance-border);
+      background: var(--appearance-surface);
+      font-size: var(--appearance-font-size-sm);
+      color: var(--appearance-text-muted);
+      flex-shrink: 0;
+      cursor: pointer;
+    }
+
+    .sp-context-empty {
+      cursor: default;
+    }
+
+    .sp-context-text {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     .sp-body {
       flex: 1;
       overflow-y: auto;
-      padding: 12px 16px;
+      padding: var(--appearance-space-3) var(--appearance-space-4);
       display: flex;
       flex-direction: column;
-      gap: 12px;
+      gap: var(--appearance-row-gap);
     }
 
     .sp-msg {
       padding: 10px 14px;
       border-radius: 0;
-      font-size: 14px;
-      line-height: 1.5;
+      font-size: var(--appearance-font-size-md);
+      line-height: var(--appearance-line-height-body);
       max-width: 95%;
-      word-wrap: break-word;
+      overflow-wrap: anywhere;
+      box-shadow: var(--appearance-shadow-1);
     }
 
     .sp-msg-user {
-      background: var(--sp-accent);
-      color: #fff;
+      background: var(--appearance-accent);
+      color: var(--appearance-on-accent);
       align-self: flex-end;
       border-radius: 0;
     }
 
     .sp-msg-assistant {
-      background: var(--sp-bg2);
+      background: var(--appearance-surface);
+      color: var(--appearance-text);
       align-self: flex-start;
-      border: 1px solid var(--sp-border);
+      border: var(--appearance-border-width) solid var(--appearance-border);
       border-radius: 0;
     }
 
-    .sp-msg-assistant.sp-streaming::after {
-      content: '█';
+    /* Rendered markdown inside an assistant reply. Block spacing is set here
+       rather than relying on defaults, which the reset above removes. */
+    .sp-msg-assistant > :first-child { margin-top: 0; }
+    .sp-msg-assistant > :last-child { margin-bottom: 0; }
+
+    .sp-msg-assistant p { margin: 0 0 0.75em; }
+    .sp-msg-assistant h3,
+    .sp-msg-assistant h4 {
+      font-family: var(--appearance-font-display);
+      font-weight: var(--appearance-weight-strong);
+      letter-spacing: var(--appearance-heading-tracking);
+      margin: 1em 0 0.4em;
+    }
+    .sp-msg-assistant h3 { font-size: var(--appearance-font-size-lg); }
+    .sp-msg-assistant h4 { font-size: var(--appearance-font-size-md); }
+
+    .sp-msg-assistant ul,
+    .sp-msg-assistant ol {
+      margin: 0 0 0.75em;
+      padding-left: 1.4em;
+    }
+    .sp-msg-assistant li { margin: 0.2em 0; }
+    .sp-msg-assistant ul { list-style: disc; }
+    .sp-msg-assistant ol { list-style: decimal; }
+
+    .sp-msg-assistant blockquote {
+      margin: 0 0 0.75em;
+      padding-left: var(--appearance-space-3);
+      border-left: var(--appearance-border-width-strong) solid var(--appearance-border);
+      color: var(--appearance-text-muted);
+    }
+
+    .sp-msg-assistant hr {
+      border: none;
+      border-top: var(--appearance-border-width) solid var(--appearance-border);
+      margin: 0.9em 0;
+    }
+
+    .sp-msg-assistant a { color: var(--appearance-accent); }
+
+    .sp-msg-assistant code {
+      font-family: var(--appearance-font-mono, ui-monospace, monospace);
+      font-size: 0.92em;
+      background: var(--appearance-canvas);
+      padding: 1px 4px;
+    }
+
+    .omnipilot-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 0 0 0.75em;
+      font-size: var(--appearance-font-size-sm);
+    }
+    .omnipilot-table th,
+    .omnipilot-table td {
+      border: var(--appearance-border-width) solid var(--appearance-border);
+      padding: 4px 8px;
+      text-align: left;
+      vertical-align: top;
+    }
+    .omnipilot-table th {
+      background: var(--appearance-canvas);
+      font-weight: var(--appearance-weight-strong);
+    }
+
+    .omnipilot-code-block-card {
+      border: var(--appearance-border-width) solid var(--appearance-border);
+      margin: 0 0 0.75em;
+      background: var(--appearance-canvas);
+    }
+    .omnipilot-code-block-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 2px var(--appearance-space-2);
+      border-bottom: var(--appearance-border-width) solid var(--appearance-border);
+      font-size: var(--appearance-font-size-sm);
+      color: var(--appearance-text-muted);
+    }
+    .omnipilot-code-block-copy-btn {
+      border: var(--appearance-border-width) solid var(--appearance-border);
+      background: transparent;
+      color: var(--appearance-text-muted);
+      font: inherit;
+      font-size: var(--appearance-font-size-sm);
+      padding: 0 6px;
+      cursor: pointer;
+    }
+    .omnipilot-code-block-body {
+      margin: 0;
+      padding: var(--appearance-space-2);
+      overflow-x: auto;
+      font-family: var(--appearance-font-mono, ui-monospace, monospace);
+      font-size: var(--appearance-font-size-sm);
+      white-space: pre;
+    }
+
+    .omnipilot-think-block {
+      border: var(--appearance-border-width) solid var(--appearance-border);
+      margin: 0 0 0.75em;
+      padding: var(--appearance-space-2);
+    }
+    .omnipilot-think-summary {
+      cursor: pointer;
+      font-size: var(--appearance-font-size-sm);
+      color: var(--appearance-text-muted);
+    }
+    .omnipilot-think-body {
+      margin-top: var(--appearance-space-2);
+      font-size: var(--appearance-font-size-sm);
+      color: var(--appearance-text-muted);
+    }
+
+    /* The caret belongs on the last line of the reply. Attaching it to the last
+       rendered block keeps it inline there; `:empty` covers the moment before
+       the first chunk arrives, when the bubble has no content yet. */
+    .sp-msg-assistant.sp-streaming > :last-child::after,
+    .sp-msg-assistant.sp-streaming:empty::after {      content: '█';
       animation: sp-blink 0.6s step-end infinite;
-      color: var(--sp-accent);
+      color: var(--appearance-accent);
       margin-left: 1px;
     }
 
@@ -109,76 +347,80 @@
     }
 
     .sp-input-area {
-      padding: 12px 16px;
-      border-top: 1px solid var(--sp-border);
+      padding: var(--appearance-space-3) var(--appearance-space-4);
+      border-top: var(--appearance-border-width) solid var(--appearance-border);
       display: flex;
-      gap: 8px;
+      gap: var(--appearance-space-2);
       flex-shrink: 0;
+      background: var(--appearance-surface);
     }
 
     .sp-input {
       flex: 1;
-      border: 1px solid var(--sp-border);
+      border: var(--appearance-border-width) solid var(--appearance-border);
       border-radius: 0;
-      padding: 8px 12px;
-      font-size: 14px;
-      background: var(--sp-bg);
-      color: var(--sp-ink);
+      padding: var(--appearance-space-2) var(--appearance-space-3);
+      font: inherit;
+      font-size: var(--appearance-font-size-md);
+      background: var(--appearance-canvas);
+      color: var(--appearance-text);
       outline: none;
       resize: none;
-      min-height: 36px;
+      min-height: var(--appearance-control-height);
       max-height: 120px;
+      transition: border-color var(--appearance-transition-duration) var(--appearance-transition-easing);
     }
 
-    .sp-input:focus {
-      border-color: var(--sp-accent);
+    .sp-input:focus-visible {
+      border-color: var(--appearance-focus);
+      outline: var(--appearance-border-width-strong) solid var(--appearance-focus);
+      outline-offset: 1px;
     }
+
+    .sp-input::placeholder { color: var(--appearance-text-subtle); }
 
     .sp-send {
-      background: var(--sp-accent);
-      color: #fff;
-      border: none;
+      background: var(--appearance-accent);
+      color: var(--appearance-on-accent);
+      border: var(--appearance-border-width) solid var(--appearance-accent);
       border-radius: 0;
-      padding: 8px 16px;
+      padding: var(--appearance-space-2) var(--appearance-space-4);
       cursor: pointer;
-      font-size: 14px;
-      font-weight: 500;
+      font: inherit;
+      font-size: var(--appearance-font-size-md);
+      font-weight: var(--appearance-weight-medium);
       align-self: flex-end;
+      min-height: var(--appearance-control-height);
+      box-shadow: var(--appearance-shadow-1);
+      transition: background var(--appearance-transition-duration) var(--appearance-transition-easing);
     }
 
-    .sp-send:hover {
-      opacity: 0.9;
+    .sp-send:hover { background: var(--appearance-accent-hover); }
+    .sp-send:active { transform: var(--appearance-active-transform); }
+    .sp-send:focus-visible {
+      outline: var(--appearance-border-width-strong) solid var(--appearance-focus);
+      outline-offset: 2px;
     }
 
     .sp-empty {
       text-align: center;
-      color: var(--sp-ink2);
+      color: var(--appearance-text-muted);
       padding: 40px 20px;
-      font-size: 14px;
+      font-size: var(--appearance-font-size-md);
     }
 
     .sp-error {
-      color: #d93025;
-      background: rgba(217, 48, 37, 0.08);
-      padding: 8px 12px;
+      color: var(--appearance-danger);
+      background: var(--appearance-surface);
+      border-left: var(--appearance-border-width-strong) solid var(--appearance-danger);
+      padding: var(--appearance-space-2) var(--appearance-space-3);
       border-radius: 0;
-      font-size: 13px;
+      font-size: var(--appearance-font-size-sm);
     }
   </style>
 </head>
 <body>
-  <div class="sp-header">
-    <span>✦</span>
-    <h1>OmniPilot</h1>
-    <button class="sp-theme-btn" id="themeToggle" title="Toggle theme">🌙</button>
-  </div>
-  <div class="sp-body" id="chatBody">
-    <div class="sp-empty">Start a conversation. Ask anything.</div>
-  </div>
-  <div class="sp-input-area">
-    <textarea class="sp-input" id="chatInput" placeholder="Ask anything..." rows="1"></textarea>
-    <button class="sp-send" id="sendBtn">Send</button>
-  </div>
+  <div id="root"></div>
   <script src="sidepanel.js"></script>
 </body>
 </html>

@@ -1,0 +1,122 @@
+/*
+ * OmniPilot utility CSS entry — Tailwind v4, build-time only.
+ *
+ * Compiled by build.mjs into dist/tailwind.css and linked ONLY from the
+ * popup, options, and sidepanel pages. It must never reach the content
+ * script, which is injected into arbitrary third-party pages without any
+ * Shadow DOM isolation.
+ *
+ * Three deliberate hardening choices:
+ *   1. `tailwindcss/preflight.css` is never imported, so no global reset is
+ *      emitted. Each page keeps its own `*, *::before, *::after` reset.
+ *   2. `prefix(op)` namespaces every utility (`op:flex`) and every generated
+ *      theme variable (`--op-*`).
+ *   3. `source(none)` disables automatic file-system scanning; only the
+ *      explicit `@source` globs below are scanned.
+ *
+ * Cascade layers matter here. Unlayered CSS always beats layered CSS,
+ * whatever the specificity. The declared order below gives:
+ *
+ *   base (each page's `*` reset)  <  theme  <  utilities  <  unlayered page CSS
+ *
+ * so a utility can override the zero-specificity reset, while hand-written
+ * page rules — which stay unlayered — still win over utilities during
+ * incremental migration. Each page must wrap ONLY its reset in `@layer base`.
+ */
+
+@layer base, theme, utilities;
+
+@import "tailwindcss/theme.css" layer(theme) prefix(op);
+@import "tailwindcss/utilities.css" layer(utilities) prefix(op) source(none);
+
+/* Extension pages only. The content script is deliberately absent. */
+@source "../popup/**/*.{html,mjs}";
+@source "../options/**/*.{html,mjs}";
+@source "../sidepanel/**/*.{html,mjs}";
+
+@theme {
+  /*
+   * Square corners are a product decision enforced by
+   * tests/unit/square-corners.test.js. Clear the whole radius namespace
+   * first so no unlisted scale value can survive, then pin every value to 0.
+   */
+  --radius-*: initial;
+  --radius-none: 0;
+  --radius-xs: 0;
+  --radius-sm: 0;
+  --radius-md: 0;
+  --radius-lg: 0;
+  --radius-xl: 0;
+  --radius-2xl: 0;
+  --radius-3xl: 0;
+  --radius-4xl: 0;
+  --radius-full: 0;
+
+  /*
+   * Colors resolve through the shared appearance contract rather than
+   * literals, so all 3 color themes x 5 visual styles keep working with no
+   * change to src/styles/appearance.css and no rebuild on theme switch.
+   */
+  --color-*: initial;
+  --color-inherit: inherit;
+  --color-current: currentColor;
+  --color-transparent: transparent;
+  --color-canvas: var(--appearance-canvas);
+  --color-surface: var(--appearance-surface);
+  --color-surface-raised: var(--appearance-surface-raised);
+  --color-code-surface: var(--appearance-code-surface);
+  --color-ink: var(--appearance-text);
+  --color-ink-muted: var(--appearance-text-muted);
+  --color-ink-subtle: var(--appearance-text-subtle);
+  --color-line: var(--appearance-border);
+  --color-line-strong: var(--appearance-border-strong);
+  --color-accent: var(--appearance-accent);
+  --color-accent-hover: var(--appearance-accent-hover);
+  --color-on-accent: var(--appearance-on-accent);
+  --color-hover: var(--appearance-hover);
+  --color-pressed: var(--appearance-pressed);
+  --color-focus: var(--appearance-focus);
+  --color-success: var(--appearance-success);
+  --color-danger: var(--appearance-danger);
+  --color-warning: var(--appearance-warning);
+
+  /* Typography bridged to the same contract. */
+  --font-*: initial;
+  --font-body: var(--appearance-font-body);
+  --font-display: var(--appearance-font-display);
+  --font-mono: var(--appearance-font-mono);
+
+  --text-*: initial;
+  --text-xs: var(--appearance-font-size-xs);
+  --text-sm: var(--appearance-font-size-sm);
+  --text-md: var(--appearance-font-size-md);
+  --text-lg: var(--appearance-font-size-lg);
+
+  --leading-*: initial;
+  --leading-tight: var(--appearance-line-height-tight);
+  --leading-body: var(--appearance-line-height-body);
+
+  --font-weight-*: initial;
+  --font-weight-normal: var(--appearance-weight-normal);
+  --font-weight-medium: var(--appearance-weight-medium);
+  --font-weight-strong: var(--appearance-weight-strong);
+
+  --tracking-*: initial;
+  --tracking-heading: var(--appearance-heading-tracking);
+
+  /* Elevation bridged to the same contract. */
+  --shadow-*: initial;
+  --shadow-1: var(--appearance-shadow-1);
+  --shadow-2: var(--appearance-shadow-2);
+  --shadow-3: var(--appearance-shadow-3);
+  --shadow-4: var(--appearance-shadow-4);
+
+  /*
+   * The default numeric spacing ramp is kept as-is: `op:p-1`..`op:p-4`
+   * already resolve to 4/8/12/16px, matching --appearance-space-1..4.
+   * Named --spacing-N aliases are deliberately NOT defined, because
+   * --appearance-space-5 (24px) and -6 (32px) would collide with the ramp's
+   * op:p-5 (20px) and op:p-6 (24px) and silently mean two different things.
+   * Use op:p-6 for 24px and op:p-8 for 32px.
+   */
+}

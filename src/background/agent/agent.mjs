@@ -40,6 +40,9 @@ async function createAgent(overrides = {}) {
   function assembleContext(basePrompt, messages) {
     const asm = createContextAssembler({ maxTokens });
     asm.addSection(10, 'system-prompt', basePrompt);
+    // Its own section, not appended to the base prompt, so a tight context
+    // budget sheds the formatting rules before it sheds the instructions.
+    asm.addSection(15, 'formatting', FORMATTING_GUIDANCE);
     if (memoryLongTerm) asm.addSection(20, 'memory-long-term', memoryLongTerm);
     if (memoryRecentSections.length) {
       const recentText = formatRecentActivity(memoryRecentSections);

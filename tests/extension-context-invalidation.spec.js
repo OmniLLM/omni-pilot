@@ -19,7 +19,6 @@ const path = require('path');
 const fs = require('fs');
 
 const contentSource = fs.readFileSync(path.resolve(__dirname, '..', 'dist', 'content.js'), 'utf8');
-const stylesSource = fs.readFileSync(path.resolve(__dirname, '..', 'dist', 'styles.css'), 'utf8');
 
 // Boot the page with a healthy chrome.runtime, load the built content script,
 // then expose window.__invalidate() so tests can flip the runtime into an
@@ -27,7 +26,7 @@ const stylesSource = fs.readFileSync(path.resolve(__dirname, '..', 'dist', 'styl
 // throws synchronously, matching real Chrome behavior after an extension reload.
 async function setupPageWithInvalidatableRuntime(page) {
   await page.goto('about:blank');
-  await page.setContent(`<!DOCTYPE html><html><head><style>${stylesSource}</style></head>` +
+  await page.setContent(`<!DOCTYPE html><html><head></head>` +
     `<body style="padding:40px">` +
     `<p id="para">Bonjour le monde ceci est un texte de test a traduire.</p>` +
     `<p id="p2">Comment allez vous aujourd hui mon ami.</p>` +
@@ -296,7 +295,7 @@ test('initial storage.get throws do not crash the page', async ({ page }) => {
   page.on('pageerror', err => pageErrors.push(err));
 
   await page.goto('about:blank');
-  await page.setContent(`<!DOCTYPE html><html><head><style>${stylesSource}</style></head><body><p id="para">hello world text</p></body></html>`);
+  await page.setContent(`<!DOCTYPE html><html><head></head><body><p id="para">hello world text</p></body></html>`);
   await page.evaluate(({ contentSource }) => {
     // Provide a chrome object whose storage.sync.get and everything else throws
     // synchronously from the very first call — mirrors a re-injection into a

@@ -117,6 +117,12 @@ async function createContentContext(storedConfig = {}) {
         : handler;
     },
     getElementById(id) { return this.elementsById[id] || null; },
+    querySelector(selector) {
+      if (selector === '[data-omnipilot-owned="true"]') {
+        return Object.values(this.elementsById).find(element => element['data-omnipilot-owned'] === 'true') || null;
+      }
+      return null;
+    },
     querySelectorAll() { return []; }
   };
   documentRef.body = createElement(documentRef, 'body');
@@ -235,6 +241,10 @@ async function createContentContext(storedConfig = {}) {
 
   vm.createContext(context);
   vm.runInContext(contentSource, context);
+
+  const extensionRoot = documentRef.getElementById('omnipilot-extension-root-7f3a9c');
+  assert.ok(extensionRoot, 'content UI should create an extension-owned root');
+  assert.strictEqual(extensionRoot.lang, storedConfig.languagePreference === 'en' ? 'en' : 'zh');
 
   return {
     documentRef,
@@ -640,26 +650,14 @@ async function main() {
 
   const providerWrap = documentRef.getElementById('omnipilot-panel').querySelector('.omnipilot-meta-provider-wrap');
   assert.ok(providerWrap, 'provider label should be rendered as a clickable dropdown control');
-  providerWrap.listeners.click({ stopPropagation() {} });
-
-  const providerSelector = documentRef.getElementById('omnipilot-provider-selector');
-  assert.ok(providerSelector, 'provider selector should open from the panel header');
-  const copilotItem = providerSelector.children.find(child => child.textContent === 'GitHub Copilot');
-  assert.ok(copilotItem, 'provider selector should include GitHub Copilot');
-  copilotItem.listeners.click({ stopPropagation() {} });
-
-  assert.deepStrictEqual(JSON.parse(JSON.stringify(sendMessageCalls.at(-1))), { type: 'SET_PROVIDER', providerType: 'github-copilot' });
 
   const modelWrap = documentRef.getElementById('omnipilot-panel').querySelector('.omnipilot-meta-model-wrap');
-  modelWrap.listeners.click({ stopPropagation() {} });
+  assert.ok(modelWrap, 'model label should be rendered as a clickable dropdown control');
 
-  const modelSelector = documentRef.getElementById('omnipilot-model-selector');
-  assert.ok(modelSelector, 'model selector should open from the panel header');
-  const gpt4oItem = modelSelector.querySelector('.omnipilot-model-list').children.find(child => child.textContent === 'gpt-4o');
-  assert.ok(gpt4oItem, 'model selector should include fetched models');
-  gpt4oItem.listeners.click({ stopPropagation() {} });
-
-  assert.deepStrictEqual(JSON.parse(JSON.stringify(sendMessageCalls.at(-1))), { type: 'SET_MODEL', model: 'gpt-4o' });
+  // Opening the provider / model / action selectors and choosing an entry is
+  // covered by tests/content-selectors.spec.js. Those selectors are rendered by
+  // the component runtime, which needs a real DOM, so the assertions live in the
+  // browser suite rather than against this hand-written fake document.
 
   await testPanelTitleOpensRepository();
   await testStoredPopupInitialSizeSetsFirstPanelSize();

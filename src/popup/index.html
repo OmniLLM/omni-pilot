@@ -1,56 +1,43 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-appearance-root data-surface="popup" data-theme-preference="dark" data-theme="dark" data-visual-style="current">
 <head>
   <meta charset="UTF-8">
+  <link rel="stylesheet" href="appearance.css">
+  <link rel="stylesheet" href="tailwind.css">
   <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-    :root {
-      --bg: #0e0e16;
-      --bg2: #17171f;
-      --bg3: #1f1f2c;
-      --border: rgba(255,255,255,0.07);
-      --ink: #e4e4f0;
-      --ink2: #7a7a92;
-      --accent: #6c6cff;
-      --success: #3ecf8e;
-      --danger: #f87171;
+    /* In @layer base so utilities can override it. Unlayered CSS beats layered
+       CSS regardless of specificity, so an unlayered `*` reset would silently
+       cancel every utility margin and padding. Layer order is declared in
+       src/styles/tailwind.css as: base < theme < utilities < unlayered. */
+    @layer base {
+      *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     }
 
-    [data-theme="light"] {
-      --bg: #f5f5f8;
-      --bg2: #ffffff;
-      --bg3: #eeeef4;
-      --border: rgba(0,0,0,0.08);
-      --ink: #111118;
-      --ink2: #666677;
-      --accent: #4a4aff;
-      --success: #16a34a;
-      --danger: #dc2626;
+    :root {
+      --bg: var(--appearance-canvas);
+      --bg2: var(--appearance-surface);
+      --bg3: var(--appearance-surface-raised);
+      --border: var(--appearance-border);
+      --ink: var(--appearance-text);
+      --ink2: var(--appearance-text-muted);
+      --accent: var(--appearance-accent);
+      --success: var(--appearance-success);
+      --danger: var(--appearance-danger);
     }
 
     body {
-      font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+      font-family: var(--appearance-font-body);
       background: var(--bg);
       color: var(--ink);
       width: 260px;
       padding: 16px;
     }
 
-    .header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 12px;
-    }
+    /* Interactive states and var()-driven values that utilities cannot express.
+       Static layout, spacing, color, and typography now live on op: utilities
+       in the markup below. */
+
     .header-left {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      color: inherit;
-      text-decoration: none;
-      border-radius: 0;
-      outline: none;
       transition: color 0.12s, transform 0.12s;
     }
     .header-left:hover,
@@ -58,148 +45,66 @@
       color: var(--accent);
       transform: translateY(-1px);
     }
-    .logo {
-      width: 24px; height: 24px;
-      background: var(--accent);
-      border-radius: 0;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 11px; color: #fff;
-    }
-    .title { font-size: 14px; font-weight: 600; letter-spacing: -0.01em; }
+    .header-left:focus-visible { outline: none; }
 
-    .divider {
-      height: 1px;
-      background: var(--border);
-      margin-bottom: 12px;
-    }
-
-    .desc {
-      font-size: 12px;
-      color: var(--ink2);
-      line-height: 1.55;
-      margin-bottom: 12px;
-    }
-
-    .status-row {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      font-size: 12px;
-      color: var(--ink2);
-      margin-bottom: 12px;
+    .title {
+      text-transform: var(--appearance-heading-transform);
     }
 
     .theme-row {
-      display: flex;
+      margin-bottom: var(--appearance-row-gap);
+      border: var(--appearance-border-width) solid var(--border);
+    }
+
+    .appearance-controls .theme-copy { width: 100%; }
+    .appearance-controls .theme-label { margin-bottom: 8px; }
+
+    .preference-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 112px;
       align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      margin-bottom: 12px;
-      padding: 10px 12px;
-      background: var(--bg2);
-      border: 1px solid var(--border);
-      border-radius: 0;
+      gap: 10px;
+      margin-bottom: 8px;
     }
 
-    .theme-copy {
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
-    }
-
-    .theme-label {
-      font-size: 12px;
-      font-weight: 600;
-      color: var(--ink);
-    }
-
-    .theme-value {
-      font-size: 11px;
-      color: var(--ink2);
-    }
-
-    .theme-toggle {
-      position: relative;
-      width: 42px;
-      height: 24px;
-      flex-shrink: 0;
-    }
-
-    .theme-toggle input {
-      position: absolute;
-      inset: 0;
-      opacity: 0;
-      cursor: pointer;
-    }
-
-    .theme-toggle-track {
-      width: 100%;
-      height: 100%;
-      border-radius: 0;
-      background: var(--bg3);
-      border: 1px solid var(--border);
-      transition: background 0.12s, border-color 0.12s;
-    }
-
-    .theme-toggle-thumb {
-      position: absolute;
-      top: 3px;
-      left: 3px;
-      width: 16px;
-      height: 16px;
-      border-radius: 0;
-      background: var(--ink);
-      transition: transform 0.12s, background 0.12s;
-      pointer-events: none;
-    }
-
-    .theme-toggle input:checked + .theme-toggle-track {
-      background: rgba(108,108,255,0.18);
-      border-color: var(--accent);
-    }
-
-    .theme-toggle input:checked + .theme-toggle-track + .theme-toggle-thumb {
-      transform: translateX(18px);
-      background: var(--accent);
-    }
-    .dot {
-      width: 6px; height: 6px;
-      border-radius: 0;
-      background: var(--danger);
-      flex-shrink: 0;
-    }
-    .dot.ok { background: var(--success); }
+    .preference-row:last-child { margin-bottom: 0; }
 
     input, select {
       font-family: inherit;
     }
 
+    .preference-row select,
     #languageSelect {
-      width: 92px;
-      padding: 6px 8px;
+      width: 100%;
+      min-height: 30px;
+      padding: 5px 7px;
       background: var(--bg3);
       color: var(--ink);
-      border: 1px solid var(--border);
+      border: var(--appearance-border-width) solid var(--border);
       border-radius: 0;
-      font-size: 12px;
+      font-size: 11px;
       outline: none;
     }
 
-    .settings-btn {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 6px;
-      width: 100%;
-      padding: 8px;
-      background: var(--bg2);
-      color: var(--ink);
-      border: 1px solid var(--border);
-      border-radius: 0;
+    .preference-row select:focus-visible,
+    #languageSelect:focus-visible,
+    .settings-btn:focus-visible {
+      outline: 2px solid var(--appearance-focus);
+      outline-offset: 2px;
+    }
+
+    #languageSelect {
+      width: 92px;
       font-size: 12px;
-      font-weight: 500;
-      cursor: pointer;
-      font-family: inherit;
+    }
+
+    /* Status dot: `.ok` is toggled from src/popup/index.mjs via classList,
+       so this state pair must stay a CSS rule. */
+    .dot { background: var(--danger); }
+    .dot.ok { background: var(--success); }
+
+    .settings-btn {
+      border: 1px solid var(--border);
       transition: background 0.12s, border-color 0.12s;
     }
     .settings-btn:hover {
@@ -210,48 +115,7 @@
   </style>
 </head>
 <body>
-  <div class="header">
-    <a class="header-left" href="https://github.com/OmniLLM/omni-pilot" target="_blank" rel="noopener noreferrer" title="Open OmniPilot on GitHub">
-      <div class="logo">✦</div>
-      <span class="title">OmniPilot</span>
-    </a>
-  </div>
-
-  <div class="divider"></div>
-
-  <div class="desc" id="desc" data-i18n="selectTextDesc">Select text on any page for AI actions.</div>
-
-  <div class="status-row">
-    <span class="dot" id="statusDot"></span>
-    <span id="statusText" aria-live="polite">Checking…</span>
-  </div>
-
-  <div class="theme-row">
-    <div class="theme-copy">
-      <span class="theme-label" id="themeLabel" data-i18n="theme">Theme</span>
-      <span class="theme-value" id="themeValue">Dark</span>
-    </div>
-    <label class="theme-toggle" data-i18n-aria-label="toggleDarkMode" aria-label="Toggle dark mode">
-      <input type="checkbox" id="themeToggle" checked>
-      <span class="theme-toggle-track"></span>
-      <span class="theme-toggle-thumb"></span>
-    </label>
-  </div>
-
-  <div class="theme-row">
-    <div class="theme-copy">
-      <span class="theme-label" id="languageLabel" data-i18n="language">Language</span>
-    </div>
-    <select id="languageSelect" aria-label="Language">
-      <option value="en">English</option>
-      <option value="zh">中文</option>
-    </select>
-  </div>
-
-  <button class="settings-btn" id="settingsBtn">
-    <span>⚙</span> <span id="settingsLabel" data-i18n="settings">Settings</span>
-  </button>
-
+  <div id="root"></div>
   <script src="popup.js"></script>
 </body>
 </html>

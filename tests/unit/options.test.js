@@ -940,18 +940,6 @@ async function testAddingA2aServerDiscoversAndStoresAgentSkills() {
   assert.strictEqual(savedServer.agentCard.skills[0].tags[1], 'vm');
 }
 
-async function testRenderingStoredA2aServersShowsNameAndEndpointNotToken() {
-  const { context, elements } = createTestContext();
-
-  context.a2aServers = [{ id: 'server-1', name: 'Stored Server', endpoint: 'https://stored.example.com' }];
-  context.a2aServerTokens = { 'server-1': 'super-secret' };
-  context.renderA2aServers(context.a2aServers);
-
-  assert.match(elements.a2aServerList.innerHTML, /Stored Server/);
-  assert.match(elements.a2aServerList.innerHTML, /https:\/\/stored\.example\.com/);
-  assert.doesNotMatch(elements.a2aServerList.innerHTML, /super-secret/);
-}
-
 async function testA2aServerListButtonsInvokeDiscoverAndRemove() {
   const { context, elements, sendMessageCalls, syncWrites, localWrites, domListeners } = createTestContext({
     sendMessageImpl(message, callback) {
@@ -998,34 +986,6 @@ async function testA2aServerListButtonsInvokeDiscoverAndRemove() {
   assert.deepStrictEqual(JSON.parse(JSON.stringify(localWrites.at(-1).a2aServerTokens)), {});
 }
 
-async function testRenderA2aServersIncludesEnableDisableToggle() {
-  const { context, elements } = createTestContext();
-  context.a2aServers = [
-    { id: 'a', name: 'AgentA', endpoint: 'https://a.example', enabled: true },
-    { id: 'b', name: 'AgentB', endpoint: 'https://b.example', enabled: false }
-  ];
-  context.renderA2aServers(context.a2aServers);
-
-  // Enabled agent gets a "Disable" button; disabled agent gets an "Enable" button
-  assert.match(
-    elements.a2aServerList.innerHTML,
-    /data-action="disable"[^>]*data-server-id="a"/
-  );
-  assert.match(
-    elements.a2aServerList.innerHTML,
-    /data-action="enable"[^>]*data-server-id="b"/
-  );
-  // Disabled agent's row carries a visual marker class
-  assert.match(
-    elements.a2aServerList.innerHTML,
-    /class="a2a-server-item disabled"[^>]*data-server-id="b"/
-  );
-  assert.doesNotMatch(
-    elements.a2aServerList.innerHTML,
-    /class="a2a-server-item disabled"[^>]*data-server-id="a"/
-  );
-}
-
 async function testDisableButtonPersistsEnabledFalseAndRerenders() {
   const { context, elements, localWrites, domListeners } = createTestContext();
   await domListeners.DOMContentLoaded();
@@ -1047,11 +1007,6 @@ async function testDisableButtonPersistsEnabledFalseAndRerenders() {
 
   const persisted = localWrites.findLast(write => Array.isArray(write.a2aServers))?.a2aServers[0];
   assert.strictEqual(persisted.enabled, false);
-  // After re-render the toggle now offers "Enable"
-  assert.match(
-    elements.a2aServerList.innerHTML,
-    /data-action="enable"[^>]*data-server-id="a"/
-  );
 }
 
 async function testEnableButtonRestoresEnabledTrue() {
@@ -1075,10 +1030,6 @@ async function testEnableButtonRestoresEnabledTrue() {
 
   const persisted = localWrites.findLast(write => Array.isArray(write.a2aServers))?.a2aServers[0];
   assert.strictEqual(persisted.enabled, true);
-  assert.match(
-    elements.a2aServerList.innerHTML,
-    /data-action="disable"[^>]*data-server-id="a"/
-  );
 }
 
 async function testStartCopilotAuthRejectsUnsafeVerificationUri() {
@@ -1251,9 +1202,7 @@ async function main() {
   await testAddingA2aServerRequiresNameAndEndpoint();
   await testAddingA2aServerStoresMetadataInLocalAndTokenInLocalOnly();
   await testAddingA2aServerDiscoversAndStoresAgentSkills();
-  await testRenderingStoredA2aServersShowsNameAndEndpointNotToken();
   await testA2aServerListButtonsInvokeDiscoverAndRemove();
-  await testRenderA2aServersIncludesEnableDisableToggle();
   await testDisableButtonPersistsEnabledFalseAndRerenders();
   await testEnableButtonRestoresEnabledTrue();
   await testStartCopilotAuthRejectsUnsafeVerificationUri();

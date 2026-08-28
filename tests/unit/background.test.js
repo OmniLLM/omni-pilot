@@ -460,6 +460,76 @@ async function assertAgentUsesContextAssemblerForChat() {
   assert.strictEqual(nonSystem[nonSystem.length - 1].content, 'latest question');
 }
 
+async function assertActionPromptsCarryFormattingGuidance() {
+  const captured = [];
+  const { connectListeners } = await createBackgroundContext({
+    storage: {
+      providerType: 'custom-provider',
+      endpoint: 'https://custom.example/v1',
+      apiKey: 'k',
+      model: 'm',
+      apiShape: 'openai-compatible'
+    },
+    fetchImpl: async (_url, options) => {
+      captured.push(JSON.parse(options.body));
+      return { ok: true, body: null, json: async () => ({ choices: [{ message: { content: 'ok' } }] }) };
+    }
+  });
+
+  const messageListeners = [];
+  connectListeners[0]({
+    name: 'omnipilot-stream',
+    onMessage: { addListener(fn) { messageListeners.push(fn); } },
+    onDisconnect: { addListener() {} },
+    postMessage() {}
+  });
+
+  const systemFor = async action => {
+    captured.length = 0;
+    await messageListeners[0]({ type: 'AI_ACTION_STREAM', action, text: 'hello world' });
+    return captured[0].messages.find(m => m.role === 'system').content;
+  };
+
+  // Explanatory actions must ask for structure — the reported bug was a wall of
+  // prose where a table belonged.
+  for (const action of ['summarize', 'summarize-page', 'explain', 'ask', 'sentiment', 'code-explain', 'summarize-github']) {
+    const sys = await systemFor(action);
+    assert.ok(/Markdown table/.test(sys), `${action} should ask for tables where appropriate`);
+    assert.ok(/short paragraphs/.test(sys), `${action} should ask for paragraph breaks`);
+  }
+
+  // Transformations return the text itself; structure would corrupt them.
+  for (const action of ['translate', 'translate-en', 'translate-zh', 'translate-bidi', 'improve', 'divide-paragraphs']) {
+    const sys = await systemFor(action);
+    assert.ok(!/Markdown table/.test(sys), `${action} should not be given formatting guidance`);
+  }
+}
+
+async function assertChatCarriesFormattingGuidance() {
+  let captured = null;
+  const { context } = await createBackgroundContext({
+    storage: {
+      providerType: 'custom-provider',
+      endpoint: 'https://custom.example/v1',
+      apiKey: 'k',
+      model: 'm',
+      apiShape: 'openai-compatible',
+      a2aAutoRoute: false
+    },
+    fetchImpl: async (_url, options) => {
+      captured = JSON.parse(options.body);
+      return { ok: true, json: async () => ({ choices: [{ message: { content: 'ok' } }] }) };
+    }
+  });
+
+  const agent = await context.createAgent();
+  await agent.chat([{ role: 'user', content: 'compare these models by cost' }]);
+
+  const sys = captured.messages.find(m => m.role === 'system').content;
+  assert.ok(/Markdown table/.test(sys), 'chat should ask for tables where appropriate');
+  assert.ok(/short paragraphs/.test(sys), 'chat should ask for paragraph breaks');
+}
+
 async function assertAgentDropsSectionsUnderTightTokenBudget() {
   let capturedBody = null;
   const { context } = await createBackgroundContext({
@@ -4549,6 +4619,31 @@ async function assertContextMenuSetupCreatesExpectedMenuItems() {
   assert.strictEqual(typeof context.setupContextMenus, 'function');
 }
 
+async function assertContextMenuMessageToATablessPageIsNotAnUnhandledRejection() {
+  const { context } = await createBackgroundContext({ storage: {} });
+
+  // A tab with no content script rejects the message. The service worker's
+  // error log must stay clean; this used to surface as
+  // "Uncaught (in promise) Error: Could not establish connection."
+  const rejections = [];
+  context.chrome.tabs = {
+    sendMessage() {
+      return Promise.reject(new Error('Could not establish connection. Receiving end does not exist.'));
+    }
+  };
+  process.on('unhandledRejection', reason => rejections.push(reason));
+
+  assert.strictEqual(typeof context.notifyContentScript, 'function');
+  context.notifyContentScript(1, { type: 'CONTEXT_MENU_PAGE_SUMMARY' });
+
+  // A throwing sendMessage must be survivable too.
+  context.chrome.tabs.sendMessage = () => { throw new Error('no receiver'); };
+  context.notifyContentScript(1, { type: 'CONTEXT_MENU_PAGE_SUMMARY' });
+
+  await new Promise(resolve => setTimeout(resolve, 20));
+  assert.deepStrictEqual(rejections, [], 'context menu delivery must not reject unhandled');
+}
+
 async function assertNewActionPromptsExist() {
   const { context } = await createBackgroundContext({
     storage: {
@@ -5104,6 +5199,8 @@ async function main() {
   await assertContextMaxTokensConfigDefaultsAndPersists();
   await assertAgentInjectsMemoryIntoSystemPrompt();
   await assertAgentUsesContextAssemblerForChat();
+  await assertActionPromptsCarryFormattingGuidance();
+  await assertChatCarriesFormattingGuidance();
   await assertAgentDropsSectionsUnderTightTokenBudget();
   await assertAgentSkipsMemoryWhenDisabled();
   await assertAgentAppendsDailyLogAfterSuccessfulChat();
@@ -5214,6 +5311,7 @@ async function main() {
   await assertA2aToolProviderRegistersOnePerSkill();
   await assertA2aToolProviderUsesCollisionSafeNames();
   await assertContextMenuSetupCreatesExpectedMenuItems();
+  await assertContextMenuMessageToATablessPageIsNotAnUnhandledRejection();
   await assertNewActionPromptsExist();
 }
 

@@ -4,6 +4,7 @@ const path = require('node:path');
 
 const root = path.resolve(__dirname, '..', '..');
 const uiSources = [
+  'src/styles/appearance.css',
   'src/content-script/styles.css',
   'src/popup/index.html',
   'src/sidepanel/index.html',
@@ -13,7 +14,9 @@ const uiSources = [
 for (const relativePath of uiSources) {
   const source = fs.readFileSync(path.join(root, relativePath), 'utf8');
   const declarations = [...source.matchAll(/border-radius\s*:\s*([^;]+);/g)];
-  assert.ok(declarations.length > 0, `${relativePath} should contain authored border-radius declarations`);
+  if (relativePath !== 'src/styles/appearance.css') {
+    assert.ok(declarations.length > 0, `${relativePath} should contain authored border-radius declarations`);
+  }
   for (const declaration of declarations) {
     assert.match(declaration[1].trim(), /^0(?:px)?$/, `${relativePath} contains a nonzero border radius: ${declaration[0]}`);
   }
@@ -22,6 +25,14 @@ for (const relativePath of uiSources) {
 const contentStyles = fs.readFileSync(path.join(root, 'src/content-script/styles.css'), 'utf8');
 for (const token of ['xs', 'sm', 'md', 'pill']) {
   assert.match(contentStyles, new RegExp(`--op-radius-${token}:\\s*0;`), `--op-radius-${token} should remain zero`);
+}
+
+const appearanceStyles = fs.readFileSync(path.join(root, 'src/styles/appearance.css'), 'utf8');
+for (const token of ['xs', 'sm', 'md', 'pill']) {
+  assert.match(appearanceStyles, new RegExp(`--appearance-radius-${token}:\\s*0;`), `--appearance-radius-${token} should remain zero`);
+}
+for (const value of [...appearanceStyles.matchAll(/--appearance-radius-[\w-]+\s*:\s*([^;]+);/g)]) {
+  assert.match(value[1].trim(), /^0(?:px)?$/, `appearance radius token must remain zero: ${value[0]}`);
 }
 
 console.log('square corner policy tests passed');
