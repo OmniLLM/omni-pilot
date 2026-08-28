@@ -86,6 +86,7 @@ function applyLanguage(language) {
 
 function initAppearance() {
   const themeSelect = document.getElementById('themePreferenceSelect');
+  const shapeSelect = document.getElementById('uiShapePreferenceSelect');
   const styleRadios = Array.from(document.querySelectorAll('input[name="visualStylePreference"]'));
   const previews = Array.from(document.querySelectorAll('[data-appearance-preview]'));
 
@@ -100,8 +101,12 @@ function initAppearance() {
     },
     onApply: state => {
       if (themeSelect) themeSelect.value = state.themePreference;
+      if (shapeSelect) shapeSelect.value = state.uiShapePreference;
       styleRadios.forEach(radio => { radio.checked = radio.value === state.visualStylePreference; });
-      previews.forEach(preview => preview.setAttribute('data-theme', state.resolvedTheme));
+      previews.forEach(preview => {
+        preview.setAttribute('data-theme', state.resolvedTheme);
+        preview.setAttribute('data-ui-shape', state.uiShapePreference);
+      });
     }
   });
 
@@ -109,6 +114,12 @@ function initAppearance() {
     const themePreference = themeSelect.value;
     controller.update({ themePreference });
     chrome.storage.sync.set({ themePreference });
+  });
+
+  shapeSelect?.addEventListener('change', () => {
+    const uiShapePreference = shapeSelect.value;
+    controller.update({ uiShapePreference });
+    chrome.storage.sync.set({ uiShapePreference });
   });
 
   styleRadios.forEach(radio => {

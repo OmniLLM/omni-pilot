@@ -27,6 +27,8 @@ function loadAppearanceContext(matchMedia) {
   assert.strictEqual(context.normalizeThemePreference('invalid'), 'dark');
   assert.strictEqual(context.normalizeVisualStylePreference('terminal'), 'terminal');
   assert.strictEqual(context.normalizeVisualStylePreference('invalid'), 'current');
+  assert.strictEqual(context.normalizeUiShapePreference('rounded'), 'rounded');
+  assert.strictEqual(context.normalizeUiShapePreference('invalid'), 'square');
   assert.deepStrictEqual(
     Array.from(vm.runInContext('THEME_PREFERENCES', context)),
     ['system', 'light', 'dark']
@@ -53,7 +55,7 @@ function loadAppearanceContext(matchMedia) {
     surface: 'test',
     readPreferences(defaults, callback) {
       assert.strictEqual(defaults.themePreference, 'dark');
-      callback({ themePreference: 'system', visualStylePreference: 'terminal' });
+      callback({ themePreference: 'system', visualStylePreference: 'terminal', uiShapePreference: 'rounded' });
     },
     subscribeToChanges(listener) {
       storageListener = listener;
@@ -68,6 +70,7 @@ function loadAppearanceContext(matchMedia) {
   assert.strictEqual(root.attrs['data-theme-preference'], 'system');
   assert.strictEqual(root.attrs['data-theme'], 'light');
   assert.strictEqual(root.attrs['data-visual-style'], 'terminal');
+  assert.strictEqual(root.attrs['data-ui-shape'], 'rounded');
   assert.strictEqual(root.style.colorScheme, 'light');
   assert.strictEqual(listeners.size, 1);
 
@@ -84,6 +87,8 @@ function loadAppearanceContext(matchMedia) {
   assert.strictEqual(root.attrs['data-visual-style'], 'terminal');
   storageListener({ visualStylePreference: { newValue: 'warm-editorial' } }, 'sync');
   assert.strictEqual(root.attrs['data-visual-style'], 'warm-editorial');
+  storageListener({ uiShapePreference: { newValue: 'pill' } }, 'sync');
+  assert.strictEqual(root.attrs['data-ui-shape'], 'pill');
 
   controller.dispose();
   assert.strictEqual(storageListener, null);

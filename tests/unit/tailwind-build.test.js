@@ -114,21 +114,18 @@ for (const body of universalRules) {
   }
 }
 
-// ── Square corners are mechanically enforced ──────────────────────────────
+// ── Radius utilities are connected to the selectable shape contract ───────
 const radiusTokens = new Map(
   [...tailwindCss.matchAll(/(--op-radius-[\w-]+)\s*:\s*([^;}]+)/g)].map(m => [m[1], m[2].trim()])
 );
-for (const [token, value] of radiusTokens) {
-  assert.match(value, /^0(?:px)?$/, `${token} must be zero, found: ${value}`);
-}
 for (const match of tailwindCss.matchAll(/border-radius\s*:\s*([^;}]+)/g)) {
   const value = match[1].trim();
   const reference = value.match(/^var\((--op-radius-[\w-]+)\)$/);
   if (reference) {
     assert.ok(radiusTokens.has(reference[1]), `unknown radius token ${reference[1]}`);
-    assert.match(radiusTokens.get(reference[1]), /^0(?:px)?$/, `${reference[1]} must be zero`);
+    assert.ok(radiusTokens.get(reference[1]), `${reference[1]} must resolve through the appearance contract`);
   } else {
-    assert.match(value, /^0(?:px)?$/, `nonzero border-radius in dist/tailwind.css: ${value}`);
+    assert.match(value, /^0(?:px)?$/, `literal radius values must remain zero: ${value}`);
   }
 }
 
@@ -136,11 +133,11 @@ for (const match of tailwindCss.matchAll(/border-radius\s*:\s*([^;}]+)/g)) {
 // scale value can never survive into a future build.
 const tailwindEntry = read('src/styles/tailwind.css');
 assert.match(tailwindEntry, /--radius-\*\s*:\s*initial\s*;/, 'radius namespace must be cleared with `--radius-*: initial`');
-for (const scale of ['none', 'xs', 'sm', 'md', 'lg', 'xl', '2xl', '3xl', '4xl', 'full']) {
+for (const scale of ['xs', 'sm', 'md', 'lg', 'xl', '2xl', '3xl', '4xl', 'full']) {
   assert.match(
     tailwindEntry,
-    new RegExp(`--radius-${scale.replace(/[$()*+.?[\\\]^{|}]/g, '\\$&')}\\s*:\\s*0\\s*;`),
-    `--radius-${scale} must be pinned to 0`
+    new RegExp(`--radius-${scale.replace(/[$()*+.?[\\\]^{|}]/g, '\\$&')}\\s*:\\s*var\\(--appearance-radius-`),
+    `--radius-${scale} must resolve through the appearance radius contract`
   );
 }
 
@@ -207,31 +204,35 @@ for (const page of ['src/popup/index.html', 'src/options/index.html', 'src/sidep
   const html = read(page);
   const appearanceAt = html.indexOf('href="appearance.css"');
   const tailwindAt = html.indexOf('href="tailwind.css"');
-  const styleAt = html.indexOf('<style>');
+  const pageName = path.basename(path.dirname(page));
+  const componentAt = html.indexOf(`href="${pageName}.css"`);
+  const componentCss = read(`src/styles/${pageName}.css`);
   assert.ok(appearanceAt >= 0, `${page} must link appearance.css`);
   assert.ok(tailwindAt >= 0, `${page} must link tailwind.css`);
-  assert.ok(styleAt >= 0, `${page} must retain its inline <style> block`);
+  assert.ok(componentAt >= 0, `${page} must link its Vite-managed component stylesheet`);
+  assert.ok(!html.includes('<style>'), `${page} must not contain inline component CSS`);
+  assert.ok(!/\sstyle="/.test(html), `${page} must not contain inline style attributes`);
   // Each page keeps its own reset because Preflight is deliberately not shipped.
   // popup/options use the `*, *::before, *::after` form; sidepanel uses bare `*`.
   assert.match(
-    html,
+    componentCss,
     /\*(?:\s*,\s*\*::before\s*,\s*\*::after)?\s*\{\s*box-sizing:\s*border-box;\s*margin:\s*0;\s*padding:\s*0;\s*\}/,
     `${page} must keep its own reset, since Preflight is not shipped`
   );
   assert.ok(appearanceAt < tailwindAt, `${page}: tailwind.css must be linked after appearance.css`);
   assert.ok(
-    tailwindAt < styleAt,
-    `${page}: tailwind.css must be linked before the inline <style> block so hand-written CSS keeps precedence`
+    tailwindAt < componentAt,
+    `${page}: component CSS must load after Tailwind utilities`
   );
   // Cascade layers: unlayered CSS beats layered CSS regardless of specificity.
   // Each page must layer ONLY its reset, so utilities can override it while
   // the rest of the page's hand-written CSS still wins over utilities.
   assert.match(
-    html,
+    componentCss,
     /@layer\s+base\s*\{/,
     `${page} must wrap its reset in @layer base, or the reset will cancel every utility margin and padding`
   );
-  const layerBlocks = [...html.matchAll(/@layer\s+([\w\s,]+?)\s*\{/g)].map(match => match[1].trim());
+  const layerBlocks = [...componentCss.matchAll(/@layer\s+([\w\s,]+?)\s*\{/g)].map(match => match[1].trim());
   assert.deepStrictEqual(
     layerBlocks,
     ['base'],
@@ -277,7 +278,7 @@ for (const id of [
 
 assert.ok(popupJs.includes('class="dot'), 'the status dot must keep its .dot class');
 assert.match(popupJs, /class="dot ok/, 'the status dot must still express its ready state as .ok');
-assert.match(popupHtml, /\.dot\.ok\s*\{/, 'the .dot.ok state rule must remain, it is toggled from JS');
+assert.match(read('src/styles/popup.css'), /\.dot\.ok\s*\{/, 'the .dot.ok state rule must remain, it is toggled from JS');
 assert.ok(UTILITY_TOKEN.test(popupJs), 'the popup must actually use utility classes');
 
 // Tailwind tokenizes candidates on whitespace, so a utility written directly

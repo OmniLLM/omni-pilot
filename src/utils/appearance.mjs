@@ -6,11 +6,14 @@ const VISUAL_STYLE_PREFERENCES = Object.freeze([
   'warm-editorial',
   'neo-brutalist'
 ]);
+const UI_SHAPE_PREFERENCES = Object.freeze(['square', 'subtle', 'rounded', 'pill']);
 const DEFAULT_THEME_PREFERENCE = 'dark';
 const DEFAULT_VISUAL_STYLE_PREFERENCE = 'current';
+const DEFAULT_UI_SHAPE_PREFERENCE = 'square';
 const APPEARANCE_STORAGE_DEFAULTS = Object.freeze({
   themePreference: DEFAULT_THEME_PREFERENCE,
-  visualStylePreference: DEFAULT_VISUAL_STYLE_PREFERENCE
+  visualStylePreference: DEFAULT_VISUAL_STYLE_PREFERENCE,
+  uiShapePreference: DEFAULT_UI_SHAPE_PREFERENCE
 });
 
 function normalizeThemePreference(value) {
@@ -19,6 +22,10 @@ function normalizeThemePreference(value) {
 
 function normalizeVisualStylePreference(value) {
   return VISUAL_STYLE_PREFERENCES.includes(value) ? value : DEFAULT_VISUAL_STYLE_PREFERENCE;
+}
+
+function normalizeUiShapePreference(value) {
+  return UI_SHAPE_PREFERENCES.includes(value) ? value : DEFAULT_UI_SHAPE_PREFERENCE;
 }
 
 function resolveThemePreference(preference, mediaQueryList) {
@@ -34,6 +41,7 @@ function applyAppearanceAttributes(root, state) {
   root.setAttribute('data-theme-preference', state.themePreference);
   root.setAttribute('data-theme', state.resolvedTheme);
   root.setAttribute('data-visual-style', state.visualStylePreference);
+  root.setAttribute('data-ui-shape', state.uiShapePreference);
   if (root.style) root.style.colorScheme = state.resolvedTheme;
 }
 
@@ -47,6 +55,7 @@ function createAppearanceController({
 } = {}) {
   let themePreference = DEFAULT_THEME_PREFERENCE;
   let visualStylePreference = DEFAULT_VISUAL_STYLE_PREFERENCE;
+  let uiShapePreference = DEFAULT_UI_SHAPE_PREFERENCE;
   let mediaQueryList = null;
   let unsubscribeStorage = null;
   let disposed = false;
@@ -57,6 +66,7 @@ function createAppearanceController({
       surface,
       themePreference,
       visualStylePreference,
+      uiShapePreference,
       resolvedTheme: resolveThemePreference(themePreference, mediaQueryList)
     };
   }
@@ -98,6 +108,7 @@ function createAppearanceController({
     if (source === 'storage') {
       if (Object.prototype.hasOwnProperty.call(preferences, 'themePreference')) changedSinceRead.add('themePreference');
       if (Object.prototype.hasOwnProperty.call(preferences, 'visualStylePreference')) changedSinceRead.add('visualStylePreference');
+      if (Object.prototype.hasOwnProperty.call(preferences, 'uiShapePreference')) changedSinceRead.add('uiShapePreference');
     }
     const nextTheme = Object.prototype.hasOwnProperty.call(preferences, 'themePreference')
       ? normalizeThemePreference(preferences.themePreference)
@@ -105,11 +116,16 @@ function createAppearanceController({
     const nextStyle = Object.prototype.hasOwnProperty.call(preferences, 'visualStylePreference')
       ? normalizeVisualStylePreference(preferences.visualStylePreference)
       : visualStylePreference;
+    const nextShape = Object.prototype.hasOwnProperty.call(preferences, 'uiShapePreference')
+      ? normalizeUiShapePreference(preferences.uiShapePreference)
+      : uiShapePreference;
     const themeChanged = nextTheme !== themePreference;
     const styleChanged = nextStyle !== visualStylePreference;
-    if (!themeChanged && !styleChanged) return;
+    const shapeChanged = nextShape !== uiShapePreference;
+    if (!themeChanged && !styleChanged && !shapeChanged) return;
     themePreference = nextTheme;
     visualStylePreference = nextStyle;
+    uiShapePreference = nextShape;
     if (themeChanged) syncSystemThemeListener();
     apply();
   }
@@ -119,6 +135,7 @@ function createAppearanceController({
     const preferences = {};
     if (changes?.themePreference) preferences.themePreference = changes.themePreference.newValue;
     if (changes?.visualStylePreference) preferences.visualStylePreference = changes.visualStylePreference.newValue;
+    if (changes?.uiShapePreference) preferences.uiShapePreference = changes.uiShapePreference.newValue;
     if (Object.keys(preferences).length) update(preferences, 'storage');
   }
 
@@ -131,6 +148,7 @@ function createAppearanceController({
       const fresh = {};
       if (!changedSinceRead.has('themePreference')) fresh.themePreference = stored?.themePreference;
       if (!changedSinceRead.has('visualStylePreference')) fresh.visualStylePreference = stored?.visualStylePreference;
+      if (!changedSinceRead.has('uiShapePreference')) fresh.uiShapePreference = stored?.uiShapePreference;
       update(fresh, 'initial-read');
       changedSinceRead.clear();
     });
@@ -151,11 +169,14 @@ function createAppearanceController({
 export {
   THEME_PREFERENCES,
   VISUAL_STYLE_PREFERENCES,
+  UI_SHAPE_PREFERENCES,
   DEFAULT_THEME_PREFERENCE,
   DEFAULT_VISUAL_STYLE_PREFERENCE,
+  DEFAULT_UI_SHAPE_PREFERENCE,
   APPEARANCE_STORAGE_DEFAULTS,
   normalizeThemePreference,
   normalizeVisualStylePreference,
+  normalizeUiShapePreference,
   resolveThemePreference,
   applyAppearanceAttributes,
   createAppearanceController

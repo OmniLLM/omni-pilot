@@ -36,21 +36,19 @@
 
 @theme {
   /*
-   * Square corners are a product decision enforced by
-   * tests/unit/square-corners.test.js. Clear the whole radius namespace
-   * first so no unlisted scale value can survive, then pin every value to 0.
+   * Radius utilities resolve through the selectable appearance shape contract.
    */
   --radius-*: initial;
   --radius-none: 0;
-  --radius-xs: 0;
-  --radius-sm: 0;
-  --radius-md: 0;
-  --radius-lg: 0;
-  --radius-xl: 0;
-  --radius-2xl: 0;
-  --radius-3xl: 0;
-  --radius-4xl: 0;
-  --radius-full: 0;
+  --radius-xs: var(--appearance-radius-xs);
+  --radius-sm: var(--appearance-radius-sm);
+  --radius-md: var(--appearance-radius-md);
+  --radius-lg: var(--appearance-radius-md);
+  --radius-xl: var(--appearance-radius-md);
+  --radius-2xl: var(--appearance-radius-md);
+  --radius-3xl: var(--appearance-radius-md);
+  --radius-4xl: var(--appearance-radius-md);
+  --radius-full: var(--appearance-radius-pill);
 
   /*
    * Colors resolve through the shared appearance contract rather than

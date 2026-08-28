@@ -3,36 +3,25 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const root = path.resolve(__dirname, '..', '..');
-const uiSources = [
-  'src/styles/appearance.css',
-  'src/content-script/styles.css',
-  'src/popup/index.html',
-  'src/sidepanel/index.html',
-  'src/options/index.html'
-];
+const read = relativePath => fs.readFileSync(path.join(root, relativePath), 'utf8');
+const appearance = read('src/styles/appearance.css');
 
-for (const relativePath of uiSources) {
-  const source = fs.readFileSync(path.join(root, relativePath), 'utf8');
-  const declarations = [...source.matchAll(/border-radius\s*:\s*([^;]+);/g)];
-  if (relativePath !== 'src/styles/appearance.css') {
-    assert.ok(declarations.length > 0, `${relativePath} should contain authored border-radius declarations`);
-  }
-  for (const declaration of declarations) {
-    assert.match(declaration[1].trim(), /^0(?:px)?$/, `${relativePath} contains a nonzero border radius: ${declaration[0]}`);
-  }
+for (const shape of ['subtle', 'rounded', 'pill']) {
+  assert.match(appearance, new RegExp(`data-ui-shape=["']${shape}["']`), `missing UI shape: ${shape}`);
 }
-
-const contentStyles = fs.readFileSync(path.join(root, 'src/content-script/styles.css'), 'utf8');
 for (const token of ['xs', 'sm', 'md', 'pill']) {
-  assert.match(contentStyles, new RegExp(`--op-radius-${token}:\\s*0;`), `--op-radius-${token} should remain zero`);
+  assert.match(appearance, new RegExp(`--appearance-radius-${token}:`), `missing radius token: ${token}`);
 }
 
-const appearanceStyles = fs.readFileSync(path.join(root, 'src/styles/appearance.css'), 'utf8');
-for (const token of ['xs', 'sm', 'md', 'pill']) {
-  assert.match(appearanceStyles, new RegExp(`--appearance-radius-${token}:\\s*0;`), `--appearance-radius-${token} should remain zero`);
-}
-for (const value of [...appearanceStyles.matchAll(/--appearance-radius-[\w-]+\s*:\s*([^;]+);/g)]) {
-  assert.match(value[1].trim(), /^0(?:px)?$/, `appearance radius token must remain zero: ${value[0]}`);
+for (const file of [
+  'src/styles/popup.css',
+  'src/styles/options.css',
+  'src/styles/sidepanel.css',
+  'src/content-script/styles.css'
+]) {
+  const css = read(file);
+  assert.ok(!/border-radius\s*:\s*0(?:px)?\s*;/.test(css), `${file} must use selectable radius tokens`);
+  assert.match(css, /border-radius\s*:\s*var\(--appearance-radius-/, `${file} must consume appearance radius tokens`);
 }
 
-console.log('square corner policy tests passed');
+console.log('selectable corner policy tests passed');

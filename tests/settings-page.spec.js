@@ -131,6 +131,7 @@ test('applies and persists theme and visual style immediately', async ({ page })
     syncStorage: {
       themePreference: 'system',
       visualStylePreference: 'terminal',
+      uiShapePreference: 'subtle',
       languagePreference: 'en'
     }
   });
@@ -139,8 +140,10 @@ test('applies and persists theme and visual style immediately', async ({ page })
   await expect(root).toHaveAttribute('data-theme-preference', 'system');
   await expect(root).toHaveAttribute('data-theme', 'light');
   await expect(root).toHaveAttribute('data-visual-style', 'terminal');
+  await expect(root).toHaveAttribute('data-ui-shape', 'subtle');
   await expect(page.locator('#themePreferenceSelect')).toHaveValue('system');
   await expect(page.locator('input[name="visualStylePreference"][value="terminal"]')).toBeChecked();
+  await expect(page.locator('#uiShapePreferenceSelect')).toHaveValue('subtle');
   await expect(page.locator('[data-appearance-preview]')).toHaveCount(5);
 
   await page.locator('#themePreferenceSelect').selectOption('dark');
@@ -148,17 +151,24 @@ test('applies and persists theme and visual style immediately', async ({ page })
 
   await page.locator('input[name="visualStylePreference"][value="warm-editorial"]').check();
   await expect(root).toHaveAttribute('data-visual-style', 'warm-editorial');
+  await page.locator('#uiShapePreferenceSelect').selectOption('rounded');
+  await expect(root).toHaveAttribute('data-ui-shape', 'rounded');
+  await expect(page.locator('.card').first()).toHaveCSS('border-radius', '12px');
 
-  const appearanceWrites = await page.evaluate(() => window.__omniPilotTestState.writes.filter(write => write.themePreference || write.visualStylePreference));
+  const appearanceWrites = await page.evaluate(() => window.__omniPilotTestState.writes.filter(
+    write => write.themePreference || write.visualStylePreference || write.uiShapePreference
+  ));
   expect(appearanceWrites).toEqual(expect.arrayContaining([
     { themePreference: 'dark' },
-    { visualStylePreference: 'warm-editorial' }
+    { visualStylePreference: 'warm-editorial' },
+    { uiShapePreference: 'rounded' }
   ]));
 
   await page.locator('#saveBtn').click();
   const lastWrite = await page.evaluate(() => window.__omniPilotTestState.writes.at(-1));
   expect(lastWrite).not.toHaveProperty('themePreference');
   expect(lastWrite).not.toHaveProperty('visualStylePreference');
+  expect(lastWrite).not.toHaveProperty('uiShapePreference');
 });
 
 test('loads saved custom-provider settings into every field and saves edits', async ({ page }) => {

@@ -57,6 +57,27 @@
   color-scheme: dark;
 }
 
+:where([data-appearance-root][data-surface], #omnipilot-extension-root-7f3a9c)[data-ui-shape="subtle"] {
+  --appearance-radius-xs: 2px;
+  --appearance-radius-sm: 4px;
+  --appearance-radius-md: 6px;
+  --appearance-radius-pill: 8px;
+}
+
+:where([data-appearance-root][data-surface], #omnipilot-extension-root-7f3a9c)[data-ui-shape="rounded"] {
+  --appearance-radius-xs: 4px;
+  --appearance-radius-sm: 8px;
+  --appearance-radius-md: 12px;
+  --appearance-radius-pill: 16px;
+}
+
+:where([data-appearance-root][data-surface], #omnipilot-extension-root-7f3a9c)[data-ui-shape="pill"] {
+  --appearance-radius-xs: 6px;
+  --appearance-radius-sm: 12px;
+  --appearance-radius-md: 18px;
+  --appearance-radius-pill: 9999px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   :where([data-appearance-root][data-surface], #omnipilot-extension-root-7f3a9c, [data-appearance-preview]) *,
   :where([data-appearance-root][data-surface], #omnipilot-extension-root-7f3a9c, [data-appearance-preview]) *::before,

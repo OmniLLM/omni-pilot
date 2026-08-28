@@ -29,6 +29,13 @@ const VISUAL_STYLE_OPTIONS = [
   ['neo-brutalist', 'visualStyleNeoBrutalist']
 ];
 
+const UI_SHAPE_OPTIONS = [
+  ['square', 'uiShapeSquare'],
+  ['subtle', 'uiShapeSubtle'],
+  ['rounded', 'uiShapeRounded'],
+  ['pill', 'uiShapePill']
+];
+
 function isReady(config) {
   return config.providerType === 'github-copilot'
     || config.authMethod === 'github-copilot'
@@ -69,7 +76,8 @@ function PopupApp() {
     providerType: STORAGE_DEFAULTS.providerType,
     authMethod: STORAGE_DEFAULTS.authMethod,
     themePreference: 'dark',
-    visualStylePreference: 'current'
+    visualStylePreference: 'current',
+    uiShapePreference: 'square'
   });
 
   const controllerRef = useRef(null);
@@ -105,7 +113,8 @@ function PopupApp() {
       },
       onApply: applied => merge({
         themePreference: applied.themePreference,
-        visualStylePreference: applied.visualStylePreference
+        visualStylePreference: applied.visualStylePreference,
+        uiShapePreference: applied.uiShapePreference
       })
     });
     controllerRef.current = controller;
@@ -170,6 +179,12 @@ function PopupApp() {
     persist({ visualStylePreference });
   };
 
+  const onUiShapeChange = uiShapePreference => {
+    merge({ uiShapePreference });
+    controllerRef.current?.update({ uiShapePreference });
+    persist({ uiShapePreference });
+  };
+
   const onLanguageChange = value => {
     const languagePreference = normalizeLanguage(value);
     merge({ language: languagePreference });
@@ -230,6 +245,14 @@ function PopupApp() {
           options=${THEME_OPTIONS}
           language=${language}
           onChange=${onThemeChange}
+        />
+        <${PreferenceRow}
+          id="uiShapePreferenceSelect"
+          labelKey="uiShape"
+          value=${state.uiShapePreference}
+          options=${UI_SHAPE_OPTIONS}
+          language=${language}
+          onChange=${onUiShapeChange}
         />
         <${PreferenceRow}
           id="visualStylePreferenceSelect"

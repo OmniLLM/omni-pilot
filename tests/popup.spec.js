@@ -144,6 +144,16 @@ test('changing the visual style persists it and applies it live', async ({ page 
   await expect(page.locator('html')).toHaveAttribute('data-visual-style', 'neo-brutalist');
 });
 
+test('changing the component shape persists it and applies it live', async ({ page }) => {
+  await open(page);
+  await page.selectOption('#uiShapePreferenceSelect', 'pill');
+
+  expect(await writes(page)).toContainEqual({ uiShapePreference: 'pill' });
+  await expect(page.locator('html')).toHaveAttribute('data-ui-shape', 'pill');
+  const radius = await page.locator('#settingsBtn').evaluate(element => parseFloat(getComputedStyle(element).borderRadius));
+  expect(radius).toBeGreaterThanOrEqual(20);
+});
+
 test('changing the language persists it and re-labels the UI', async ({ page }) => {
   await open(page, { apiKey: 'sk-test' });
   await expect(page.locator('#statusText')).toHaveText(READY);

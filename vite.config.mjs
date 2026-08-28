@@ -12,10 +12,14 @@ export default defineConfig({
     outDir: 'dist',
     cssMinify: true,
     rollupOptions: {
-      input: 'src/styles/tailwind.css',
+      input: {
+        tailwind: 'src/styles/tailwind.css',
+        popup: 'src/styles/popup.css',
+        options: 'src/styles/options.css',
+        sidepanel: 'src/styles/sidepanel.css'
+      },
       output: {
-        assetFileNames: assetInfo =>
-          assetInfo.name?.endsWith('.css') ? 'tailwind.css' : 'assets/[name]-[hash][extname]'
+        assetFileNames: '[name][extname]'
       }
     }
   }

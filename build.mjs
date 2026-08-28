@@ -20,8 +20,8 @@
 // Styles are emitted two ways:
 //   * `dist/styles.css` — hand-written CSS for the content script, which is
 //     injected into every page with no Shadow DOM. Never framework-generated.
-//   * `dist/tailwind.css` — build-time Tailwind utilities for the popup,
-//     options, and sidepanel pages only. See `src/styles/tailwind.css`.
+//   * `dist/{tailwind,popup,options,sidepanel}.css` — Vite-processed Tailwind
+//     utilities and page component styles for extension pages only.
 //
 // Run with: npm run build
 import fs from 'fs'
@@ -183,6 +183,10 @@ function buildTailwind() {
   if (result.error) throw result.error
   if (result.status !== 0) {
     throw new Error(`Tailwind build failed (exit ${result.status}):\n${result.stderr || result.stdout}`)
+  }
+  for (const page of ['popup', 'options', 'sidepanel']) {
+    const pageCss = `${outdir}/${page}.css`
+    if (!fs.existsSync(pageCss)) throw new Error(`Vite did not emit ${pageCss}`)
   }
   const sizeKb = (fs.statSync(out).size / 1024).toFixed(1)
   console.log(`  ${out}  ${sizeKb}kb`)
