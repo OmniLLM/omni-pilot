@@ -8,3 +8,4 @@ test_extension.js
 .serena/
 test-results/
 .playwright-mcp/
+.claude/worktrees/

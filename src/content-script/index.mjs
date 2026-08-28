@@ -2,6 +2,7 @@
 // Detects text selection and shows AI action bubble
 
 import { t, normalizeLanguage } from '../utils/i18n.mjs';
+import { createAppearanceController } from '../utils/appearance.mjs';
 
 (function () {
   'use strict';
@@ -13,7 +14,6 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
   let panelMinimized = false;
   let lastSelection = '';
   let lastSelectionRect = null;
-  let currentTheme = 'dark';
   let currentLanguage = 'en';
   let conversationHistory = []; // stores {role, content} for multi-turn chat
   let currentModel = '';
@@ -49,27 +49,35 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
 
   function applyLanguage(language) {
     currentLanguage = normalizeLanguage(language);
-    document.documentElement.lang = currentLanguage;
+    ensureOmniPilotRoot().lang = currentLanguage;
     updatePanelMeta();
   }
 
-  function applyThemeTo(el) {
-    if (!el) return;
-    if (currentTheme === 'light') el.setAttribute('data-op-theme', 'light');
-    else el.removeAttribute('data-op-theme');
+  let omniPilotRoot = null;
+
+  function ensureOmniPilotRoot() {
+    if (omniPilotRoot?.isConnected === true || (omniPilotRoot?.isConnected === undefined && omniPilotRoot?.parentNode)) {
+      return omniPilotRoot;
+    }
+    if (omniPilotRoot?.parentNode) omniPilotRoot.remove();
+
+    omniPilotRoot = document.createElement('div');
+    omniPilotRoot.id = 'omnipilot-extension-root-7f3a9c';
+    omniPilotRoot.setAttribute('data-omnipilot-owned', 'true');
+    omniPilotRoot.setAttribute('data-appearance-root', '');
+    omniPilotRoot.setAttribute('data-surface', 'content');
+    omniPilotRoot.setAttribute('data-theme-preference', 'dark');
+    omniPilotRoot.setAttribute('data-theme', 'dark');
+    omniPilotRoot.setAttribute('data-visual-style', 'current');
+
+    if (document.body && !omniPilotRoot.parentNode) {
+      document.body.appendChild(omniPilotRoot);
+    }
+    return omniPilotRoot;
   }
 
-  function applyTheme(theme) {
-    currentTheme = theme;
-    document.documentElement.setAttribute('data-op-theme', theme);
-    document.body?.setAttribute('data-op-theme', theme);
-    [bubble, dropdown, panel, minimizedOrb].forEach(applyThemeTo);
-  }
-
-  function loadThemePreference() {
-    safeStorageGet(chrome.storage?.sync, { themePreference: 'dark' }, config => {
-      applyTheme(config.themePreference);
-    });
+  function getUiMount() {
+    return ensureOmniPilotRoot();
   }
 
   function loadLanguagePreference() {
@@ -106,7 +114,6 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
     updatePanelMeta();
   });
 
-  loadThemePreference();
   loadLanguagePreference();
 
 
@@ -126,7 +133,6 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
     if (changes.apiKey || changes.authMethod || changes.providerType || a2aServersChanged) {
       hasApiKey = currentProviderType === 'github-copilot' || currentAuthMethod === 'github-copilot' || isA2aProviderType(currentProviderType) || Boolean(currentApiKey);
     }
-    if (changes.themePreference) applyTheme(changes.themePreference.newValue || 'dark');
     if (changes.languagePreference) applyLanguage(changes.languagePreference.newValue || 'en');
     if (changes.popupInitialWidth) popupInitialWidth = normalizePopupSizeValue(changes.popupInitialWidth.newValue, 300, 1200);
     if (changes.popupInitialHeight) popupInitialHeight = normalizePopupSizeValue(changes.popupInitialHeight.newValue, 180, 900);
@@ -441,8 +447,7 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
         hideDropdown();
       }
     });
-    document.body.appendChild(el);
-    applyThemeTo(el);
+    getUiMount().appendChild(el);
     return el;
   }
 
@@ -541,8 +546,7 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
       }
     });
 
-    document.body.appendChild(el);
-    applyThemeTo(el);
+    getUiMount().appendChild(el);
     return el;
   }
 
@@ -767,8 +771,7 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
       }
     });
 
-    document.body.appendChild(orb);
-    applyThemeTo(orb);
+    getUiMount().appendChild(orb);
     minimizedOrb = orb;
     return orb;
   }
@@ -1036,8 +1039,7 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
       panel.appendChild(body);
       panel.appendChild(inputArea);
       panel.appendChild(resizeHandle);
-      document.body.appendChild(panel);
-      applyThemeTo(panel);
+      getUiMount().appendChild(panel);
 
       // Observe panel size changes to scale textarea max-height proportionally
       const panelResizeObserver = new ResizeObserver(entries => {
@@ -1360,12 +1362,11 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
 
   function showModelSelector(anchorEl) {
     // Remove existing selector if any
-    const existing = document.getElementById('omnipilot-model-selector');
+    const existing = getUiMount().querySelector('#omnipilot-model-selector');
     if (existing) { existing.remove(); return; }
 
     const selector = document.createElement('div');
     selector.id = 'omnipilot-model-selector';
-    applyThemeTo(selector);
 
     // Filter input
     const filterInput = document.createElement('input');
@@ -1379,7 +1380,7 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
     listContainer.className = 'omnipilot-model-list';
     selector.appendChild(listContainer);
 
-    document.body.appendChild(selector);
+    getUiMount().appendChild(selector);
 
     // Position below the anchor
     const rect = anchorEl.getBoundingClientRect();
@@ -1447,12 +1448,11 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
   }
 
   function showProviderSelector(anchorEl) {
-    const existing = document.getElementById('omnipilot-provider-selector');
+    const existing = getUiMount().querySelector('#omnipilot-provider-selector');
     if (existing) { existing.remove(); return; }
 
     const selector = document.createElement('div');
     selector.id = 'omnipilot-provider-selector';
-    applyThemeTo(selector);
 
     getProviderEntries().forEach(({ providerType, label: providerLabel }) => {
       const item = document.createElement('div');
@@ -1469,7 +1469,7 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
       selector.appendChild(item);
     });
 
-    document.body.appendChild(selector);
+    getUiMount().appendChild(selector);
 
     const rect = anchorEl.getBoundingClientRect();
     selector.style.left = `${rect.left}px`;
@@ -1486,12 +1486,11 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
 
   function showActionSelector(anchorEl) {
     // Remove existing selector if any
-    const existing = document.getElementById('omnipilot-action-selector');
+    const existing = getUiMount().querySelector('#omnipilot-action-selector');
     if (existing) { existing.remove(); return; }
 
     const selector = document.createElement('div');
     selector.id = 'omnipilot-action-selector';
-    applyThemeTo(selector);
 
     const allActions = [
       { id: '', labelKey: 'chat', icon: '💬' },
@@ -1517,7 +1516,7 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
       selector.appendChild(item);
     });
 
-    document.body.appendChild(selector);
+    getUiMount().appendChild(selector);
 
     // Position below the anchor
     const rect = anchorEl.getBoundingClientRect();
@@ -1981,6 +1980,31 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
     }
   }
 
+  const appearanceController = createAppearanceController({
+    root: ensureOmniPilotRoot(),
+    surface: 'content',
+    readPreferences(defaults, callback) {
+      safeStorageGet(chrome.storage?.sync, defaults, callback);
+    },
+    subscribeToChanges(listener) {
+      let active = true;
+      const subscribed = safeAddListener(chrome.storage?.onChanged, (...args) => {
+        if (active) listener(...args);
+      });
+      return subscribed ? () => { active = false; } : undefined;
+    },
+    matchMedia: typeof globalThis.matchMedia === 'function'
+      ? globalThis.matchMedia.bind(globalThis)
+      : undefined
+  });
+
+  if (!document.body) {
+    document.addEventListener('DOMContentLoaded', () => {
+      const root = ensureOmniPilotRoot();
+      if (!root.parentNode) document.body?.appendChild(root);
+    }, { once: true });
+  }
+
   // Map a background 'status' signal to a localized spinner label. Falls back to
   // the generic thinking label for unknown statuses.
   function statusLabel(status) {
@@ -2411,7 +2435,8 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
       el.id?.startsWith('omnipilot-') ||
       el.closest?.('#omnipilot-bubble') ||
       el.closest?.('#omnipilot-dropdown') ||
-      el.closest?.('#omnipilot-panel')
+      el.closest?.('#omnipilot-panel') ||
+      el.closest?.('#omnipilot-extension-root-7f3a9c')
     );
   }
 

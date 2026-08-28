@@ -1,4 +1,5 @@
 import { t, normalizeLanguage, applyTranslations } from '../utils/i18n.mjs';
+import { createAppearanceController } from '../utils/appearance.mjs';
 
 const PROVIDER_TYPES = {
   CUSTOM: 'custom-provider',
@@ -41,7 +42,6 @@ const DEFAULT_CONFIG = {
   apiKey: '',
   model: 'claude-sonnet-4-5',
   models: '',
-  themePreference: 'dark',
   languagePreference: 'en',
   apiShape: 'openai-compatible',
   providerType: PROVIDER_TYPES.CUSTOM,
@@ -52,7 +52,7 @@ const DEFAULT_CONFIG = {
   responseTimeoutMs: RESPONSE_TIMEOUT_DEFAULT_MS
 };
 
-const STORAGE_KEYS = ['endpoint', 'apiKey', 'model', 'models', 'themePreference', 'apiShape', 'languagePreference', 'providerType', 'authMethod', 'providerConfigs', 'a2aServers', 'a2aAutoRoute', 'memoryEnabled', 'popupInitialWidth', 'popupInitialHeight', 'responseTimeoutMs'];
+const STORAGE_KEYS = ['endpoint', 'apiKey', 'model', 'models', 'apiShape', 'languagePreference', 'providerType', 'authMethod', 'providerConfigs', 'a2aServers', 'a2aAutoRoute', 'memoryEnabled', 'popupInitialWidth', 'popupInitialHeight', 'responseTimeoutMs'];
 const A2A_TOKEN_STORAGE_KEY = 'a2aServerTokens';
 const PROVIDER_CONFIG_FIELDS = ['endpoint', 'apiKey', 'model', 'models', 'apiShape'];
 
@@ -72,6 +72,45 @@ function applyLanguage(language) {
   document.documentElement.lang = currentLanguage;
   document.getElementById('languageSelect').value = currentLanguage;
   applyTranslations(document, currentLanguage);
+}
+
+function initAppearance() {
+  const themeSelect = document.getElementById('themePreferenceSelect');
+  const styleRadios = Array.from(document.querySelectorAll('input[name="visualStylePreference"]'));
+  const previews = Array.from(document.querySelectorAll('[data-appearance-preview]'));
+
+  const controller = createAppearanceController({
+    root: document.documentElement,
+    surface: 'options',
+    readPreferences: (defaults, callback) => chrome.storage.sync.get(defaults, callback),
+    subscribeToChanges: listener => {
+      if (!chrome.storage.onChanged?.addListener) return null;
+      chrome.storage.onChanged.addListener(listener);
+      return () => chrome.storage.onChanged.removeListener?.(listener);
+    },
+    onApply: state => {
+      if (themeSelect) themeSelect.value = state.themePreference;
+      styleRadios.forEach(radio => { radio.checked = radio.value === state.visualStylePreference; });
+      previews.forEach(preview => preview.setAttribute('data-theme', state.resolvedTheme));
+    }
+  });
+
+  themeSelect?.addEventListener('change', () => {
+    const themePreference = themeSelect.value;
+    controller.update({ themePreference });
+    chrome.storage.sync.set({ themePreference });
+  });
+
+  styleRadios.forEach(radio => {
+    radio.addEventListener('change', () => {
+      if (!radio.checked) return;
+      const visualStylePreference = radio.value;
+      controller.update({ visualStylePreference });
+      chrome.storage.sync.set({ visualStylePreference });
+    });
+  });
+
+  return controller;
 }
 
 // ── Model Fetch ──────────────────────────────────────────────────────────────
@@ -1059,6 +1098,9 @@ function scheduleFetch() {
 // ── Init ─────────────────────────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', () => {
+  const appearanceController = initAppearance();
+  globalThis.addEventListener?.('unload', () => appearanceController.dispose(), { once: true });
+
   chrome.storage.sync.get(STORAGE_KEYS, storedConfig => {
     const config = { ...DEFAULT_CONFIG, ...storedConfig };
     const providerType = normalizeProviderType(storedConfig.providerType, storedConfig.authMethod);
@@ -1081,7 +1123,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const apiShape = activeProviderConfig.apiShape || (activeProviderConfig.endpoint ? inferApiShape(activeProviderConfig.endpoint) : DEFAULT_CONFIG.apiShape);
     activeProviderConfig.apiShape = apiShape;
 
-    document.documentElement.setAttribute('data-theme', config.themePreference);
     applyLanguage(config.languagePreference);
     setPopupInitialSizeFields(config);
     setResponseTimeoutField(config);

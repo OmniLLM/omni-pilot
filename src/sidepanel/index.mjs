@@ -1,33 +1,37 @@
 // OmniPilot Side Panel
+import { createAppearanceController } from '../utils/appearance.mjs';
 (function () {
   'use strict';
 
   const body = document.getElementById('chatBody');
   const input = document.getElementById('chatInput');
   const sendBtn = document.getElementById('sendBtn');
-  const themeToggle = document.getElementById('themeToggle');
   const history = [];
-  let currentTheme = 'light';
   // Surface an error if the stream port goes silent this long (worker suspended
   // or A2A delegation hung). Reset on every message so live streams aren't cut.
   let streamWatchdogMs = RESPONSE_TIMEOUT_DEFAULT_MS;
 
-  // Theme
-  chrome.storage.sync.get({ themePreference: 'dark', responseTimeoutMs: RESPONSE_TIMEOUT_DEFAULT_MS }, cfg => {
-    currentTheme = cfg.themePreference || 'dark';
-    streamWatchdogMs = normalizeResponseTimeoutMs(cfg.responseTimeoutMs);
-    applyTheme();
+  const appearanceController = createAppearanceController({
+    root: document.documentElement,
+    surface: 'sidepanel',
+    readPreferences(defaults, callback) {
+      chrome.storage.sync.get(defaults, callback);
+    },
+    subscribeToChanges(listener) {
+      const onChanged = chrome.storage?.onChanged;
+      if (!onChanged?.addListener) return undefined;
+      onChanged.addListener(listener);
+      return () => onChanged.removeListener?.(listener);
+    },
+    matchMedia: typeof globalThis.matchMedia === 'function'
+      ? globalThis.matchMedia.bind(globalThis)
+      : undefined
   });
 
-  function applyTheme() {
-    document.body.setAttribute('data-theme', currentTheme);
-    themeToggle.textContent = currentTheme === 'dark' ? '☀️' : '🌙';
-  }
+  window.addEventListener?.('unload', () => appearanceController.dispose(), { once: true });
 
-  themeToggle.addEventListener('click', () => {
-    currentTheme = currentTheme === 'dark' ? 'light' : 'dark';
-    chrome.storage.sync.set({ themePreference: currentTheme });
-    applyTheme();
+  chrome.storage.sync.get({ responseTimeoutMs: RESPONSE_TIMEOUT_DEFAULT_MS }, cfg => {
+    streamWatchdogMs = normalizeResponseTimeoutMs(cfg.responseTimeoutMs);
   });
 
   // Auto-resize textarea

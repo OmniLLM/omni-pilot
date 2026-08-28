@@ -1,105 +1,78 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-appearance-root data-surface="sidepanel" data-theme-preference="dark" data-theme="dark" data-visual-style="current">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>OmniPilot</title>
+  <link rel="stylesheet" href="appearance.css">
   <style>
-    :root {
-      --sp-bg: #ffffff;
-      --sp-bg2: #f8f9fa;
-      --sp-border: #dadce0;
-      --sp-ink: #202124;
-      --sp-ink2: #5f6368;
-      --sp-accent: #1a73e8;
-      --sp-hover: rgba(60, 64, 67, 0.06);
-    }
-
-    [data-theme="dark"] {
-      --sp-bg: #1e1e1e;
-      --sp-bg2: #2d2d2d;
-      --sp-border: #444;
-      --sp-ink: #e8eaed;
-      --sp-ink2: #9aa0a6;
-      --sp-accent: #8ab4f8;
-      --sp-hover: rgba(255, 255, 255, 0.08);
-    }
-
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
-      font-family: 'Google Sans', 'Segoe UI', Roboto, sans-serif;
-      background: var(--sp-bg);
-      color: var(--sp-ink);
+      font-family: var(--appearance-font-body);
+      background: var(--appearance-canvas);
+      color: var(--appearance-text);
       height: 100vh;
       display: flex;
       flex-direction: column;
     }
 
     .sp-header {
-      padding: 12px 16px;
-      border-bottom: 1px solid var(--sp-border);
+      padding: var(--appearance-space-3) var(--appearance-space-4);
+      border-bottom: var(--appearance-border-width) solid var(--appearance-border);
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: var(--appearance-space-2);
       flex-shrink: 0;
+      background: var(--appearance-surface);
     }
 
     .sp-header h1 {
-      font-size: 16px;
-      font-weight: 600;
-    }
-
-    .sp-header .sp-theme-btn {
-      margin-left: auto;
-      background: none;
-      border: none;
-      cursor: pointer;
-      font-size: 16px;
-      padding: 4px;
-      border-radius: 0;
-    }
-
-    .sp-header .sp-theme-btn:hover {
-      background: var(--sp-hover);
+      font-family: var(--appearance-font-display);
+      font-size: var(--appearance-font-size-lg);
+      font-weight: var(--appearance-weight-strong);
+      letter-spacing: var(--appearance-heading-tracking);
+      text-transform: var(--appearance-heading-transform);
     }
 
     .sp-body {
       flex: 1;
       overflow-y: auto;
-      padding: 12px 16px;
+      padding: var(--appearance-space-3) var(--appearance-space-4);
       display: flex;
       flex-direction: column;
-      gap: 12px;
+      gap: var(--appearance-row-gap);
     }
 
     .sp-msg {
       padding: 10px 14px;
       border-radius: 0;
-      font-size: 14px;
-      line-height: 1.5;
+      font-size: var(--appearance-font-size-md);
+      line-height: var(--appearance-line-height-body);
       max-width: 95%;
-      word-wrap: break-word;
+      overflow-wrap: anywhere;
+      box-shadow: var(--appearance-shadow-1);
     }
 
     .sp-msg-user {
-      background: var(--sp-accent);
-      color: #fff;
+      background: var(--appearance-accent);
+      color: var(--appearance-on-accent);
       align-self: flex-end;
       border-radius: 0;
     }
 
     .sp-msg-assistant {
-      background: var(--sp-bg2);
+      background: var(--appearance-surface);
+      color: var(--appearance-text);
       align-self: flex-start;
-      border: 1px solid var(--sp-border);
+      border: var(--appearance-border-width) solid var(--appearance-border);
       border-radius: 0;
     }
 
     .sp-msg-assistant.sp-streaming::after {
       content: '█';
       animation: sp-blink 0.6s step-end infinite;
-      color: var(--sp-accent);
+      color: var(--appearance-accent);
       margin-left: 1px;
     }
 
@@ -109,68 +82,82 @@
     }
 
     .sp-input-area {
-      padding: 12px 16px;
-      border-top: 1px solid var(--sp-border);
+      padding: var(--appearance-space-3) var(--appearance-space-4);
+      border-top: var(--appearance-border-width) solid var(--appearance-border);
       display: flex;
-      gap: 8px;
+      gap: var(--appearance-space-2);
       flex-shrink: 0;
+      background: var(--appearance-surface);
     }
 
     .sp-input {
       flex: 1;
-      border: 1px solid var(--sp-border);
+      border: var(--appearance-border-width) solid var(--appearance-border);
       border-radius: 0;
-      padding: 8px 12px;
-      font-size: 14px;
-      background: var(--sp-bg);
-      color: var(--sp-ink);
+      padding: var(--appearance-space-2) var(--appearance-space-3);
+      font: inherit;
+      font-size: var(--appearance-font-size-md);
+      background: var(--appearance-canvas);
+      color: var(--appearance-text);
       outline: none;
       resize: none;
-      min-height: 36px;
+      min-height: var(--appearance-control-height);
       max-height: 120px;
+      transition: border-color var(--appearance-transition-duration) var(--appearance-transition-easing);
     }
 
-    .sp-input:focus {
-      border-color: var(--sp-accent);
+    .sp-input:focus-visible {
+      border-color: var(--appearance-focus);
+      outline: var(--appearance-border-width-strong) solid var(--appearance-focus);
+      outline-offset: 1px;
     }
+
+    .sp-input::placeholder { color: var(--appearance-text-subtle); }
 
     .sp-send {
-      background: var(--sp-accent);
-      color: #fff;
-      border: none;
+      background: var(--appearance-accent);
+      color: var(--appearance-on-accent);
+      border: var(--appearance-border-width) solid var(--appearance-accent);
       border-radius: 0;
-      padding: 8px 16px;
+      padding: var(--appearance-space-2) var(--appearance-space-4);
       cursor: pointer;
-      font-size: 14px;
-      font-weight: 500;
+      font: inherit;
+      font-size: var(--appearance-font-size-md);
+      font-weight: var(--appearance-weight-medium);
       align-self: flex-end;
+      min-height: var(--appearance-control-height);
+      box-shadow: var(--appearance-shadow-1);
+      transition: background var(--appearance-transition-duration) var(--appearance-transition-easing);
     }
 
-    .sp-send:hover {
-      opacity: 0.9;
+    .sp-send:hover { background: var(--appearance-accent-hover); }
+    .sp-send:active { transform: var(--appearance-active-transform); }
+    .sp-send:focus-visible {
+      outline: var(--appearance-border-width-strong) solid var(--appearance-focus);
+      outline-offset: 2px;
     }
 
     .sp-empty {
       text-align: center;
-      color: var(--sp-ink2);
+      color: var(--appearance-text-muted);
       padding: 40px 20px;
-      font-size: 14px;
+      font-size: var(--appearance-font-size-md);
     }
 
     .sp-error {
-      color: #d93025;
-      background: rgba(217, 48, 37, 0.08);
-      padding: 8px 12px;
+      color: var(--appearance-danger);
+      background: var(--appearance-surface);
+      border-left: var(--appearance-border-width-strong) solid var(--appearance-danger);
+      padding: var(--appearance-space-2) var(--appearance-space-3);
       border-radius: 0;
-      font-size: 13px;
+      font-size: var(--appearance-font-size-sm);
     }
   </style>
 </head>
 <body>
   <div class="sp-header">
-    <span>✦</span>
+    <span aria-hidden="true">✦</span>
     <h1>OmniPilot</h1>
-    <button class="sp-theme-btn" id="themeToggle" title="Toggle theme">🌙</button>
   </div>
   <div class="sp-body" id="chatBody">
     <div class="sp-empty">Start a conversation. Ask anything.</div>

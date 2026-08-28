@@ -12,7 +12,10 @@ function createElement(id = '') {
     checked: false,
     dataset: {},
     listeners: {},
-    classList: { add(className) { this[className] = true; } },
+    classList: {
+      add(className) { this[className] = true; },
+      toggle(className, force) { this[className] = force === undefined ? !this[className] : Boolean(force); }
+    },
     addEventListener(event, handler) { this.listeners[event] = handler; },
     setAttribute(name, value) { this[name] = value; }
   };
@@ -44,21 +47,23 @@ function createDocument(elements) {
 
 function loadPopup(storedConfig) {
   const writes = [];
+  const storageListeners = [];
   const elements = {
     statusDot: createElement('statusDot'),
     statusText: createElement('statusText'),
     themeToggle: createElement('themeToggle'),
-    themeValue: createElement('themeValue'),
+    themePreferenceSelect: createElement('themePreferenceSelect'),
+    visualStylePreferenceSelect: createElement('visualStylePreferenceSelect'),
     languageSelect: createElement('languageSelect'),
     settingsBtn: createElement('settingsBtn'),
     desc: createElement('desc'),
-    themeLabel: createElement('themeLabel'),
+    appearanceLabel: createElement('appearanceLabel'),
     languageLabel: createElement('languageLabel'),
     settingsLabel: createElement('settingsLabel')
   };
 
   elements.desc.dataset.i18n = 'selectTextDesc';
-  elements.themeLabel.dataset.i18n = 'theme';
+  elements.appearanceLabel.dataset.i18n = 'appearance';
   elements.languageLabel.dataset.i18n = 'language';
   elements.settingsLabel.dataset.i18n = 'settings';
 
@@ -71,6 +76,13 @@ function loadPopup(storedConfig) {
         sync: {
           get(defaults, cb) { cb({ ...defaults, ...storedConfig }); },
           set(value) { writes.push(value); }
+        },
+        onChanged: {
+          addListener(listener) { storageListeners.push(listener); },
+          removeListener(listener) {
+            const index = storageListeners.indexOf(listener);
+            if (index >= 0) storageListeners.splice(index, 1);
+          }
         }
       }
     }
@@ -80,7 +92,7 @@ function loadPopup(storedConfig) {
   vm.createContext(context);
   vm.runInContext(source, context);
 
-  return { elements, writes, documentElement: context.document.documentElement };
+  return { elements, writes, storageListeners, documentElement: context.document.documentElement };
 }
 
 {
@@ -93,8 +105,9 @@ function loadPopup(storedConfig) {
   assert.strictEqual(documentElement.lang, 'zh');
   assert.strictEqual(elements.desc.textContent, '在任意页面选择文本即可使用 AI 操作。');
   assert.strictEqual(elements.statusText.textContent, '就绪');
-  assert.strictEqual(elements.themeLabel.textContent, '主题');
-  assert.strictEqual(elements.themeValue.textContent, '深色');
+  assert.strictEqual(elements.appearanceLabel.textContent, '外观');
+  assert.strictEqual(elements.themePreferenceSelect.value, 'dark');
+  assert.strictEqual(elements.visualStylePreferenceSelect.value, 'current');
   assert.strictEqual(elements.languageLabel.textContent, '语言');
   assert.strictEqual(elements.languageSelect.value, 'zh');
   assert.strictEqual(elements.settingsLabel.textContent, '设置');
@@ -114,4 +127,33 @@ function loadPopup(storedConfig) {
   });
 
   assert.strictEqual(elements.statusText.textContent, 'Ready');
+}
+
+{
+  const { elements, writes, storageListeners, documentElement } = loadPopup({
+    languagePreference: 'en',
+    themePreference: 'light',
+    visualStylePreference: 'terminal'
+  });
+
+  assert.strictEqual(elements.themePreferenceSelect.value, 'light');
+  assert.strictEqual(elements.visualStylePreferenceSelect.value, 'terminal');
+  assert.strictEqual(documentElement.attrs['data-theme'], 'light');
+  assert.strictEqual(documentElement.attrs['data-visual-style'], 'terminal');
+
+  elements.themePreferenceSelect.value = 'system';
+  elements.themePreferenceSelect.listeners.change();
+  assert.strictEqual(writes.at(-1).themePreference, 'system');
+  assert.strictEqual(documentElement.attrs['data-theme-preference'], 'system');
+
+  elements.visualStylePreferenceSelect.value = 'neo-brutalist';
+  elements.visualStylePreferenceSelect.listeners.change();
+  assert.strictEqual(writes.at(-1).visualStylePreference, 'neo-brutalist');
+  assert.strictEqual(documentElement.attrs['data-visual-style'], 'neo-brutalist');
+
+  for (const listener of storageListeners) {
+    listener({ visualStylePreference: { newValue: 'warm-editorial' } }, 'sync');
+  }
+  assert.strictEqual(elements.visualStylePreferenceSelect.value, 'warm-editorial');
+  assert.strictEqual(documentElement.attrs['data-visual-style'], 'warm-editorial');
 }

@@ -1,36 +1,25 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-appearance-root data-surface="popup" data-theme-preference="dark" data-theme="dark" data-visual-style="current">
 <head>
   <meta charset="UTF-8">
+  <link rel="stylesheet" href="appearance.css">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
-      --bg: #0e0e16;
-      --bg2: #17171f;
-      --bg3: #1f1f2c;
-      --border: rgba(255,255,255,0.07);
-      --ink: #e4e4f0;
-      --ink2: #7a7a92;
-      --accent: #6c6cff;
-      --success: #3ecf8e;
-      --danger: #f87171;
-    }
-
-    [data-theme="light"] {
-      --bg: #f5f5f8;
-      --bg2: #ffffff;
-      --bg3: #eeeef4;
-      --border: rgba(0,0,0,0.08);
-      --ink: #111118;
-      --ink2: #666677;
-      --accent: #4a4aff;
-      --success: #16a34a;
-      --danger: #dc2626;
+      --bg: var(--appearance-canvas);
+      --bg2: var(--appearance-surface);
+      --bg3: var(--appearance-surface-raised);
+      --border: var(--appearance-border);
+      --ink: var(--appearance-text);
+      --ink2: var(--appearance-text-muted);
+      --accent: var(--appearance-accent);
+      --success: var(--appearance-success);
+      --danger: var(--appearance-danger);
     }
 
     body {
-      font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+      font-family: var(--appearance-font-body);
       background: var(--bg);
       color: var(--ink);
       width: 260px;
@@ -63,9 +52,15 @@
       background: var(--accent);
       border-radius: 0;
       display: flex; align-items: center; justify-content: center;
-      font-size: 11px; color: #fff;
+      font-size: 11px; color: var(--appearance-on-accent);
     }
-    .title { font-size: 14px; font-weight: 600; letter-spacing: -0.01em; }
+    .title {
+      font-family: var(--appearance-font-display);
+      font-size: var(--appearance-font-size-md);
+      font-weight: var(--appearance-weight-strong);
+      letter-spacing: var(--appearance-heading-tracking);
+      text-transform: var(--appearance-heading-transform);
+    }
 
     .divider {
       height: 1px;
@@ -74,9 +69,9 @@
     }
 
     .desc {
-      font-size: 12px;
+      font-size: var(--appearance-font-size-sm);
       color: var(--ink2);
-      line-height: 1.55;
+      line-height: var(--appearance-line-height-body);
       margin-bottom: 12px;
     }
 
@@ -94,11 +89,12 @@
       align-items: center;
       justify-content: space-between;
       gap: 12px;
-      margin-bottom: 12px;
+      margin-bottom: var(--appearance-row-gap);
       padding: 10px 12px;
       background: var(--bg2);
-      border: 1px solid var(--border);
+      border: var(--appearance-border-width) solid var(--border);
       border-radius: 0;
+      box-shadow: var(--appearance-shadow-1);
     }
 
     .theme-copy {
@@ -118,50 +114,6 @@
       color: var(--ink2);
     }
 
-    .theme-toggle {
-      position: relative;
-      width: 42px;
-      height: 24px;
-      flex-shrink: 0;
-    }
-
-    .theme-toggle input {
-      position: absolute;
-      inset: 0;
-      opacity: 0;
-      cursor: pointer;
-    }
-
-    .theme-toggle-track {
-      width: 100%;
-      height: 100%;
-      border-radius: 0;
-      background: var(--bg3);
-      border: 1px solid var(--border);
-      transition: background 0.12s, border-color 0.12s;
-    }
-
-    .theme-toggle-thumb {
-      position: absolute;
-      top: 3px;
-      left: 3px;
-      width: 16px;
-      height: 16px;
-      border-radius: 0;
-      background: var(--ink);
-      transition: transform 0.12s, background 0.12s;
-      pointer-events: none;
-    }
-
-    .theme-toggle input:checked + .theme-toggle-track {
-      background: rgba(108,108,255,0.18);
-      border-color: var(--accent);
-    }
-
-    .theme-toggle input:checked + .theme-toggle-track + .theme-toggle-thumb {
-      transform: translateX(18px);
-      background: var(--accent);
-    }
     .dot {
       width: 6px; height: 6px;
       border-radius: 0;
@@ -170,19 +122,51 @@
     }
     .dot.ok { background: var(--success); }
 
+    .appearance-controls .theme-copy { width: 100%; }
+    .appearance-controls .theme-label { margin-bottom: 8px; }
+
+    .preference-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 112px;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+
+    .preference-row:last-child { margin-bottom: 0; }
+
+    .preference-row label {
+      font-size: 11px;
+      color: var(--ink2);
+    }
+
     input, select {
       font-family: inherit;
     }
 
+    .preference-row select,
     #languageSelect {
-      width: 92px;
-      padding: 6px 8px;
+      width: 100%;
+      min-height: 30px;
+      padding: 5px 7px;
       background: var(--bg3);
       color: var(--ink);
-      border: 1px solid var(--border);
+      border: var(--appearance-border-width) solid var(--border);
       border-radius: 0;
-      font-size: 12px;
+      font-size: 11px;
       outline: none;
+    }
+
+    .preference-row select:focus-visible,
+    #languageSelect:focus-visible,
+    .settings-btn:focus-visible {
+      outline: 2px solid var(--appearance-focus);
+      outline-offset: 2px;
+    }
+
+    #languageSelect {
+      width: 92px;
+      font-size: 12px;
     }
 
     .settings-btn {
@@ -226,16 +210,28 @@
     <span id="statusText" aria-live="polite">Checking…</span>
   </div>
 
-  <div class="theme-row">
+  <div class="theme-row appearance-controls" aria-labelledby="appearanceLabel">
     <div class="theme-copy">
-      <span class="theme-label" id="themeLabel" data-i18n="theme">Theme</span>
-      <span class="theme-value" id="themeValue">Dark</span>
+      <span class="theme-label" id="appearanceLabel" data-i18n="appearance">Appearance</span>
+      <div class="preference-row">
+        <label for="themePreferenceSelect" data-i18n="themePreference">Color theme</label>
+        <select id="themePreferenceSelect">
+          <option value="system" data-i18n="themeSystem">System</option>
+          <option value="light" data-i18n="light">Light</option>
+          <option value="dark" data-i18n="dark">Dark</option>
+        </select>
+      </div>
+      <div class="preference-row">
+        <label for="visualStylePreferenceSelect" data-i18n="visualStyle">Visual style</label>
+        <select id="visualStylePreferenceSelect">
+          <option value="current" data-i18n="visualStyleCurrent">Current</option>
+          <option value="clean-minimal" data-i18n="visualStyleCleanMinimal">Clean Minimal</option>
+          <option value="terminal" data-i18n="visualStyleTerminal">Terminal</option>
+          <option value="warm-editorial" data-i18n="visualStyleWarmEditorial">Warm Editorial</option>
+          <option value="neo-brutalist" data-i18n="visualStyleNeoBrutalist">Neo-brutalist</option>
+        </select>
+      </div>
     </div>
-    <label class="theme-toggle" data-i18n-aria-label="toggleDarkMode" aria-label="Toggle dark mode">
-      <input type="checkbox" id="themeToggle" checked>
-      <span class="theme-toggle-track"></span>
-      <span class="theme-toggle-thumb"></span>
-    </label>
   </div>
 
   <div class="theme-row">

@@ -5,9 +5,10 @@
 // context properties. Wrapping the output in an IIFE (as esbuild/rollup do
 // by default) would hide those declarations and break the tests.
 //
-// Three concat sources feed into the built scripts:
+// Four concat sources feed into the built scripts:
 //   * `src/utils/timeout.mjs` is inlined into every JavaScript bundle.
 //   * `src/utils/i18n.mjs` is inlined into content/popup/options bundles.
+//   * `src/utils/appearance.mjs` is inlined into every UI bundle.
 //   * `src/background/agent/*.mjs` (Agent, Runner, Tool, ToolRegistry,
 //     Session, State, A2aToolProvider, follow-up, constants) is inlined
 //     into the background bundle before its entry file.
@@ -23,13 +24,16 @@ const outdir = 'dist'
 fs.rmSync(outdir, { recursive: true, force: true })
 fs.mkdirSync(outdir, { recursive: true })
 
-const i18nRaw = fs.readFileSync('src/utils/i18n.mjs', 'utf8')
-const i18nInlined = i18nRaw.replace(/^export\s*\{[\s\S]*?\};?\s*$/m, '').trimEnd() + '\n'
-const timeoutRaw = fs.readFileSync('src/utils/timeout.mjs', 'utf8')
-const timeoutInlined = timeoutRaw.replace(/^export\s*\{[\s\S]*?\};?\s*$/m, '').trimEnd() + '\n'
+function inlineModule(file) {
+  return stripExports(fs.readFileSync(file, 'utf8')).trimEnd() + '\n'
+}
 
-function stripI18nImports(src) {
-  return src.replace(/^import\s+\{[^}]+\}\s+from\s+['"][^'"]*i18n\.mjs['"];?\s*\n/gm, '')
+const i18nInlined = inlineModule('src/utils/i18n.mjs')
+const appearanceInlined = inlineModule('src/utils/appearance.mjs')
+const timeoutInlined = inlineModule('src/utils/timeout.mjs')
+
+function stripUtilityImports(src) {
+  return src.replace(/^import\s+\{[^}]+\}\s+from\s+['"][^'"]*(?:i18n|appearance)\.mjs['"];?\s*\n/gm, '')
 }
 
 // Strip `export { ... };` / `export default ...;` blocks so declarations
@@ -71,21 +75,22 @@ function concatBackgroundProviders() {
 }
 
 const entries = [
-  { name: 'background', src: 'src/background/index.mjs', needsI18n: false, needsAgent: true  },
-  { name: 'content',    src: 'src/content-script/index.mjs', needsI18n: true,  needsAgent: false },
-  { name: 'popup',      src: 'src/popup/index.mjs', needsI18n: true,  needsAgent: false },
-  { name: 'options',    src: 'src/options/index.mjs', needsI18n: true,  needsAgent: false },
-  { name: 'sidepanel',  src: 'src/sidepanel/index.mjs', needsI18n: false, needsAgent: false },
+  { name: 'background', src: 'src/background/index.mjs', needsI18n: false, needsAppearance: false, needsAgent: true  },
+  { name: 'content',    src: 'src/content-script/index.mjs', needsI18n: true,  needsAppearance: true,  needsAgent: false },
+  { name: 'popup',      src: 'src/popup/index.mjs', needsI18n: true,  needsAppearance: true,  needsAgent: false },
+  { name: 'options',    src: 'src/options/index.mjs', needsI18n: true,  needsAppearance: true,  needsAgent: false },
+  { name: 'sidepanel',  src: 'src/sidepanel/index.mjs', needsI18n: false, needsAppearance: true,  needsAgent: false },
 ]
 
 const agentPrimitives = concatAgentPrimitives()
 const backgroundProviders = concatBackgroundProviders()
 
-for (const { name, src, needsI18n, needsAgent } of entries) {
+for (const { name, src, needsI18n, needsAppearance, needsAgent } of entries) {
   const raw = fs.readFileSync(src, 'utf8')
-  const stripped = stripI18nImports(raw)
+  const stripped = stripUtilityImports(raw)
   const parts = [timeoutInlined]
   if (needsI18n) parts.push(i18nInlined)
+  if (needsAppearance) parts.push(appearanceInlined)
   if (needsAgent) parts.push(agentPrimitives)
   if (needsAgent) parts.push(backgroundProviders)
   parts.push(stripped)
@@ -98,6 +103,13 @@ for (const { name, src, needsI18n, needsAgent } of entries) {
 fs.copyFileSync('src/popup/index.html',        `${outdir}/popup.html`)
 fs.copyFileSync('src/options/index.html',      `${outdir}/options.html`)
 fs.copyFileSync('src/sidepanel/index.html',    `${outdir}/sidepanel.html`)
-fs.copyFileSync('src/content-script/styles.css', `${outdir}/styles.css`)
+const appearanceCss = fs.readFileSync('src/styles/appearance.css', 'utf8')
+fs.writeFileSync(`${outdir}/appearance.css`, appearanceCss)
+const contentAppearanceCss = appearanceCss
+  .replace(/\[data-appearance-root\]\[data-surface\], /g, '')
+  .replace(/, \[data-appearance-preview\]/g, '')
+  .replace(/:where\(#omnipilot-extension-root-7f3a9c\[data-surface="content"\], \[data-appearance-root\]\[data-surface="sidepanel"\]\)/g, '#omnipilot-extension-root-7f3a9c[data-surface="content"]')
+const contentCss = fs.readFileSync('src/content-script/styles.css', 'utf8')
+fs.writeFileSync(`${outdir}/styles.css`, `${contentAppearanceCss}\n${contentCss}`)
 
 console.log('✓ built dist/')
