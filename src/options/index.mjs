@@ -1334,9 +1334,11 @@ document.addEventListener('DOMContentLoaded', () => {
       if (chrome.runtime.lastError) {
         status.textContent = label('errorPrefix') + ' ' + chrome.runtime.lastError.message;
         status.className = 'status error';
+        status.setAttribute?.('role', 'alert');
       } else {
         status.textContent = label('saved');
         status.className = 'status';
+        status.setAttribute?.('role', 'status');
         setTimeout(() => { status.textContent = ''; }, 2500);
       }
     });

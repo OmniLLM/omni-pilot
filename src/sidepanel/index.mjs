@@ -109,7 +109,7 @@ function isExtensionContextInvalidatedError(err) {
 
 function Message({ message }) {
   if (message.role === 'error') {
-    return html`<div class="sp-error">${message.content}</div>`;
+    return html`<div class="sp-error" role="alert">${message.content}</div>`;
   }
   if (message.role === 'divider') {
     return html`<div class="sp-divider">${message.content}</div>`;
@@ -146,15 +146,22 @@ function PageContextChip({ page, enabled, onToggle }) {
 }
 
 function SelectorItem({ icon, text, current, onChoose }) {
+  const choose = event => {
+    const trigger = event.currentTarget.closest('.sp-chip-wrap')?.querySelector('.sp-chip');
+    onChoose();
+    requestAnimationFrame(() => trigger?.focus());
+  };
   return html`
-    <div
+    <button
+      type="button"
       class=${'sp-selector-item' + (current ? ' sp-selector-current' : '')}
       role="option"
       aria-selected=${current ? 'true' : 'false'}
-      onClick=${onChoose}
+      tabIndex=${current ? 0 : -1}
+      onClick=${choose}
     >
       ${icon ? html`<span class="sp-selector-icon" aria-hidden="true">${icon}</span>` : null}<span>${text}</span>
-    </div>`;
+    </button>`;
 }
 
 /**
@@ -200,7 +207,7 @@ function ModelSelector({ current, onChoose }) {
       value=${filter}
       onInput=${event => setFilter(event.target.value)}
     />
-    <div class="sp-selector-list" role="listbox">
+    <div class="sp-selector-list" role="listbox" aria-label="Models">
       ${visible === null
         ? html`<div class="sp-selector-empty">Loading models…</div>`
         : visible.length
@@ -216,7 +223,36 @@ function ModelSelector({ current, onChoose }) {
 }
 
 /** A header chip plus the selector it opens, positioned beneath it. */
-function Chip({ id, label: chipLabel, icon, open, onToggle, children }) {
+function Chip({ id, label: chipLabel, icon, open, onToggle, onClose, children }) {
+  const popupRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const popup = popupRef.current;
+    const initial = popup?.querySelector('.sp-selector-filter, [role="option"][aria-selected="true"], [role="option"]');
+    initial?.focus();
+  }, [open]);
+
+  const onSelectorKeyDown = event => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      onClose();
+      document.getElementById(id)?.focus();
+      return;
+    }
+    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+    const options = [...event.currentTarget.querySelectorAll('[role="option"]')];
+    if (!options.length) return;
+    const current = options.indexOf(document.activeElement);
+    let next = current;
+    if (event.key === 'Home') next = 0;
+    if (event.key === 'End') next = options.length - 1;
+    if (event.key === 'ArrowDown') next = current < 0 ? 0 : (current + 1) % options.length;
+    if (event.key === 'ArrowUp') next = current < 0 ? options.length - 1 : (current - 1 + options.length) % options.length;
+    event.preventDefault();
+    options[next].focus();
+  };
+
   return html`
     <div class="sp-chip-wrap">
       <button
@@ -225,11 +261,18 @@ function Chip({ id, label: chipLabel, icon, open, onToggle, children }) {
         id=${id}
         aria-haspopup="listbox"
         aria-expanded=${open ? 'true' : 'false'}
+        aria-controls=${`${id}-selector`}
         onClick=${onToggle}
       >
         ${icon ? html`<span aria-hidden="true">${icon}</span>` : null}<span class="sp-chip-label">${chipLabel}</span><span class="sp-chip-caret" aria-hidden="true">▾</span>
       </button>
-      ${open ? html`<div class="sp-selector" id=${`${id}-selector`}>${children}</div>` : null}
+      ${open ? html`
+        <div
+          class="sp-selector"
+          id=${`${id}-selector`}
+          ref=${popupRef}
+          onKeyDown=${onSelectorKeyDown}
+        >${children}</div>` : null}
     </div>`;
 }
 
@@ -620,41 +663,48 @@ function SidePanel() {
         label=${t(actionEntry.labelKey, language)}
         open=${openSelector === 'action'}
         onToggle=${() => toggleSelector('action')}
+        onClose=${() => setOpenSelector(null)}
       >
-        ${[CHAT_ACTION, ...ACTIONS].map(entry => html`
-          <${SelectorItem}
-            key=${entry.id || 'chat'}
-            icon=${entry.icon}
-            text=${t(entry.labelKey, language)}
-            current=${entry.id === action}
-            onChoose=${() => onChooseAction(entry.id)}
-          />`)}
+        <div role="listbox" aria-label="Actions">
+          ${[CHAT_ACTION, ...ACTIONS].map(entry => html`
+            <${SelectorItem}
+              key=${entry.id || 'chat'}
+              icon=${entry.icon}
+              text=${t(entry.labelKey, language)}
+              current=${entry.id === action}
+              onChoose=${() => onChooseAction(entry.id)}
+            />`)}
+        </div>
       <//>
       <${Chip}
         id="spProviderChip"
         label=${providerLabel(providerType)}
         open=${openSelector === 'provider'}
         onToggle=${() => toggleSelector('provider')}
+        onClose=${() => setOpenSelector(null)}
       >
-        ${getProviderEntries().map(entry => html`
-          <${SelectorItem}
-            key=${entry.providerType}
-            text=${entry.label}
-            current=${entry.providerType === providerType}
-            onChoose=${() => onChooseProvider(entry.providerType)}
-          />`)}
+        <div role="listbox" aria-label="Providers">
+          ${getProviderEntries().map(entry => html`
+            <${SelectorItem}
+              key=${entry.providerType}
+              text=${entry.label}
+              current=${entry.providerType === providerType}
+              onChoose=${() => onChooseProvider(entry.providerType)}
+            />`)}
+        </div>
       <//>
       <${Chip}
         id="spModelChip"
         label=${model}
         open=${openSelector === 'model'}
         onToggle=${() => toggleSelector('model')}
+        onClose=${() => setOpenSelector(null)}
       >
         <${ModelSelector} current=${model} onChoose=${onChooseModel} />
       <//>
     </div>
     <${PageContextChip} page=${page} enabled=${usesPage} onToggle=${onToggleContext} />
-    <div class="sp-body" id="chatBody" ref=${bodyRef} onClick=${onBodyClick}>
+    <div class="sp-body" id="chatBody" ref=${bodyRef} onClick=${onBodyClick} aria-live="polite" aria-relevant="additions text">
       ${messages.length === 0
         ? html`<div class="sp-empty">${EMPTY_PROMPT}</div>`
         : messages.map(message => html`<${Message} message=${message} key=${message.id} />`)}
@@ -663,6 +713,7 @@ function SidePanel() {
       <textarea
         class="sp-input"
         id="chatInput"
+        aria-label="Message OmniPilot"
         placeholder="Ask anything..."
         rows="1"
         ref=${inputRef}

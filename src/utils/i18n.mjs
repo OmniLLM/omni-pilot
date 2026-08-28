@@ -11,7 +11,7 @@
       a2aTokenHint: 'Stored locally only and never synced with server metadata.',
       a2aAutoRouteLabel: 'Auto-route to A2A agents',
       a2aAutoRouteHint: 'When on, OmniPilot lets the model pick the right enabled A2A agent for your prompt based on its discovered capabilities. Use @AgentName task to override manually.',
-      advancedSettings: 'AdvancedSettings',
+      advancedSettings: 'Advanced settings',
       appearance: 'Appearance',
       themePreference: 'Color theme',
       themeSystem: 'System',

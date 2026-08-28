@@ -203,6 +203,33 @@ test('choosing a model sends SET_MODEL, closes the selector and updates the chip
   expect(await sentMessages(page)).toContainEqual({ type: 'SET_MODEL', model: 'gpt-5-mini' });
 });
 
+test('model selector is keyboard operable and restores focus after selection', async ({ page }) => {
+  await open(page);
+  await page.locator('#spModelChip').focus();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.sp-selector-filter')).toBeFocused();
+
+  await page.keyboard.press('ArrowDown');
+  await expect(page.locator('#spModelChip-selector [role="option"]').first()).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Enter');
+
+  await expect(page.locator('#spModelChip-selector')).toHaveCount(0);
+  await expect(page.locator('#spModelChip')).toBeFocused();
+  expect(await sentMessages(page)).toContainEqual({ type: 'SET_MODEL', model: 'claude-haiku-4.5' });
+});
+
+test('Escape closes a selector and returns focus to its chip', async ({ page }) => {
+  await open(page);
+  await openChip(page, 'spProviderChip');
+  await expect(page.locator('#spProviderChip-selector [role="option"]').first()).toBeFocused();
+
+  await page.keyboard.press('Escape');
+
+  await expect(page.locator('#spProviderChip-selector')).toHaveCount(0);
+  await expect(page.locator('#spProviderChip')).toBeFocused();
+});
+
 // ── The provider selector ───────────────────────────────────────────────────
 
 test('the provider selector lists every provider and marks the current one', async ({ page }) => {

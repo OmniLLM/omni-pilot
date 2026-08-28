@@ -57,6 +57,17 @@
   color-scheme: dark;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  :where([data-appearance-root][data-surface], #omnipilot-extension-root-7f3a9c, [data-appearance-preview]) *,
+  :where([data-appearance-root][data-surface], #omnipilot-extension-root-7f3a9c, [data-appearance-preview]) *::before,
+  :where([data-appearance-root][data-surface], #omnipilot-extension-root-7f3a9c, [data-appearance-preview]) *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
 /* Mode-independent style character. */
 :where([data-appearance-root][data-surface], #omnipilot-extension-root-7f3a9c, [data-appearance-preview])[data-visual-style="clean-minimal"] {
   --appearance-font-body: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
