@@ -3,6 +3,7 @@
 
 import { t, normalizeLanguage } from '../utils/i18n.mjs';
 import { createAppearanceController } from '../utils/appearance.mjs';
+import { PROVIDER_LABELS, getProviderEntries, ACTIONS } from '../utils/catalog.mjs';
 
 (function () {
   'use strict';
@@ -37,11 +38,6 @@ import { createAppearanceController } from '../utils/appearance.mjs';
   // a spinner that never resolves. Reset on every message, so healthy long
   // streams and delegations are unaffected.
   let streamWatchdogMs = RESPONSE_TIMEOUT_DEFAULT_MS;
-  const PROVIDER_LABELS = {
-    'custom-provider': 'Custom',
-    'github-copilot': 'GitHub Copilot',
-    'azure-foundry': 'Azure Foundry'
-  };
 
   function label(key) {
     return t(key, currentLanguage);
@@ -206,11 +202,6 @@ import { createAppearanceController } from '../utils/appearance.mjs';
     return a2aServers.find(server => server.id === serverId)?.name || 'A2A';
   }
 
-  function getProviderEntries() {
-    return Object.entries(PROVIDER_LABELS)
-      .map(([providerType, label]) => ({ providerType, label }));
-  }
-
   function getProviderLabel(providerType, endpoint) {
     return PROVIDER_LABELS[normalizeProviderType(providerType)] || detectProvider(endpoint || '');
   }
@@ -257,17 +248,6 @@ import { createAppearanceController } from '../utils/appearance.mjs';
       titleEl.textContent = '✦ OmniPilot';
     }
   }
-
-  const ACTIONS = [
-    { id: 'translate', labelKey: 'translate', icon: '🌍' },
-    { id: 'summarize', labelKey: 'summarize', icon: '📝' },
-    { id: 'explain', labelKey: 'explain', icon: '💡' },
-    { id: 'improve', labelKey: 'improve', icon: '✨' },
-    { id: 'sentiment', labelKey: 'sentiment', icon: '😊' },
-    { id: 'code-explain', labelKey: 'codeExplain', icon: '🔧' },
-    { id: 'divide-paragraphs', labelKey: 'divideParagraphs', icon: '📋' },
-    { id: 'ask', labelKey: 'ask', icon: '❓' }
-  ];
 
   const PAGE_CONTENT_MAX_CHARS = 12000;
 

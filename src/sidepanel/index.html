@@ -44,8 +44,125 @@
       text-transform: var(--appearance-heading-transform);
     }
 
-    .sp-context {
+    /* Session controls: which function, provider, and model this panel uses. */
+    .sp-meta {
       display: flex;
+      align-items: center;
+      gap: var(--appearance-space-2);
+      padding: var(--appearance-space-2) var(--appearance-space-4);
+      border-bottom: var(--appearance-border-width) solid var(--appearance-border);
+      background: var(--appearance-surface);
+      flex-shrink: 0;
+      flex-wrap: wrap;
+    }
+
+    /* Anchors its selector, which is positioned against this box. */
+    .sp-chip-wrap { position: relative; }
+
+    .sp-chip {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      max-width: 160px;
+      padding: 2px var(--appearance-space-2);
+      border: var(--appearance-border-width) solid var(--appearance-border);
+      border-radius: 0;
+      background: var(--appearance-canvas);
+      color: var(--appearance-text-muted);
+      font: inherit;
+      font-size: var(--appearance-font-size-sm);
+      cursor: pointer;
+      transition: border-color var(--appearance-transition-duration) var(--appearance-transition-easing);
+    }
+
+    .sp-chip:hover { border-color: var(--appearance-accent); }
+    .sp-chip:focus-visible {
+      outline: var(--appearance-border-width-strong) solid var(--appearance-focus);
+      outline-offset: 1px;
+    }
+
+    .sp-chip-label {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .sp-chip-caret { flex-shrink: 0; opacity: 0.7; }
+
+    .sp-selector {
+      position: absolute;
+      top: calc(100% + 4px);
+      left: 0;
+      z-index: 20;
+      min-width: 180px;
+      max-width: 260px;
+      background: var(--appearance-surface);
+      border: var(--appearance-border-width) solid var(--appearance-border);
+      border-radius: 0;
+      box-shadow: var(--appearance-shadow-2, var(--appearance-shadow-1));
+      padding: 4px;
+    }
+
+    /* The rightmost chip's selector would overflow the panel, which is narrow.
+       Anchor it to the chip's right edge instead. */
+    .sp-chip-wrap:last-child .sp-selector {
+      left: auto;
+      right: 0;
+    }
+
+    .sp-selector-list {      max-height: 240px;
+      overflow-y: auto;
+    }
+
+    .sp-selector-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: var(--appearance-space-2);
+      font-size: var(--appearance-font-size-sm);
+      color: var(--appearance-text);
+      cursor: pointer;
+      overflow-wrap: anywhere;
+    }
+
+    .sp-selector-item:hover { background: var(--appearance-canvas); }
+
+    .sp-selector-current {
+      color: var(--appearance-accent);
+      font-weight: var(--appearance-weight-strong);
+    }
+
+    .sp-selector-icon { flex-shrink: 0; }
+
+    .sp-selector-filter {
+      width: 100%;
+      border: var(--appearance-border-width) solid var(--appearance-border);
+      border-radius: 0;
+      background: var(--appearance-canvas);
+      color: var(--appearance-text);
+      font: inherit;
+      font-size: var(--appearance-font-size-sm);
+      padding: 4px var(--appearance-space-2);
+      margin-bottom: 4px;
+      outline: none;
+    }
+
+    .sp-selector-empty {
+      padding: var(--appearance-space-2);
+      font-size: var(--appearance-font-size-sm);
+      color: var(--appearance-text-muted);
+    }
+
+    /* Marks where the transcript switches to a built-in function's output. */
+    .sp-divider {
+      align-self: center;
+      font-size: var(--appearance-font-size-sm);
+      color: var(--appearance-text-muted);
+      border-bottom: var(--appearance-border-width) solid var(--appearance-border);
+      padding-bottom: 2px;
+    }
+
+    .sp-context {      display: flex;
       align-items: center;
       gap: var(--appearance-space-2);
       padding: var(--appearance-space-2) var(--appearance-space-4);

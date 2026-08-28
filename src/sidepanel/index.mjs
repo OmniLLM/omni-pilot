@@ -9,6 +9,8 @@
 // imperative version — port name, message types, watchdog timing, history
 // ordering, and error strings are all preserved exactly.
 import { createAppearanceController } from '../utils/appearance.mjs';
+import { t, normalizeLanguage } from '../utils/i18n.mjs';
+import { PROVIDER_LABELS, getProviderEntries, ACTIONS } from '../utils/catalog.mjs';
 
 const { html, render, useState, useEffect, useRef } = htmPreact;
 
@@ -19,6 +21,17 @@ const TIMEOUT_ERROR = 'No response. The assistant may have timed out — try aga
 const CONTEXT_LOST_ERROR = 'Extension context unavailable. Refresh the page.';
 const INPUT_MAX_HEIGHT = 120;
 const PAGE_CONTEXT_MAX_CHARS = 12000;
+const NO_PAGE_FOR_ACTION_ERROR = "This page can't be read, so there is nothing to run that on.";
+const DEFAULT_MODEL = 'claude-sonnet-4-5';
+const DEFAULT_PROVIDER_TYPE = 'custom-provider';
+
+// Chat is not one of ACTIONS — it is the absence of an action — but it heads
+// the selector so the user can get back to plain conversation.
+const CHAT_ACTION = { id: '', labelKey: 'chat', icon: '💬' };
+
+function providerLabel(providerType) {
+  return PROVIDER_LABELS[providerType] || PROVIDER_LABELS[DEFAULT_PROVIDER_TYPE];
+}
 
 /**
  * Reads the active tab's title, URL, and main text via the content script.
@@ -97,6 +110,9 @@ function Message({ message }) {
   if (message.role === 'error') {
     return html`<div class="sp-error">${message.content}</div>`;
   }
+  if (message.role === 'divider') {
+    return html`<div class="sp-divider">${message.content}</div>`;
+  }
   if (message.role === 'user') {
     return html`<div class="sp-msg sp-msg-user">${message.content}</div>`;
   }
@@ -124,10 +140,103 @@ function PageContextChip({ page, enabled, onToggle }) {
     </label>`;
 }
 
+function SelectorItem({ icon, text, current, onChoose }) {
+  return html`
+    <div
+      class=${'sp-selector-item' + (current ? ' sp-selector-current' : '')}
+      role="option"
+      aria-selected=${current ? 'true' : 'false'}
+      onClick=${onChoose}
+    >
+      ${icon ? html`<span class="sp-selector-icon" aria-hidden="true">${icon}</span>` : null}<span>${text}</span>
+    </div>`;
+}
+
+/**
+ * Fetches the model list when mounted, then filters it as the user types.
+ * The list is state, so a keystroke re-renders rather than rebuilding markup.
+ */
+function ModelSelector({ current, onChoose }) {
+  const [models, setModels] = useState(null);
+  const [filter, setFilter] = useState('');
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const settle = list => {
+      if (cancelled) return;
+      setModels(list && list.length ? list : [current].filter(Boolean));
+      inputRef.current?.focus();
+    };
+    try {
+      chrome.runtime.sendMessage({ type: 'GET_MODELS' }, response => {
+        // Reading lastError suppresses the "unchecked runtime.lastError" noise
+        // when the service worker is gone.
+        void chrome.runtime.lastError;
+        settle(response?.models);
+      });
+    } catch {
+      settle(null);
+    }
+    return () => { cancelled = true; };
+  }, []);
+
+  const query = filter.toLowerCase();
+  const visible = models === null
+    ? null
+    : (query ? models.filter(model => model.toLowerCase().includes(query)) : models);
+
+  return html`
+    <input
+      class="sp-selector-filter"
+      placeholder="Type to filter…"
+      aria-label="Filter models"
+      ref=${inputRef}
+      value=${filter}
+      onInput=${event => setFilter(event.target.value)}
+    />
+    <div class="sp-selector-list" role="listbox">
+      ${visible === null
+        ? html`<div class="sp-selector-empty">Loading models…</div>`
+        : visible.length
+          ? visible.map(model => html`
+              <${SelectorItem}
+                key=${model}
+                text=${model}
+                current=${model === current}
+                onChoose=${() => onChoose(model)}
+              />`)
+          : html`<div class="sp-selector-empty">No matches</div>`}
+    </div>`;
+}
+
+/** A header chip plus the selector it opens, positioned beneath it. */
+function Chip({ id, label: chipLabel, icon, open, onToggle, children }) {
+  return html`
+    <div class="sp-chip-wrap">
+      <button
+        type="button"
+        class="sp-chip"
+        id=${id}
+        aria-haspopup="listbox"
+        aria-expanded=${open ? 'true' : 'false'}
+        onClick=${onToggle}
+      >
+        ${icon ? html`<span aria-hidden="true">${icon}</span>` : null}<span class="sp-chip-label">${chipLabel}</span><span class="sp-chip-caret" aria-hidden="true">▾</span>
+      </button>
+      ${open ? html`<div class="sp-selector" id=${`${id}-selector`}>${children}</div>` : null}
+    </div>`;
+}
+
 function SidePanel() {
   const [messages, setMessages] = useState([]);
   const [page, setPage] = useState(null);
   const [usesPage, setUsesPage] = useState(true);
+  const [language, setLanguage] = useState('en');
+  const [model, setModel] = useState(DEFAULT_MODEL);
+  const [providerType, setProviderType] = useState(DEFAULT_PROVIDER_TYPE);
+  const [action, setAction] = useState('');
+  const [openSelector, setOpenSelector] = useState(null);
 
   const bodyRef = useRef(null);
   const inputRef = useRef(null);
@@ -173,6 +282,49 @@ function SidePanel() {
 
     return undefined;
   }, []);
+
+  // Mirror the session settings the header shows. Changes made from any other
+  // surface (options page, floating panel) land here through the same listener,
+  // so the chips never go stale.
+  useEffect(() => {
+    if (typeof chrome === 'undefined' || !chrome.storage?.sync) return undefined;
+
+    chrome.storage.sync.get(
+      { model: DEFAULT_MODEL, providerType: DEFAULT_PROVIDER_TYPE, languagePreference: 'en' },
+      cfg => {
+        setModel(cfg.model || DEFAULT_MODEL);
+        setProviderType(PROVIDER_LABELS[cfg.providerType] ? cfg.providerType : DEFAULT_PROVIDER_TYPE);
+        setLanguage(normalizeLanguage(cfg.languagePreference));
+      }
+    );
+
+    const onChanged = chrome.storage?.onChanged;
+    if (!onChanged?.addListener) return undefined;
+    const listener = changes => {
+      if (changes.model) setModel(changes.model.newValue || DEFAULT_MODEL);
+      if (changes.providerType) {
+        const next = changes.providerType.newValue;
+        setProviderType(PROVIDER_LABELS[next] ? next : DEFAULT_PROVIDER_TYPE);
+      }
+      if (changes.languagePreference) setLanguage(normalizeLanguage(changes.languagePreference.newValue));
+    };
+    onChanged.addListener(listener);
+    return () => onChanged.removeListener?.(listener);
+  }, []);
+
+  // Dismiss an open selector on any click that is not on a chip or inside the
+  // selector itself. Chips are excluded so their own click can toggle instead of
+  // closing and immediately reopening.
+  useEffect(() => {
+    if (openSelector === null) return undefined;
+    const onMouseDown = event => {
+      const target = event.target;
+      if (target?.closest?.('.sp-chip, .sp-selector')) return;
+      setOpenSelector(null);
+    };
+    document.addEventListener('mousedown', onMouseDown);
+    return () => document.removeEventListener('mousedown', onMouseDown);
+  }, [openSelector]);
 
   // Keep the newest content in view as the transcript grows.
   useEffect(() => {
@@ -227,6 +379,16 @@ function SidePanel() {
     append({ id: nextId(), role: 'user', content: text });
     historyRef.current.push({ role: 'user', content: text });
 
+    openStream({ type: 'AI_CHAT_STREAM', messages: historyRef.current });
+  }
+
+  /**
+   * Opens the stream port, posts `payload`, and folds everything that comes
+   * back into the transcript. Chat turns and built-in functions differ only in
+   * the payload, so the port lifecycle — watchdog, disconnect handling, and
+   * invalidated-context recovery — lives here once.
+   */
+  function openStream(payload) {
     // chrome.runtime.connect() throws synchronously with
     // "Extension context invalidated." after an extension reload while the
     // side panel is still open. Catch it and surface a friendly error.
@@ -339,7 +501,7 @@ function SidePanel() {
     });
 
     try {
-      port.postMessage({ type: 'AI_CHAT_STREAM', messages: historyRef.current });
+      port.postMessage(payload);
     } catch (err) {
       if (isExtensionContextInvalidatedError(err)) {
         clearWatchdog();
@@ -370,10 +532,95 @@ function SidePanel() {
     setUsesPage(enabled);
   };
 
+  const toggleSelector = name => setOpenSelector(previous => (previous === name ? null : name));
+
+  const onChooseModel = nextModel => {
+    setOpenSelector(null);
+    if (nextModel === model) return;
+    setModel(nextModel);
+    try { chrome.runtime.sendMessage({ type: 'SET_MODEL', model: nextModel }); } catch {}
+  };
+
+  const onChooseProvider = nextProviderType => {
+    setOpenSelector(null);
+    if (nextProviderType === providerType) return;
+    setProviderType(nextProviderType);
+    try { chrome.runtime.sendMessage({ type: 'SET_PROVIDER', providerType: nextProviderType }); } catch {}
+  };
+
+  // Running a built-in function from the side panel treats the page as the
+  // subject, the way the floating panel treats the selection as the subject.
+  const onChooseAction = actionId => {
+    setOpenSelector(null);
+    setAction(actionId);
+    if (!actionId) return;
+
+    const current = pageRef.current;
+    if (!current?.content) {
+      append({ id: nextId(), role: 'error', content: NO_PAGE_FOR_ACTION_ERROR });
+      return;
+    }
+
+    const chosen = ACTIONS.find(entry => entry.id === actionId);
+    const actionLabel = chosen ? `${chosen.icon} ${t(chosen.labelKey, language)}` : actionId;
+    append({ id: nextId(), role: 'divider', content: actionLabel });
+
+    // Keep the transcript's history coherent so follow-up chat continues from
+    // the result rather than from an assistant turn with no antecedent.
+    historyRef.current.push({
+      role: 'user',
+      content: `${actionLabel}: ${current.title || current.url}`
+    });
+
+    openStream({ type: 'AI_ACTION_STREAM', action: actionId, text: current.content });
+  };
+
+  const actionEntry = ACTIONS.find(entry => entry.id === action) || CHAT_ACTION;
+
   return html`
     <div class="sp-header">
       <span aria-hidden="true">✦</span>
       <h1>OmniPilot</h1>
+    </div>
+    <div class="sp-meta">
+      <${Chip}
+        id="spActionChip"
+        icon=${actionEntry.icon}
+        label=${t(actionEntry.labelKey, language)}
+        open=${openSelector === 'action'}
+        onToggle=${() => toggleSelector('action')}
+      >
+        ${[CHAT_ACTION, ...ACTIONS].map(entry => html`
+          <${SelectorItem}
+            key=${entry.id || 'chat'}
+            icon=${entry.icon}
+            text=${t(entry.labelKey, language)}
+            current=${entry.id === action}
+            onChoose=${() => onChooseAction(entry.id)}
+          />`)}
+      <//>
+      <${Chip}
+        id="spProviderChip"
+        label=${providerLabel(providerType)}
+        open=${openSelector === 'provider'}
+        onToggle=${() => toggleSelector('provider')}
+      >
+        ${getProviderEntries().map(entry => html`
+          <${SelectorItem}
+            key=${entry.providerType}
+            text=${entry.label}
+            current=${entry.providerType === providerType}
+            onChoose=${() => onChooseProvider(entry.providerType)}
+          />`)}
+      <//>
+      <${Chip}
+        id="spModelChip"
+        label=${model}
+        open=${openSelector === 'model'}
+        onToggle=${() => toggleSelector('model')}
+      >
+        <${ModelSelector} current=${model} onChoose=${onChooseModel} />
+      <//>
     </div>
     <${PageContextChip} page=${page} enabled=${usesPage} onToggle=${onToggleContext} />
     <div class="sp-body" id="chatBody" ref=${bodyRef}>

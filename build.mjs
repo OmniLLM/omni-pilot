@@ -7,7 +7,9 @@
 //
 // Four concat sources feed into the built scripts:
 //   * `src/utils/timeout.mjs` is inlined into every JavaScript bundle.
-//   * `src/utils/i18n.mjs` is inlined into content/popup/options bundles.
+//   * `src/utils/i18n.mjs` is inlined into content/popup/options/sidepanel bundles.
+//   * `src/utils/catalog.mjs` (provider labels + built-in functions) is inlined
+//     into the content and sidepanel bundles, which both present those lists.
 //   * `src/utils/appearance.mjs` is inlined into every UI bundle.
 //   * `src/background/agent/*.mjs` (Agent, Runner, Tool, ToolRegistry,
 //     Session, State, A2aToolProvider, follow-up, constants) is inlined
@@ -38,9 +40,10 @@ function inlineModule(file) {
 const i18nInlined = inlineModule('src/utils/i18n.mjs')
 const appearanceInlined = inlineModule('src/utils/appearance.mjs')
 const timeoutInlined = inlineModule('src/utils/timeout.mjs')
+const catalogInlined = inlineModule('src/utils/catalog.mjs')
 
 function stripUtilityImports(src) {
-  return src.replace(/^import\s+\{[^}]+\}\s+from\s+['"][^'"]*(?:i18n|appearance)\.mjs['"];?\s*\n/gm, '')
+  return src.replace(/^import\s+\{[^}]+\}\s+from\s+['"][^'"]*(?:i18n|appearance|catalog)\.mjs['"];?\s*\n/gm, '')
 }
 
 // Strip `export { ... };` / `export default ...;` blocks so declarations
@@ -104,10 +107,10 @@ function readPreactRuntime() {
 
 const entries = [
   { name: 'background', src: 'src/background/index.mjs', needsI18n: false, needsAppearance: false, needsAgent: true,  needsPreact: false },
-  { name: 'content',    src: 'src/content-script/index.mjs', needsI18n: true,  needsAppearance: true,  needsAgent: false, needsPreact: true,  needsContentCss: true },
+  { name: 'content',    src: 'src/content-script/index.mjs', needsI18n: true,  needsAppearance: true,  needsAgent: false, needsPreact: true,  needsContentCss: true, needsCatalog: true },
   { name: 'popup',      src: 'src/popup/index.mjs', needsI18n: true,  needsAppearance: true,  needsAgent: false, needsPreact: true  },
   { name: 'options',    src: 'src/options/index.mjs', needsI18n: true,  needsAppearance: true,  needsAgent: false, needsPreact: true  },
-  { name: 'sidepanel',  src: 'src/sidepanel/index.mjs', needsI18n: false, needsAppearance: true,  needsAgent: false, needsPreact: true  },
+  { name: 'sidepanel',  src: 'src/sidepanel/index.mjs', needsI18n: true,  needsAppearance: true,  needsAgent: false, needsPreact: true,  needsCatalog: true },
 ]
 
 const agentPrimitives = concatAgentPrimitives()
@@ -129,13 +132,14 @@ const contentStylesInlined =
   `// ── inlined: dist/styles.css, injected into the content script's shadow root ──\n` +
   `const OMNIPILOT_CONTENT_CSS = ${JSON.stringify(contentStyles)};\n`
 
-for (const { name, src, needsI18n, needsAppearance, needsAgent, needsPreact, needsContentCss } of entries) {
+for (const { name, src, needsI18n, needsAppearance, needsAgent, needsPreact, needsContentCss, needsCatalog } of entries) {
   const raw = fs.readFileSync(src, 'utf8')
   const stripped = stripUtilityImports(raw)
   const parts = [timeoutInlined]
   if (needsPreact) parts.push(preactRuntime)
   if (needsContentCss) parts.push(contentStylesInlined)
   if (needsI18n) parts.push(i18nInlined)
+  if (needsCatalog) parts.push(catalogInlined)
   if (needsAppearance) parts.push(appearanceInlined)
   if (needsAgent) parts.push(agentPrimitives)
   if (needsAgent) parts.push(backgroundProviders)
