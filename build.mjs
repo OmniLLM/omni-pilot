@@ -41,9 +41,10 @@ const i18nInlined = inlineModule('src/utils/i18n.mjs')
 const appearanceInlined = inlineModule('src/utils/appearance.mjs')
 const timeoutInlined = inlineModule('src/utils/timeout.mjs')
 const catalogInlined = inlineModule('src/utils/catalog.mjs')
+const markdownInlined = inlineModule('src/utils/markdown.mjs')
 
 function stripUtilityImports(src) {
-  return src.replace(/^import\s+\{[^}]+\}\s+from\s+['"][^'"]*(?:i18n|appearance|catalog)\.mjs['"];?\s*\n/gm, '')
+  return src.replace(/^import\s+\{[^}]+\}\s+from\s+['"][^'"]*(?:i18n|appearance|catalog|markdown)\.mjs['"];?\s*\n/gm, '')
 }
 
 // Strip `export { ... };` / `export default ...;` blocks so declarations
@@ -107,10 +108,10 @@ function readPreactRuntime() {
 
 const entries = [
   { name: 'background', src: 'src/background/index.mjs', needsI18n: false, needsAppearance: false, needsAgent: true,  needsPreact: false },
-  { name: 'content',    src: 'src/content-script/index.mjs', needsI18n: true,  needsAppearance: true,  needsAgent: false, needsPreact: true,  needsContentCss: true, needsCatalog: true },
+  { name: 'content',    src: 'src/content-script/index.mjs', needsI18n: true,  needsAppearance: true,  needsAgent: false, needsPreact: true,  needsContentCss: true, needsCatalog: true, needsMarkdown: true },
   { name: 'popup',      src: 'src/popup/index.mjs', needsI18n: true,  needsAppearance: true,  needsAgent: false, needsPreact: true  },
   { name: 'options',    src: 'src/options/index.mjs', needsI18n: true,  needsAppearance: true,  needsAgent: false, needsPreact: true  },
-  { name: 'sidepanel',  src: 'src/sidepanel/index.mjs', needsI18n: true,  needsAppearance: true,  needsAgent: false, needsPreact: true,  needsCatalog: true },
+  { name: 'sidepanel',  src: 'src/sidepanel/index.mjs', needsI18n: true,  needsAppearance: true,  needsAgent: false, needsPreact: true,  needsCatalog: true, needsMarkdown: true },
 ]
 
 const agentPrimitives = concatAgentPrimitives()
@@ -132,7 +133,7 @@ const contentStylesInlined =
   `// ── inlined: dist/styles.css, injected into the content script's shadow root ──\n` +
   `const OMNIPILOT_CONTENT_CSS = ${JSON.stringify(contentStyles)};\n`
 
-for (const { name, src, needsI18n, needsAppearance, needsAgent, needsPreact, needsContentCss, needsCatalog } of entries) {
+for (const { name, src, needsI18n, needsAppearance, needsAgent, needsPreact, needsContentCss, needsCatalog, needsMarkdown } of entries) {
   const raw = fs.readFileSync(src, 'utf8')
   const stripped = stripUtilityImports(raw)
   const parts = [timeoutInlined]
@@ -140,6 +141,7 @@ for (const { name, src, needsI18n, needsAppearance, needsAgent, needsPreact, nee
   if (needsContentCss) parts.push(contentStylesInlined)
   if (needsI18n) parts.push(i18nInlined)
   if (needsCatalog) parts.push(catalogInlined)
+  if (needsMarkdown) parts.push(markdownInlined)
   if (needsAppearance) parts.push(appearanceInlined)
   if (needsAgent) parts.push(agentPrimitives)
   if (needsAgent) parts.push(backgroundProviders)

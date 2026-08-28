@@ -166,6 +166,13 @@ test('a table is not wrapped in a paragraph', async ({ page }) => {
   await expect(result.locator('table tbody tr')).toHaveCount(2);
 });
 
+test('a table has no spurious trailing column from its closing pipe', async ({ page }) => {
+  const result = await renderReply(page, 'Costs:\n\n| Model | Cost |\n| --- | --- |\n| Opus | $380 |\n| GPT | $182 |\n\nDone.');
+
+  await expect(result.locator('table th')).toHaveText(['Model', 'Cost']);
+  await expect(result.locator('table tbody tr').first().locator('td')).toHaveText(['Opus', '$380']);
+});
+
 test('inline emphasis survives paragraph assembly', async ({ page }) => {
   const result = await renderReply(page, 'This is **bold** and this is *italic*.\n\nNext paragraph.');
 

@@ -11,6 +11,7 @@
 import { createAppearanceController } from '../utils/appearance.mjs';
 import { t, normalizeLanguage } from '../utils/i18n.mjs';
 import { PROVIDER_LABELS, getProviderEntries, ACTIONS } from '../utils/catalog.mjs';
+import { renderMarkdown } from '../utils/markdown.mjs';
 
 const { html, render, useState, useEffect, useRef } = htmPreact;
 
@@ -119,9 +120,13 @@ function Message({ message }) {
   // Two literal class attributes rather than one interpolated string: Tailwind
   // tokenizes candidates on whitespace and would swallow a utility written
   // flush against an interpolation.
+  //
+  // Assistant replies are markdown. `renderMarkdown` escapes the model's text
+  // before generating any markup, so nothing the model emits can inject HTML.
+  const rendered = { __html: renderMarkdown(message.content) };
   return message.streaming
-    ? html`<div class="sp-msg sp-msg-assistant sp-streaming">${message.content}</div>`
-    : html`<div class="sp-msg sp-msg-assistant">${message.content}</div>`;
+    ? html`<div class="sp-msg sp-msg-assistant sp-streaming" dangerouslySetInnerHTML=${rendered}></div>`
+    : html`<div class="sp-msg sp-msg-assistant" dangerouslySetInnerHTML=${rendered}></div>`;
 }
 
 function PageContextChip({ page, enabled, onToggle }) {
@@ -575,6 +580,18 @@ function SidePanel() {
     openStream({ type: 'AI_ACTION_STREAM', action: actionId, text: current.content });
   };
 
+  // Code block cards carry a Copy button. Delegating from the transcript keeps
+  // the rendered markup a pure function of the message text.
+  const onBodyClick = event => {
+    const button = event.target?.closest?.('.omnipilot-code-block-copy-btn');
+    if (!button) return;
+    const code = button.closest('.omnipilot-code-block-card')?.querySelector('.omnipilot-code-block-body');
+    if (!code) return;
+    navigator.clipboard?.writeText?.(code.textContent || '');
+    button.textContent = 'Copied';
+    setTimeout(() => { button.textContent = 'Copy'; }, 1500);
+  };
+
   const actionEntry = ACTIONS.find(entry => entry.id === action) || CHAT_ACTION;
 
   return html`
@@ -623,7 +640,7 @@ function SidePanel() {
       <//>
     </div>
     <${PageContextChip} page=${page} enabled=${usesPage} onToggle=${onToggleContext} />
-    <div class="sp-body" id="chatBody" ref=${bodyRef}>
+    <div class="sp-body" id="chatBody" ref=${bodyRef} onClick=${onBodyClick}>
       ${messages.length === 0
         ? html`<div class="sp-empty">${EMPTY_PROMPT}</div>`
         : messages.map(message => html`<${Message} message=${message} key=${message.id} />`)}

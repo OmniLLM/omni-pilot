@@ -218,8 +218,124 @@
       border-radius: 0;
     }
 
-    .sp-msg-assistant.sp-streaming::after {
-      content: '█';
+    /* Rendered markdown inside an assistant reply. Block spacing is set here
+       rather than relying on defaults, which the reset above removes. */
+    .sp-msg-assistant > :first-child { margin-top: 0; }
+    .sp-msg-assistant > :last-child { margin-bottom: 0; }
+
+    .sp-msg-assistant p { margin: 0 0 0.75em; }
+    .sp-msg-assistant h3,
+    .sp-msg-assistant h4 {
+      font-family: var(--appearance-font-display);
+      font-weight: var(--appearance-weight-strong);
+      letter-spacing: var(--appearance-heading-tracking);
+      margin: 1em 0 0.4em;
+    }
+    .sp-msg-assistant h3 { font-size: var(--appearance-font-size-lg); }
+    .sp-msg-assistant h4 { font-size: var(--appearance-font-size-md); }
+
+    .sp-msg-assistant ul,
+    .sp-msg-assistant ol {
+      margin: 0 0 0.75em;
+      padding-left: 1.4em;
+    }
+    .sp-msg-assistant li { margin: 0.2em 0; }
+    .sp-msg-assistant ul { list-style: disc; }
+    .sp-msg-assistant ol { list-style: decimal; }
+
+    .sp-msg-assistant blockquote {
+      margin: 0 0 0.75em;
+      padding-left: var(--appearance-space-3);
+      border-left: var(--appearance-border-width-strong) solid var(--appearance-border);
+      color: var(--appearance-text-muted);
+    }
+
+    .sp-msg-assistant hr {
+      border: none;
+      border-top: var(--appearance-border-width) solid var(--appearance-border);
+      margin: 0.9em 0;
+    }
+
+    .sp-msg-assistant a { color: var(--appearance-accent); }
+
+    .sp-msg-assistant code {
+      font-family: var(--appearance-font-mono, ui-monospace, monospace);
+      font-size: 0.92em;
+      background: var(--appearance-canvas);
+      padding: 1px 4px;
+    }
+
+    .omnipilot-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 0 0 0.75em;
+      font-size: var(--appearance-font-size-sm);
+    }
+    .omnipilot-table th,
+    .omnipilot-table td {
+      border: var(--appearance-border-width) solid var(--appearance-border);
+      padding: 4px 8px;
+      text-align: left;
+      vertical-align: top;
+    }
+    .omnipilot-table th {
+      background: var(--appearance-canvas);
+      font-weight: var(--appearance-weight-strong);
+    }
+
+    .omnipilot-code-block-card {
+      border: var(--appearance-border-width) solid var(--appearance-border);
+      margin: 0 0 0.75em;
+      background: var(--appearance-canvas);
+    }
+    .omnipilot-code-block-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 2px var(--appearance-space-2);
+      border-bottom: var(--appearance-border-width) solid var(--appearance-border);
+      font-size: var(--appearance-font-size-sm);
+      color: var(--appearance-text-muted);
+    }
+    .omnipilot-code-block-copy-btn {
+      border: var(--appearance-border-width) solid var(--appearance-border);
+      background: transparent;
+      color: var(--appearance-text-muted);
+      font: inherit;
+      font-size: var(--appearance-font-size-sm);
+      padding: 0 6px;
+      cursor: pointer;
+    }
+    .omnipilot-code-block-body {
+      margin: 0;
+      padding: var(--appearance-space-2);
+      overflow-x: auto;
+      font-family: var(--appearance-font-mono, ui-monospace, monospace);
+      font-size: var(--appearance-font-size-sm);
+      white-space: pre;
+    }
+
+    .omnipilot-think-block {
+      border: var(--appearance-border-width) solid var(--appearance-border);
+      margin: 0 0 0.75em;
+      padding: var(--appearance-space-2);
+    }
+    .omnipilot-think-summary {
+      cursor: pointer;
+      font-size: var(--appearance-font-size-sm);
+      color: var(--appearance-text-muted);
+    }
+    .omnipilot-think-body {
+      margin-top: var(--appearance-space-2);
+      font-size: var(--appearance-font-size-sm);
+      color: var(--appearance-text-muted);
+    }
+
+    /* The caret belongs on the last line of the reply. Attaching it to the last
+       rendered block keeps it inline there; `:empty` covers the moment before
+       the first chunk arrives, when the bubble has no content yet. */
+    .sp-msg-assistant.sp-streaming > :last-child::after,
+    .sp-msg-assistant.sp-streaming:empty::after {      content: '█';
       animation: sp-blink 0.6s step-end infinite;
       color: var(--appearance-accent);
       margin-left: 1px;
