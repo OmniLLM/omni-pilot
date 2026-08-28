@@ -103,6 +103,28 @@ async function openOptionsPage(page, { syncStorage = {}, localStorage = {}, mode
   await page.waitForLoadState('domcontentloaded');
 }
 
+test('exposes a semantic settings hierarchy and named live feedback', async ({ page }) => {
+  await openOptionsPage(page);
+
+  await expect(page.locator('main')).toHaveCount(1);
+  await expect(page.getByRole('heading', { level: 1, name: 'OmniPilot' })).toHaveCount(1);
+  await expect(page.getByRole('heading', { level: 2 })).toHaveCount(5);
+  await expect(page.locator('#status')).toHaveAttribute('aria-live', 'polite');
+  await expect(page.locator('#modelStatus')).toHaveAttribute('role', 'status');
+  await expect(page.getByLabel('Provider')).toHaveAttribute('id', 'providerType');
+  await expect(page.getByLabel('API Key')).toHaveAttribute('id', 'apiKey');
+  await expect(page.getByLabel('Language')).toHaveAttribute('id', 'languageSelect');
+});
+
+test('primary controls meet the minimum 44px target size', async ({ page }) => {
+  await openOptionsPage(page);
+
+  for (const selector of ['#providerType', '#apiKey', '#saveBtn', '#advancedToggle']) {
+    const height = await page.locator(selector).evaluate(element => element.getBoundingClientRect().height);
+    expect(height).toBeGreaterThanOrEqual(44);
+  }
+});
+
 test('applies and persists theme and visual style immediately', async ({ page }) => {
   await page.emulateMedia({ colorScheme: 'light' });
   await openOptionsPage(page, {

@@ -106,4 +106,11 @@ test.describe('popup visual parity after the utility-class migration', () => {
     expect(spacing.descMargin).toBe('12px');
     expect(spacing.rowPadding).toBe('10px');
   });
+
+  test('interactive controls meet the minimum target size', async ({ page }) => {
+    for (const selector of ['#themePreferenceSelect', '#languageSelect', '#sidePanelBtn', '#settingsBtn']) {
+      const height = await page.locator(selector).evaluate(element => element.getBoundingClientRect().height);
+      expect(height).toBeGreaterThanOrEqual(44);
+    }
+  });
 });

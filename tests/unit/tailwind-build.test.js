@@ -14,6 +14,13 @@ const root = path.resolve(__dirname, '..', '..');
 const read = relativePath => fs.readFileSync(path.join(root, relativePath), 'utf8');
 
 const tailwindCss = read('dist/tailwind.css');
+const packageJson = JSON.parse(read('package.json'));
+const viteConfig = read('vite.config.mjs');
+assert.ok(packageJson.devDependencies?.vite, 'Vite must be installed for the Tailwind build');
+assert.ok(packageJson.devDependencies?.['@tailwindcss/vite'], '@tailwindcss/vite must be installed');
+assert.ok(!packageJson.devDependencies?.['@tailwindcss/cli'], 'the legacy Tailwind CLI integration must not remain');
+assert.match(viteConfig, /import\s+tailwindcss\s+from\s+['"]@tailwindcss\/vite['"]/, 'Vite config must import the official Tailwind plugin');
+assert.match(viteConfig, /plugins\s*:\s*\[\s*tailwindcss\(\)\s*\]/, 'Vite config must enable the Tailwind plugin');
 // The content script's CSS is inlined into its bundle and injected into a
 // shadow root, so read it back out of the bundle rather than from a file.
 const contentBundle = read('dist/content.js');

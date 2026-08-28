@@ -163,21 +163,21 @@ console.log('✓ built dist/')
 
 // Compile the utility stylesheet for the popup/options/sidepanel pages.
 //
-// Invoke the resolved local CLI entry rather than `npx`, which can hit the
-// registry and make the build network-dependent — unacceptable because
-// `npm run test:unit` runs this build every time.
+// Invoke the resolved local Vite entry rather than `npx`, which can hit the
+// registry and make the build network-dependent. Tailwind is integrated using
+// its official @tailwindcss/vite plugin in vite.config.mjs.
 //
 // `src/styles/tailwind.css` scopes scanning to the three extension pages and
 // never imports Preflight, so nothing here can reach the content script.
 function buildTailwind() {
-  const cli = path.join('node_modules', '@tailwindcss', 'cli', 'dist', 'index.mjs')
-  if (!fs.existsSync(cli)) {
-    throw new Error(`Tailwind CLI not found at ${cli}. Run \`npm install\` before building.`)
+  const vite = path.join('node_modules', 'vite', 'bin', 'vite.js')
+  if (!fs.existsSync(vite)) {
+    throw new Error(`Vite not found at ${vite}. Run \`npm install\` before building.`)
   }
   const out = `${outdir}/tailwind.css`
   const result = spawnSync(
     process.execPath,
-    [cli, '-i', 'src/styles/tailwind.css', '-o', out, '--minify'],
+    [vite, 'build', '--config', 'vite.config.mjs'],
     { encoding: 'utf8' }
   )
   if (result.error) throw result.error
