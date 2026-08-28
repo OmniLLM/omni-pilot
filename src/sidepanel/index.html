@@ -22,6 +22,10 @@
       flex-direction: column;
     }
 
+    /* The mount root must not become a flex item, or the header/body/input
+       would stop being direct children of the flex column on <body>. */
+    #root { display: contents; }
+
     .sp-header {
       padding: var(--appearance-space-3) var(--appearance-space-4);
       border-bottom: var(--appearance-border-width) solid var(--appearance-border);
@@ -160,17 +164,7 @@
   </style>
 </head>
 <body>
-  <div class="sp-header">
-    <span aria-hidden="true">✦</span>
-    <h1>OmniPilot</h1>
-  </div>
-  <div class="sp-body" id="chatBody">
-    <div class="sp-empty">Start a conversation. Ask anything.</div>
-  </div>
-  <div class="sp-input-area">
-    <textarea class="sp-input" id="chatInput" placeholder="Ask anything..." rows="1"></textarea>
-    <button class="sp-send" id="sendBtn">Send</button>
-  </div>
+  <div id="root"></div>
   <script src="sidepanel.js"></script>
 </body>
 </html>

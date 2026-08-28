@@ -81,21 +81,44 @@ function concatBackgroundProviders() {
   return parts.length ? parts.join('\n\n') + '\n' : ''
 }
 
+// Read the prebuilt Preact + htm UMD bundle verbatim. This is NOT an ES module,
+// so it must bypass stripExports/stripUtilityImports entirely — it ships as
+// plain script that assigns a single `htmPreact` global.
+//
+// Two properties make this safe for our concat build:
+//   1. Its IIFE encloses only its own internals. Code concatenated after it
+//      stays top-level, so `vm.runInContext` still sees our declarations.
+//   2. It prefers `exports`/`module` when present and falls back to the global.
+//      No test context defines either, so the global branch always wins.
+//
+// The leading `;` defuses an ASI hazard: the file starts with `!function(...)`,
+// which would otherwise continue an expression left open by the previous chunk.
+function readPreactRuntime() {
+  const file = 'node_modules/htm/preact/standalone.umd.js'
+  if (!fs.existsSync(file)) {
+    throw new Error(`Preact runtime missing at ${file} — run npm install`)
+  }
+  const raw = fs.readFileSync(file, 'utf8')
+  return `// ── vendored: htm/preact standalone (build-time inline) ──────────\n;${raw}\n`
+}
+
 const entries = [
-  { name: 'background', src: 'src/background/index.mjs', needsI18n: false, needsAppearance: false, needsAgent: true  },
-  { name: 'content',    src: 'src/content-script/index.mjs', needsI18n: true,  needsAppearance: true,  needsAgent: false },
-  { name: 'popup',      src: 'src/popup/index.mjs', needsI18n: true,  needsAppearance: true,  needsAgent: false },
-  { name: 'options',    src: 'src/options/index.mjs', needsI18n: true,  needsAppearance: true,  needsAgent: false },
-  { name: 'sidepanel',  src: 'src/sidepanel/index.mjs', needsI18n: false, needsAppearance: true,  needsAgent: false },
+  { name: 'background', src: 'src/background/index.mjs', needsI18n: false, needsAppearance: false, needsAgent: true,  needsPreact: false },
+  { name: 'content',    src: 'src/content-script/index.mjs', needsI18n: true,  needsAppearance: true,  needsAgent: false, needsPreact: false },
+  { name: 'popup',      src: 'src/popup/index.mjs', needsI18n: true,  needsAppearance: true,  needsAgent: false, needsPreact: true  },
+  { name: 'options',    src: 'src/options/index.mjs', needsI18n: true,  needsAppearance: true,  needsAgent: false, needsPreact: false },
+  { name: 'sidepanel',  src: 'src/sidepanel/index.mjs', needsI18n: false, needsAppearance: true,  needsAgent: false, needsPreact: true  },
 ]
 
 const agentPrimitives = concatAgentPrimitives()
 const backgroundProviders = concatBackgroundProviders()
+const preactRuntime = readPreactRuntime()
 
-for (const { name, src, needsI18n, needsAppearance, needsAgent } of entries) {
+for (const { name, src, needsI18n, needsAppearance, needsAgent, needsPreact } of entries) {
   const raw = fs.readFileSync(src, 'utf8')
   const stripped = stripUtilityImports(raw)
   const parts = [timeoutInlined]
+  if (needsPreact) parts.push(preactRuntime)
   if (needsI18n) parts.push(i18nInlined)
   if (needsAppearance) parts.push(appearanceInlined)
   if (needsAgent) parts.push(agentPrimitives)

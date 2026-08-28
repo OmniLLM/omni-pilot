@@ -115,60 +115,7 @@
   </style>
 </head>
 <body>
-  <div class="op:flex op:items-center op:justify-between op:mb-3">
-    <a class="header-left op:flex op:items-center op:gap-2 op:text-inherit op:no-underline" href="https://github.com/OmniLLM/omni-pilot" target="_blank" rel="noopener noreferrer" title="Open OmniPilot on GitHub">
-      <div class="op:w-6 op:h-6 op:bg-accent op:flex op:items-center op:justify-center op:text-xs op:text-on-accent">✦</div>
-      <span class="title op:font-display op:text-md op:font-strong op:tracking-heading">OmniPilot</span>
-    </a>
-  </div>
-
-  <div class="op:h-px op:bg-line op:mb-3"></div>
-
-  <div class="op:text-sm op:text-ink-muted op:leading-body op:mb-3" id="desc" data-i18n="selectTextDesc">Select text on any page for AI actions.</div>
-
-  <div class="op:flex op:items-center op:gap-2 op:text-sm op:text-ink-muted op:mb-3">
-    <span class="dot op:w-1.5 op:h-1.5 op:shrink-0" id="statusDot"></span>
-    <span id="statusText" aria-live="polite">Checking…</span>
-  </div>
-
-  <div class="theme-row appearance-controls op:flex op:items-center op:justify-between op:gap-3 op:py-2.5 op:px-3 op:bg-surface op:shadow-1" aria-labelledby="appearanceLabel">
-    <div class="theme-copy op:flex op:flex-col op:gap-0.5">
-      <span class="theme-label op:text-sm op:font-strong op:text-ink" id="appearanceLabel" data-i18n="appearance">Appearance</span>
-      <div class="preference-row">
-        <label class="op:text-xs op:text-ink-muted" for="themePreferenceSelect" data-i18n="themePreference">Color theme</label>
-        <select id="themePreferenceSelect">
-          <option value="system" data-i18n="themeSystem">System</option>
-          <option value="light" data-i18n="light">Light</option>
-          <option value="dark" data-i18n="dark">Dark</option>
-        </select>
-      </div>
-      <div class="preference-row">
-        <label class="op:text-xs op:text-ink-muted" for="visualStylePreferenceSelect" data-i18n="visualStyle">Visual style</label>
-        <select id="visualStylePreferenceSelect">
-          <option value="current" data-i18n="visualStyleCurrent">Current</option>
-          <option value="clean-minimal" data-i18n="visualStyleCleanMinimal">Clean Minimal</option>
-          <option value="terminal" data-i18n="visualStyleTerminal">Terminal</option>
-          <option value="warm-editorial" data-i18n="visualStyleWarmEditorial">Warm Editorial</option>
-          <option value="neo-brutalist" data-i18n="visualStyleNeoBrutalist">Neo-brutalist</option>
-        </select>
-      </div>
-    </div>
-  </div>
-
-  <div class="theme-row op:flex op:items-center op:justify-between op:gap-3 op:py-2.5 op:px-3 op:bg-surface op:shadow-1">
-    <div class="theme-copy op:flex op:flex-col op:gap-0.5">
-      <span class="theme-label op:text-sm op:font-strong op:text-ink" id="languageLabel" data-i18n="language">Language</span>
-    </div>
-    <select id="languageSelect" aria-label="Language">
-      <option value="en">English</option>
-      <option value="zh">中文</option>
-    </select>
-  </div>
-
-  <button class="settings-btn op:flex op:items-center op:justify-center op:gap-1.5 op:w-full op:p-2 op:bg-surface op:text-ink op:text-sm op:font-medium op:font-body op:cursor-pointer" id="settingsBtn">
-    <span>⚙</span> <span id="settingsLabel" data-i18n="settings">Settings</span>
-  </button>
-
+  <div id="root"></div>
   <script src="popup.js"></script>
 </body>
 </html>

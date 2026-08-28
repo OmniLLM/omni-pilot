@@ -226,13 +226,47 @@ for (const page of ['src/popup/index.html', 'src/options/index.html', 'src/sidep
 }
 
 // ── The popup migration preserved every scripted hook ─────────────────────
+//
+// The popup's markup now lives in its entry module rather than in the page,
+// so these assertions follow it there. The guarantees are unchanged: the
+// scripted hooks, the utility classes, and the .dot state pair must all
+// survive.
 const popupHtml = read('src/popup/index.html');
 const popupJs = read('src/popup/index.mjs');
+
+// The page keeps only the mount root, and every element the script looks up
+// must still resolve — otherwise the component never mounts.
 for (const id of [...popupJs.matchAll(/getElementById\('([^']+)'\)/g)].map(match => match[1])) {
   assert.ok(popupHtml.includes(`id="${id}"`), `popup markup must keep the #${id} element`);
 }
-assert.ok(popupHtml.includes('class="dot'), 'the status dot must keep its .dot class');
+
+// Identifiers targeted by CSS, ARIA, and the browser tests, wherever rendered.
+for (const id of [
+  'desc', 'statusDot', 'statusText', 'appearanceLabel', 'themePreferenceSelect',
+  'visualStylePreferenceSelect', 'languageLabel', 'languageSelect', 'settingsBtn', 'settingsLabel'
+]) {
+  assert.ok(
+    popupJs.includes(`id="${id}"`) || popupHtml.includes(`id="${id}"`),
+    `the popup must still render the #${id} element`
+  );
+}
+
+assert.ok(popupJs.includes('class="dot'), 'the status dot must keep its .dot class');
+assert.match(popupJs, /class="dot ok/, 'the status dot must still express its ready state as .ok');
 assert.match(popupHtml, /\.dot\.ok\s*\{/, 'the .dot.ok state rule must remain, it is toggled from JS');
-assert.ok(UTILITY_TOKEN.test(popupHtml), 'the popup must actually use utility classes');
+assert.ok(UTILITY_TOKEN.test(popupJs), 'the popup must actually use utility classes');
+
+// Tailwind tokenizes candidates on whitespace, so a utility written directly
+// against a template interpolation is swallowed and silently never emitted.
+// This is invisible at build time and only shows up as missing styling.
+for (const file of ['src/popup/index.mjs', 'src/sidepanel/index.mjs']) {
+  const source = read(file);
+  const fused = [...source.matchAll(/(?<![\w-])op:[a-z0-9.[\]-]*\$\{/g)].map(match => match[0]);
+  assert.deepStrictEqual(
+    fused,
+    [],
+    `${file}: utility classes must not be written directly against \${...} — Tailwind will not emit them`
+  );
+}
 
 console.log('Tailwind build tests passed');

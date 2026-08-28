@@ -1,106 +1,156 @@
 // OmniPilot Side Panel
+//
+// Rendered with Preact + htm. The runtime is inlined ahead of this file by
+// build.mjs (see the `needsPreact` entry flag), so `htmPreact` is a plain
+// global here — there is no bundler and no module loader involved.
+//
+// The transcript is state: an array of message records rendered as a pure
+// function of that array. The stream protocol below is unchanged from the
+// imperative version — port name, message types, watchdog timing, history
+// ordering, and error strings are all preserved exactly.
 import { createAppearanceController } from '../utils/appearance.mjs';
-(function () {
-  'use strict';
 
-  const body = document.getElementById('chatBody');
-  const input = document.getElementById('chatInput');
-  const sendBtn = document.getElementById('sendBtn');
-  const history = [];
-  // Surface an error if the stream port goes silent this long (worker suspended
-  // or A2A delegation hung). Reset on every message so live streams aren't cut.
-  let streamWatchdogMs = RESPONSE_TIMEOUT_DEFAULT_MS;
+const { html, render, useState, useEffect, useRef } = htmPreact;
 
-  const appearanceController = createAppearanceController({
-    root: document.documentElement,
-    surface: 'sidepanel',
-    readPreferences(defaults, callback) {
-      chrome.storage.sync.get(defaults, callback);
-    },
-    subscribeToChanges(listener) {
-      const onChanged = chrome.storage?.onChanged;
-      if (!onChanged?.addListener) return undefined;
-      onChanged.addListener(listener);
-      return () => onChanged.removeListener?.(listener);
-    },
-    matchMedia: typeof globalThis.matchMedia === 'function'
-      ? globalThis.matchMedia.bind(globalThis)
-      : undefined
-  });
+const PORT_NAME = 'omnipilot-stream';
+const EMPTY_PROMPT = 'Start a conversation. Ask anything.';
+const NO_RESPONSE_ERROR = 'No response received.';
+const TIMEOUT_ERROR = 'No response. The assistant may have timed out — try again.';
+const CONTEXT_LOST_ERROR = 'Extension context unavailable. Refresh the page.';
+const INPUT_MAX_HEIGHT = 120;
 
-  window.addEventListener?.('unload', () => appearanceController.dispose(), { once: true });
+const STATUS_LABELS = {
+  delegating: 'Delegating…',
+  thinking: 'Thinking…'
+};
 
-  chrome.storage.sync.get({ responseTimeoutMs: RESPONSE_TIMEOUT_DEFAULT_MS }, cfg => {
-    streamWatchdogMs = normalizeResponseTimeoutMs(cfg.responseTimeoutMs);
-  });
+function statusLabel(status) {
+  return STATUS_LABELS[status] || 'Working…';
+}
 
-  // Auto-resize textarea
-  input.addEventListener('input', () => {
-    input.style.height = 'auto';
-    input.style.height = Math.min(input.scrollHeight, 120) + 'px';
-  });
+function isExtensionContextInvalidatedError(err) {
+  const msg = err && (err.message || err.toString?.() || String(err));
+  return typeof msg === 'string' && /extension context invalidated/i.test(msg);
+}
 
-  function clearEmpty() {
-    const empty = body.querySelector('.sp-empty');
-    if (empty) empty.remove();
+function Message({ message }) {
+  if (message.role === 'error') {
+    return html`<div class="sp-error">${message.content}</div>`;
   }
-
-  function addUserMsg(text) {
-    clearEmpty();
-    const div = document.createElement('div');
-    div.className = 'sp-msg sp-msg-user';
-    div.textContent = text;
-    body.appendChild(div);
-    body.scrollTop = body.scrollHeight;
+  if (message.role === 'user') {
+    return html`<div class="sp-msg sp-msg-user">${message.content}</div>`;
   }
+  // Two literal class attributes rather than one interpolated string: Tailwind
+  // tokenizes candidates on whitespace and would swallow a utility written
+  // flush against an interpolation.
+  return message.streaming
+    ? html`<div class="sp-msg sp-msg-assistant sp-streaming">${message.content}</div>`
+    : html`<div class="sp-msg sp-msg-assistant">${message.content}</div>`;
+}
 
-  function createStreamingMsg() {
-    clearEmpty();
-    const div = document.createElement('div');
-    div.className = 'sp-msg sp-msg-assistant sp-streaming';
-    div.textContent = '';
-    body.appendChild(div);
-    return div;
-  }
+function SidePanel() {
+  const [messages, setMessages] = useState([]);
 
-  function addErrorMsg(text) {
-    const div = document.createElement('div');
-    div.className = 'sp-error';
-    div.textContent = text;
-    body.appendChild(div);
-    body.scrollTop = body.scrollHeight;
-  }
+  const bodyRef = useRef(null);
+  const inputRef = useRef(null);
+  const historyRef = useRef([]);
+  const watchdogMsRef = useRef(RESPONSE_TIMEOUT_DEFAULT_MS);
+  const nextIdRef = useRef(0);
 
-  function isExtensionContextInvalidatedError(err) {
-    const msg = err && (err.message || err.toString?.() || String(err));
-    return typeof msg === 'string' && /extension context invalidated/i.test(msg);
-  }
+  const nextId = () => {
+    nextIdRef.current += 1;
+    return nextIdRef.current;
+  };
+
+  const append = message => setMessages(previous => [...previous, message]);
+
+  useEffect(() => {
+    if (typeof chrome === 'undefined' || !chrome.storage) return undefined;
+
+    const controller = createAppearanceController({
+      root: document.documentElement,
+      surface: 'sidepanel',
+      readPreferences(defaults, callback) {
+        chrome.storage.sync.get(defaults, callback);
+      },
+      subscribeToChanges(listener) {
+        const onChanged = chrome.storage?.onChanged;
+        if (!onChanged?.addListener) return undefined;
+        onChanged.addListener(listener);
+        return () => onChanged.removeListener?.(listener);
+      },
+      matchMedia: typeof globalThis.matchMedia === 'function'
+        ? globalThis.matchMedia.bind(globalThis)
+        : undefined
+    });
+
+    window.addEventListener?.('unload', () => controller.dispose(), { once: true });
+
+    chrome.storage.sync.get({ responseTimeoutMs: RESPONSE_TIMEOUT_DEFAULT_MS }, cfg => {
+      watchdogMsRef.current = normalizeResponseTimeoutMs(cfg.responseTimeoutMs);
+    });
+
+    return undefined;
+  }, []);
+
+  // Keep the newest content in view as the transcript grows.
+  useEffect(() => {
+    const body = bodyRef.current;
+    if (body) body.scrollTop = body.scrollHeight;
+  }, [messages]);
 
   function sendMessage() {
+    const input = inputRef.current;
     const text = input.value.trim();
     if (!text) return;
 
     input.value = '';
     input.style.height = 'auto';
-    addUserMsg(text);
-    history.push({ role: 'user', content: text });
+    append({ id: nextId(), role: 'user', content: text });
+    historyRef.current.push({ role: 'user', content: text });
 
     // chrome.runtime.connect() throws synchronously with
     // "Extension context invalidated." after an extension reload while the
     // side panel is still open. Catch it and surface a friendly error.
     let port;
     try {
-      port = chrome.runtime.connect({ name: 'omnipilot-stream' });
+      port = chrome.runtime.connect({ name: PORT_NAME });
     } catch (err) {
       if (isExtensionContextInvalidatedError(err)) {
-        addErrorMsg('Extension context unavailable. Refresh the page.');
+        append({ id: nextId(), role: 'error', content: CONTEXT_LOST_ERROR });
         return;
       }
       throw err;
     }
+
     let accumulated = '';
-    let msgDiv = null;
+    let streamId = null;
     let settled = false;
+
+    const startStream = () => {
+      streamId = nextId();
+      append({ id: streamId, role: 'assistant', content: '', streaming: true });
+    };
+    const updateStream = content => setMessages(previous =>
+      previous.map(message => (message.id === streamId ? { ...message, content } : message))
+    );
+    const settleStream = () => setMessages(previous =>
+      previous.map(message => (message.id === streamId ? { ...message, streaming: false } : message))
+    );
+    // Drops any pending placeholder, then reports "no response" unless the
+    // transcript already carries an error. The check spans the whole
+    // transcript, matching the original body-wide `.sp-error` lookup.
+    const reportNoResponse = () => {
+      const pendingId = streamId;
+      streamId = null;
+      setMessages(previous => {
+        const remaining = pendingId === null
+          ? previous
+          : previous.filter(message => message.id !== pendingId);
+        if (remaining.some(message => message.role === 'error')) return remaining;
+        return [...remaining, { id: nextId(), role: 'error', content: NO_RESPONSE_ERROR }];
+      });
+    };
 
     // Watchdog: the service worker can be suspended, or an A2A delegation can
     // hang, leaving the port silent with no 'done'. Without this the panel would
@@ -120,10 +170,14 @@ import { createAppearanceController } from '../utils/appearance.mjs';
       clearWatchdog();
       watchdog = setTimeout(() => {
         if (settled) return;
-        if (!accumulated) addErrorMsg('No response. The assistant may have timed out — try again.');
-        else if (msgDiv) { msgDiv.classList.remove('sp-streaming'); history.push({ role: 'assistant', content: accumulated }); }
+        if (!accumulated) {
+          append({ id: nextId(), role: 'error', content: TIMEOUT_ERROR });
+        } else if (streamId !== null) {
+          settleStream();
+          historyRef.current.push({ role: 'assistant', content: accumulated });
+        }
         finish();
-      }, streamWatchdogMs);
+      }, watchdogMsRef.current);
       // Never let the watchdog itself keep the process alive (no-op in browsers,
       // where timer handles are plain numbers).
       if (watchdog && typeof watchdog.unref === 'function') watchdog.unref();
@@ -133,26 +187,20 @@ import { createAppearanceController } from '../utils/appearance.mjs';
       if (settled) return;
       armWatchdog();
       if (msg.type === 'chunk') {
-        if (!msgDiv) msgDiv = createStreamingMsg();
+        if (streamId === null) startStream();
         accumulated += msg.text;
-        msgDiv.textContent = accumulated;
-        body.scrollTop = body.scrollHeight;
+        updateStream(accumulated);
       } else if (msg.type === 'status') {
-        if (!msgDiv) msgDiv = createStreamingMsg();
-        if (!accumulated) {
-          msgDiv.textContent = msg.status === 'delegating'
-            ? 'Delegating…'
-            : msg.status === 'thinking' ? 'Thinking…' : 'Working…';
-        }
+        if (streamId === null) startStream();
+        if (!accumulated) updateStream(statusLabel(msg.status));
       } else if (msg.type === 'error') {
-        if (!accumulated) addErrorMsg(msg.error);
+        if (!accumulated) append({ id: nextId(), role: 'error', content: msg.error });
       } else if (msg.type === 'done') {
-        if (msgDiv && accumulated) {
-          msgDiv.classList.remove('sp-streaming');
-          history.push({ role: 'assistant', content: accumulated });
+        if (streamId !== null && accumulated) {
+          settleStream();
+          historyRef.current.push({ role: 'assistant', content: accumulated });
         } else if (!accumulated) {
-          if (msgDiv) { msgDiv.remove(); msgDiv = null; }
-          if (!body.querySelector('.sp-error')) addErrorMsg('No response received.');
+          reportNoResponse();
         }
         finish();
       }
@@ -164,33 +212,63 @@ import { createAppearanceController } from '../utils/appearance.mjs';
       settled = true;
       // Worker died before sending 'done'. Keep any partial text; otherwise show
       // an error rather than a half-rendered streaming bubble that never settles.
-      if (msgDiv && accumulated) {
-        msgDiv.classList.remove('sp-streaming');
-        history.push({ role: 'assistant', content: accumulated });
+      if (streamId !== null && accumulated) {
+        settleStream();
+        historyRef.current.push({ role: 'assistant', content: accumulated });
       } else {
-        if (msgDiv) { msgDiv.remove(); msgDiv = null; }
-        if (!body.querySelector('.sp-error')) addErrorMsg('No response received.');
+        reportNoResponse();
       }
     });
 
     try {
-      port.postMessage({ type: 'AI_CHAT_STREAM', messages: history });
+      port.postMessage({ type: 'AI_CHAT_STREAM', messages: historyRef.current });
     } catch (err) {
       if (isExtensionContextInvalidatedError(err)) {
         clearWatchdog();
         try { port.disconnect(); } catch {}
-        addErrorMsg('Extension context unavailable. Refresh the page.');
+        append({ id: nextId(), role: 'error', content: CONTEXT_LOST_ERROR });
         return;
       }
       throw err;
     }
   }
 
-  sendBtn.addEventListener('click', sendMessage);
-  input.addEventListener('keydown', e => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
+  const onInput = event => {
+    const input = event.target;
+    input.style.height = 'auto';
+    input.style.height = Math.min(input.scrollHeight, INPUT_MAX_HEIGHT) + 'px';
+  };
+
+  const onKeyDown = event => {
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
       sendMessage();
     }
-  });
-})();
+  };
+
+  return html`
+    <div class="sp-header">
+      <span aria-hidden="true">✦</span>
+      <h1>OmniPilot</h1>
+    </div>
+    <div class="sp-body" id="chatBody" ref=${bodyRef}>
+      ${messages.length === 0
+        ? html`<div class="sp-empty">${EMPTY_PROMPT}</div>`
+        : messages.map(message => html`<${Message} message=${message} key=${message.id} />`)}
+    </div>
+    <div class="sp-input-area">
+      <textarea
+        class="sp-input"
+        id="chatInput"
+        placeholder="Ask anything..."
+        rows="1"
+        ref=${inputRef}
+        onInput=${onInput}
+        onKeyDown=${onKeyDown}
+      ></textarea>
+      <button class="sp-send" id="sendBtn" onClick=${sendMessage}>Send</button>
+    </div>
+  `;
+}
+
+render(html`<${SidePanel} />`, document.getElementById('root'));
