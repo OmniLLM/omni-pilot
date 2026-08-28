@@ -2372,6 +2372,16 @@ import { createAppearanceController } from '../utils/appearance.mjs';
       sendResponse({ success: true });
       return true;
     }
+    // Asked by the side panel so it can talk about the page the user is on.
+    if (request.type === 'GET_PAGE_CONTEXT') {
+      sendResponse({
+        success: true,
+        title: document.title || '',
+        url: location.href,
+        content: extractPageContent() || ''
+      });
+      return true;
+    }
   });
 
   // ── Selection Detection ───────────────────────────────────────────────────────

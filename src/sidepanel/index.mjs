@@ -18,6 +18,66 @@ const NO_RESPONSE_ERROR = 'No response received.';
 const TIMEOUT_ERROR = 'No response. The assistant may have timed out — try again.';
 const CONTEXT_LOST_ERROR = 'Extension context unavailable. Refresh the page.';
 const INPUT_MAX_HEIGHT = 120;
+const PAGE_CONTEXT_MAX_CHARS = 12000;
+
+/**
+ * Reads the active tab's title, URL, and main text via the content script.
+ * Resolves to null whenever the page cannot be read — restricted pages such as
+ * chrome://, the Web Store, and PDF viewers have no content script.
+ */
+function fetchPageContext() {
+  return new Promise(resolve => {
+    if (typeof chrome === 'undefined' || !chrome.tabs?.query) {
+      resolve(null);
+      return;
+    }
+    try {
+      chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
+        const tab = tabs && tabs[0];
+        if (chrome.runtime.lastError || !tab?.id) {
+          resolve(null);
+          return;
+        }
+        try {
+          chrome.tabs.sendMessage(tab.id, { type: 'GET_PAGE_CONTEXT' }, response => {
+            if (chrome.runtime.lastError || !response?.success) {
+              resolve(null);
+              return;
+            }
+            resolve({
+              tabId: tab.id,
+              title: response.title || tab.title || '',
+              url: response.url || tab.url || '',
+              content: String(response.content || '').slice(0, PAGE_CONTEXT_MAX_CHARS)
+            });
+          });
+        } catch {
+          resolve(null);
+        }
+      });
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
+/** Builds the system message that grounds the conversation in the page. */
+function pageContextMessage(page) {
+  return {
+    role: 'system',
+    content: [
+      'The user is viewing the following web page. Use it as the primary context',
+      'when answering. If the answer is not in the page, say so.',
+      '',
+      `Title: ${page.title}`,
+      `URL: ${page.url}`,
+      '',
+      '--- PAGE CONTENT ---',
+      page.content,
+      '--- END PAGE CONTENT ---'
+    ].join('\n')
+  };
+}
 
 const STATUS_LABELS = {
   delegating: 'Delegating…',
@@ -48,14 +108,35 @@ function Message({ message }) {
     : html`<div class="sp-msg sp-msg-assistant">${message.content}</div>`;
 }
 
+function PageContextChip({ page, enabled, onToggle }) {
+  if (!page) {
+    return html`
+      <div class="sp-context sp-context-empty">
+        <span class="sp-context-icon" aria-hidden="true">🚫</span>
+        <span class="sp-context-text">This page can't be read</span>
+      </div>`;
+  }
+  return html`
+    <label class="sp-context" title=${page.url}>
+      <input type="checkbox" checked=${enabled} onChange=${onToggle} />
+      <span class="sp-context-icon" aria-hidden="true">📄</span>
+      <span class="sp-context-text">${page.title || page.url}</span>
+    </label>`;
+}
+
 function SidePanel() {
   const [messages, setMessages] = useState([]);
+  const [page, setPage] = useState(null);
+  const [usesPage, setUsesPage] = useState(true);
 
   const bodyRef = useRef(null);
   const inputRef = useRef(null);
   const historyRef = useRef([]);
   const watchdogMsRef = useRef(RESPONSE_TIMEOUT_DEFAULT_MS);
   const nextIdRef = useRef(0);
+  const pageRef = useRef(null);
+  const usesPageRef = useRef(true);
+  const sentContextRef = useRef(false);
 
   const nextId = () => {
     nextIdRef.current += 1;
@@ -99,6 +180,35 @@ function SidePanel() {
     if (body) body.scrollTop = body.scrollHeight;
   }, [messages]);
 
+  // Track the page the user is looking at, so the conversation can be about it.
+  useEffect(() => {
+    let cancelled = false;
+
+    const refresh = () => {
+      fetchPageContext().then(next => {
+        if (cancelled) return;
+        pageRef.current = next;
+        setPage(next);
+      });
+    };
+
+    refresh();
+
+    const tabs = typeof chrome !== 'undefined' ? chrome.tabs : undefined;
+    const onActivated = () => refresh();
+    const onUpdated = (_tabId, changeInfo, tab) => {
+      if (tab?.active && changeInfo?.status === 'complete') refresh();
+    };
+    tabs?.onActivated?.addListener?.(onActivated);
+    tabs?.onUpdated?.addListener?.(onUpdated);
+
+    return () => {
+      cancelled = true;
+      tabs?.onActivated?.removeListener?.(onActivated);
+      tabs?.onUpdated?.removeListener?.(onUpdated);
+    };
+  }, []);
+
   function sendMessage() {
     const input = inputRef.current;
     const text = input.value.trim();
@@ -106,6 +216,14 @@ function SidePanel() {
 
     input.value = '';
     input.style.height = 'auto';
+
+    // Ground the conversation in the page once, ahead of the first user turn.
+    // Sent as history so the existing AI_CHAT_STREAM contract is unchanged.
+    if (usesPageRef.current && pageRef.current?.content && !sentContextRef.current) {
+      historyRef.current.push(pageContextMessage(pageRef.current));
+      sentContextRef.current = true;
+    }
+
     append({ id: nextId(), role: 'user', content: text });
     historyRef.current.push({ role: 'user', content: text });
 
@@ -246,11 +364,18 @@ function SidePanel() {
     }
   };
 
+  const onToggleContext = event => {
+    const enabled = Boolean(event.target.checked);
+    usesPageRef.current = enabled;
+    setUsesPage(enabled);
+  };
+
   return html`
     <div class="sp-header">
       <span aria-hidden="true">✦</span>
       <h1>OmniPilot</h1>
     </div>
+    <${PageContextChip} page=${page} enabled=${usesPage} onToggle=${onToggleContext} />
     <div class="sp-body" id="chatBody" ref=${bodyRef}>
       ${messages.length === 0
         ? html`<div class="sp-empty">${EMPTY_PROMPT}</div>`

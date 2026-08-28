@@ -169,6 +169,11 @@ function setupContextMenus() {
       contexts: ['page'],
       documentUrlPatterns: ['*://github.com/*/issues/*', '*://github.com/*/pull/*']
     });
+    chrome.contextMenus.create({
+      id: 'omnipilot-open-side-panel',
+      title: '💬 Ask about this page',
+      contexts: ['page', 'selection']
+    });
   });
 }
 
@@ -187,6 +192,15 @@ if (chrome.contextMenus) {
     if (!menuId || !String(menuId).startsWith('omnipilot-') || menuId === 'omnipilot-separator') return;
 
     const action = String(menuId).replace('omnipilot-', '');
+
+    // Must run synchronously inside the click handler: chrome.sidePanel.open()
+    // requires an active user gesture and rejects if awaited past it.
+    if (action === 'open-side-panel') {
+      try {
+        chrome.sidePanel?.open?.({ tabId: tab.id })?.catch?.(() => {});
+      } catch {}
+      return;
+    }
 
     if (action === 'summarize-page') {
       chrome.tabs.sendMessage(tab.id, {

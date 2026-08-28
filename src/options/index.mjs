@@ -1,6 +1,14 @@
 import { t, normalizeLanguage, applyTranslations } from '../utils/i18n.mjs';
 import { createAppearanceController } from '../utils/appearance.mjs';
 
+// The agent list region is rendered with Preact + htm. The runtime is inlined
+// ahead of this file by build.mjs (see the `needsPreact` entry flag), so
+// `htmPreact` is a plain global here — no bundler, no module loader.
+//
+// Only that region is component-rendered. The rest of this page is static
+// markup in index.html driven by the getElementById accessors below.
+const { html, render } = htmPreact;
+
 const PROVIDER_TYPES = {
   CUSTOM: 'custom-provider',
   GITHUB_COPILOT: 'github-copilot',
@@ -62,6 +70,8 @@ let providerConfigs = {};
 let activeProviderType = PROVIDER_TYPES.CUSTOM;
 let a2aServers = [];
 let a2aServerTokens = {};
+/** Identifier of the agent whose inline edit form is open, or null. */
+let editingA2aServerId = null;
 
 function label(key) {
   return t(key, currentLanguage);
@@ -403,13 +413,141 @@ async function setAllA2aSkillsEnabled(serverId, enabled) {
   renderA2aServers();
 }
 
-function escapeHtml(value) {
-  return String(value || '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+function A2aSkillRow({ server, skill }) {
+  const sid = String(skill.id || skill.name);
+  const checked = !new Set(server.disabledSkillIds || []).has(sid);
+  const displayName = skill.name || skill.id || '';
+  const showId = Boolean(skill.name && skill.id && skill.name !== skill.id);
+  const desc = skill.description ? skill.description.slice(0, 120) : '';
+  return html`
+    <label class="a2a-skill-row">
+      <input
+        type="checkbox"
+        checked=${checked}
+        data-skill-toggle=${''}
+        data-server-id=${server.id}
+        data-skill-id=${sid}
+      />
+      <span class="a2a-skill-meta">
+        <span class="a2a-skill-name">${displayName}</span>
+        ${showId ? html`<span class="a2a-skill-id">${skill.id}</span>` : null}
+        ${desc ? html`<span class="a2a-skill-desc">${desc}</span>` : null}
+      </span>
+    </label>`;
+}
+
+function A2aSkillControls({ server }) {
+  const skills = getA2aServerSkills(server);
+  if (!server.agentCard) return null;
+  if (skills.length === 0) {
+    return html`
+      <div class="a2a-skill-controls">
+        <span class="a2a-skill-summary">No skills discovered</span>
+      </div>`;
+  }
+
+  const disabledSet = new Set(server.disabledSkillIds || []);
+  const enabledCount = skills.filter(s => !disabledSet.has(String(s.id || s.name))).length;
+  const panelExpanded = expandedA2aSkillPanels.has(server.id);
+
+  return html`
+    <div class="a2a-skill-controls">
+      <div class="a2a-skill-summary-row">
+        <span class="a2a-skill-summary">Skills: ${enabledCount} of ${skills.length} enabled</span>
+        <button
+          type="button"
+          class="a2a-skill-toggle-btn"
+          data-action="toggle-skills-panel"
+          data-server-id=${server.id}
+        >${panelExpanded ? 'Hide' : 'Show'}</button>
+      </div>
+      ${panelExpanded ? html`
+        <div class="a2a-skill-panel">
+          <div class="a2a-skill-list">
+            ${skills.map(skill => html`
+              <${A2aSkillRow} key=${String(skill.id || skill.name)} server=${server} skill=${skill} />`)}
+          </div>
+          <div class="a2a-skill-actions">
+            <button
+              type="button"
+              class="a2a-skill-toggle-btn"
+              data-action="enable-all-skills"
+              data-server-id=${server.id}
+            >Enable all</button>
+            <button
+              type="button"
+              class="a2a-skill-toggle-btn"
+              data-action="disable-all-skills"
+              data-server-id=${server.id}
+            >Disable all</button>
+          </div>
+          ${enabledCount === 0 ? html`
+            <div class="a2a-skill-hint">No skills enabled — this agent will not expose any tools.</div>` : null}
+        </div>` : null}
+    </div>`;
+}
+
+function A2aServerItem({ server }) {
+  const disabled = server.enabled === false;
+  const toggleAction = disabled ? 'enable' : 'disable';
+  const toggleLabel = disabled ? label('enable') : label('disable');
+  return html`
+    <div
+      class=${`a2a-server-item${disabled ? ' disabled' : ''}`}
+      data-server-id=${server.id}
+    >
+      <div class="a2a-server-meta">
+        <div class="a2a-server-name">
+          <span class="a2a-health-dot" data-health-for=${server.id} title="Checking…"></span>
+          ${server.name}
+          ${disabled ? html`<span class="disabled-label">${label('disabled')}</span>` : null}
+        </div>
+        <div class="a2a-server-endpoint">${server.endpoint}</div>
+      </div>
+      <div class="a2a-server-actions">
+        <button type="button" class="secondary-btn" data-action="edit" data-server-id=${server.id}>${label('edit')}</button>
+        <button type="button" class="secondary-btn" data-action=${toggleAction} data-server-id=${server.id}>${toggleLabel}</button>
+        <button type="button" class="secondary-btn" data-action="health" data-server-id=${server.id} data-endpoint=${server.endpoint}>Health</button>
+        <button type="button" class="secondary-btn" data-action="discover" data-server-id=${server.id}>${label('discover')}</button>
+        <button type="button" class="secondary-btn" data-action="remove" data-server-id=${server.id}>${label('remove')}</button>
+      </div>
+      <${A2aSkillControls} server=${server} />
+    </div>`;
+}
+
+function A2aEditForm({ server, token }) {
+  return html`
+    <div class="a2a-edit-form" data-server-id=${server.id}>
+      <div class="field">
+        <label>${label('a2aServerName')}</label>
+        <input type="text" class="a2a-edit-name" value=${server.name} />
+      </div>
+      <div class="field">
+        <label>${label('a2aEndpoint')}</label>
+        <input type="text" class="a2a-edit-endpoint" value=${server.endpoint} />
+      </div>
+      <div class="field">
+        <label>${label('a2aToken')}</label>
+        <input
+          type="password"
+          class="a2a-edit-token"
+          value=${token}
+          placeholder=${label('a2aTokenUnchanged')}
+        />
+      </div>
+      <div class="a2a-edit-actions">
+        <button type="button" class="secondary-btn" data-action="cancel-edit" data-server-id=${server.id}>${label('cancel')}</button>
+        <button type="button" class="secondary-btn save-edit" data-action="save-edit" data-server-id=${server.id}>${label('save')}</button>
+      </div>
+    </div>`;
+}
+
+function A2aServerList({ servers, editingId, tokens }) {
+  return html`${servers.map(server => (
+    server.id === editingId
+      ? html`<${A2aEditForm} key=${server.id} server=${server} token=${tokens[server.id] || ''} />`
+      : html`<${A2aServerItem} key=${server.id} server=${server} />`
+  ))}`;
 }
 
 function getA2aTokenStorageArea() {
@@ -478,78 +616,17 @@ function renderA2aServers(serverList = a2aServers) {
   const normalizedList = normalizeA2aServers(serverList);
   a2aServers = normalizedList;
   const list = document.getElementById('a2aServerList');
-  if (!list) return;
-  list.innerHTML = normalizedList.map(server => {
-    const disabled = server.enabled === false;
-    const toggleAction = disabled ? 'enable' : 'disable';
-    const toggleLabel = disabled ? label('enable') : label('disable');
-
-    // Build skill controls section
-    const skills = getA2aServerSkills(server);
-    const panelExpanded = expandedA2aSkillPanels.has(server.id);
-    let skillControlsHtml = '';
-    if (server.agentCard && skills.length > 0) {
-      const disabledSet = new Set(server.disabledSkillIds || []);
-      const enabledCount = skills.filter(s => !disabledSet.has(String(s.id || s.name))).length;
-      const toggleBtnLabel = panelExpanded ? 'Hide' : 'Show';
-      const skillRows = skills.map(skill => {
-        const sid = String(skill.id || skill.name);
-        const checked = !disabledSet.has(sid);
-        const displayName = escapeHtml(skill.name || skill.id || '');
-        const showId = skill.name && skill.id && skill.name !== skill.id;
-        const desc = skill.description ? escapeHtml(skill.description.slice(0, 120)) : '';
-        return `
-          <label class="a2a-skill-row">
-            <input type="checkbox" ${checked ? 'checked' : ''} data-skill-toggle data-server-id="${escapeHtml(server.id)}" data-skill-id="${escapeHtml(sid)}">
-            <span class="a2a-skill-meta">
-              <span class="a2a-skill-name">${displayName}</span>
-              ${showId ? `<span class="a2a-skill-id">${escapeHtml(skill.id)}</span>` : ''}
-              ${desc ? `<span class="a2a-skill-desc">${desc}</span>` : ''}
-            </span>
-          </label>`;
-      }).join('');
-
-      skillControlsHtml = `
-      <div class="a2a-skill-controls">
-        <div class="a2a-skill-summary-row">
-          <span class="a2a-skill-summary">Skills: ${enabledCount} of ${skills.length} enabled</span>
-          <button type="button" class="a2a-skill-toggle-btn" data-action="toggle-skills-panel" data-server-id="${escapeHtml(server.id)}">${toggleBtnLabel}</button>
-        </div>
-        ${panelExpanded ? `
-        <div class="a2a-skill-panel">
-          <div class="a2a-skill-list">${skillRows}</div>
-          <div class="a2a-skill-actions">
-            <button type="button" class="a2a-skill-toggle-btn" data-action="enable-all-skills" data-server-id="${escapeHtml(server.id)}">Enable all</button>
-            <button type="button" class="a2a-skill-toggle-btn" data-action="disable-all-skills" data-server-id="${escapeHtml(server.id)}">Disable all</button>
-          </div>
-          ${enabledCount === 0 ? '<div class="a2a-skill-hint">No skills enabled — this agent will not expose any tools.</div>' : ''}
-        </div>` : ''}
-      </div>`;
-    } else if (server.agentCard && skills.length === 0) {
-      skillControlsHtml = `<div class="a2a-skill-controls"><span class="a2a-skill-summary">No skills discovered</span></div>`;
-    }
-
-    return `
-    <div class="a2a-server-item${disabled ? ' disabled' : ''}" data-server-id="${escapeHtml(server.id)}">
-      <div class="a2a-server-meta">
-        <div class="a2a-server-name">
-          <span class="a2a-health-dot" data-health-for="${escapeHtml(server.id)}" title="Checking…"></span>
-          ${escapeHtml(server.name)}
-          ${disabled ? `<span class="disabled-label">${escapeHtml(label('disabled'))}</span>` : ''}
-        </div>
-        <div class="a2a-server-endpoint">${escapeHtml(server.endpoint)}</div>
-      </div>
-      <div class="a2a-server-actions">
-        <button type="button" class="secondary-btn" data-action="edit" data-server-id="${escapeHtml(server.id)}">${escapeHtml(label('edit'))}</button>
-        <button type="button" class="secondary-btn" data-action="${toggleAction}" data-server-id="${escapeHtml(server.id)}">${escapeHtml(toggleLabel)}</button>
-        <button type="button" class="secondary-btn" data-action="health" data-server-id="${escapeHtml(server.id)}" data-endpoint="${escapeHtml(server.endpoint)}">Health</button>
-        <button type="button" class="secondary-btn" data-action="discover" data-server-id="${escapeHtml(server.id)}">${escapeHtml(label('discover'))}</button>
-        <button type="button" class="secondary-btn" data-action="remove" data-server-id="${escapeHtml(server.id)}">${escapeHtml(label('remove'))}</button>
-      </div>
-      ${skillControlsHtml}
-    </div>
-  `;
-  }).join('');
+  // Same defensive shape as checkA2aServerHealth: render only into a real
+  // element. The normalization above has already been applied either way.
+  if (!list || list.nodeType !== 1) return;
+  render(
+    html`<${A2aServerList}
+      servers=${normalizedList}
+      editingId=${editingA2aServerId}
+      tokens=${a2aServerTokens}
+    />`,
+    list
+  );
   // Auto-check health for all listed servers (fire-and-forget, no render block)
   for (const server of normalizedList) {
     checkA2aServerHealth(server.id, server.endpoint).catch(() => {});
@@ -716,29 +793,12 @@ async function setA2aServerEnabled(serverId, enabled) {
 function startEditA2aServer(serverId) {
   const server = a2aServers.find(s => s.id === serverId);
   if (!server) return;
-  const token = a2aServerTokens[serverId] || '';
+  // Preserve the original guard: editing an agent that is not currently listed
+  // does nothing.
   const item = document.querySelector(`.a2a-server-item[data-server-id="${serverId}"]`);
   if (!item) return;
-  item.outerHTML = `
-    <div class="a2a-edit-form" data-server-id="${escapeHtml(serverId)}">
-      <div class="field">
-        <label>${escapeHtml(label('a2aServerName'))}</label>
-        <input type="text" class="a2a-edit-name" value="${escapeHtml(server.name)}">
-      </div>
-      <div class="field">
-        <label>${escapeHtml(label('a2aEndpoint'))}</label>
-        <input type="text" class="a2a-edit-endpoint" value="${escapeHtml(server.endpoint)}">
-      </div>
-      <div class="field">
-        <label>${escapeHtml(label('a2aToken'))}</label>
-        <input type="password" class="a2a-edit-token" value="${escapeHtml(token)}" placeholder="${escapeHtml(label('a2aTokenUnchanged'))}">
-      </div>
-      <div class="a2a-edit-actions">
-        <button type="button" class="secondary-btn" data-action="cancel-edit" data-server-id="${escapeHtml(serverId)}">${escapeHtml(label('cancel'))}</button>
-        <button type="button" class="secondary-btn save-edit" data-action="save-edit" data-server-id="${escapeHtml(serverId)}">${escapeHtml(label('save'))}</button>
-      </div>
-    </div>
-  `;
+  editingA2aServerId = serverId;
+  renderA2aServers();
 }
 
 async function saveEditA2aServer(serverId) {
@@ -773,6 +833,7 @@ async function saveEditA2aServer(serverId) {
     status.className = 'status';
     setTimeout(() => { if (status.textContent === label('saved')) status.textContent = ''; }, 2500);
   }
+  editingA2aServerId = null;
   renderA2aServers();
 }
 
@@ -1174,6 +1235,7 @@ document.addEventListener('DOMContentLoaded', () => {
     } else if (button.getAttribute('data-action') === 'save-edit') {
       saveEditA2aServer(serverId);
     } else if (button.getAttribute('data-action') === 'cancel-edit') {
+      editingA2aServerId = null;
       renderA2aServers();
     } else if (button.getAttribute('data-action') === 'discover') {
       discoverAndSaveA2aServer(serverId).catch(error => {

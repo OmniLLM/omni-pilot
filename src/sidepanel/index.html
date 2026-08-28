@@ -44,6 +44,29 @@
       text-transform: var(--appearance-heading-transform);
     }
 
+    .sp-context {
+      display: flex;
+      align-items: center;
+      gap: var(--appearance-space-2);
+      padding: var(--appearance-space-2) var(--appearance-space-4);
+      border-bottom: var(--appearance-border-width) solid var(--appearance-border);
+      background: var(--appearance-surface);
+      font-size: var(--appearance-font-size-sm);
+      color: var(--appearance-text-muted);
+      flex-shrink: 0;
+      cursor: pointer;
+    }
+
+    .sp-context-empty {
+      cursor: default;
+    }
+
+    .sp-context-text {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
     .sp-body {
       flex: 1;
       overflow-y: auto;

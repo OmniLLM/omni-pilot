@@ -73,7 +73,21 @@ function PopupApp() {
   });
 
   const controllerRef = useRef(null);
+  const tabIdRef = useRef(null);
   const merge = patch => setState(previous => ({ ...previous, ...patch }));
+
+  // Resolve the active tab up front so the side panel button can open
+  // synchronously inside its click handler and keep the user gesture.
+  useEffect(() => {
+    if (typeof chrome === 'undefined' || !chrome.tabs?.query) return undefined;
+    try {
+      chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
+        const tabId = tabs && tabs[0] && tabs[0].id;
+        if (typeof tabId === 'number') tabIdRef.current = tabId;
+      });
+    } catch {}
+    return undefined;
+  }, []);
 
   // Everything touching chrome.* runs here, after the first commit, so the
   // markup exists even when the extension APIs are unavailable.
@@ -166,6 +180,20 @@ function PopupApp() {
     if (typeof chrome !== 'undefined') chrome.runtime?.openOptionsPage?.();
   };
 
+  // Must be called synchronously from the click: chrome.sidePanel.open()
+  // requires an active user gesture, which an async callback would lose. The
+  // tab id is therefore resolved ahead of time, on mount.
+  const openSidePanel = () => {
+    if (typeof chrome === 'undefined' || !chrome.sidePanel?.open) return;
+    const tabId = tabIdRef.current;
+    try {
+      const opened = tabId === null
+        ? chrome.sidePanel.open({})
+        : chrome.sidePanel.open({ tabId });
+      opened?.then?.(() => window.close?.(), () => {});
+    } catch {}
+  };
+
   return html`
     <div class="op:flex op:items-center op:justify-between op:mb-3">
       <a
@@ -228,6 +256,14 @@ function PopupApp() {
         <option value="zh">中文</option>
       </select>
     </div>
+
+    <button
+      class="settings-btn op:flex op:items-center op:justify-center op:gap-1.5 op:w-full op:p-2 op:bg-surface op:text-ink op:text-sm op:font-medium op:font-body op:cursor-pointer op:mb-2"
+      id="sidePanelBtn"
+      onClick=${openSidePanel}
+    >
+      <span>💬</span> <span id="sidePanelLabel">Ask about this page</span>
+    </button>
 
     <button
       class="settings-btn op:flex op:items-center op:justify-center op:gap-1.5 op:w-full op:p-2 op:bg-surface op:text-ink op:text-sm op:font-medium op:font-body op:cursor-pointer"

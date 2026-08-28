@@ -13,8 +13,8 @@ const root = path.resolve(__dirname, '..', '..');
 const read = rel => fs.readFileSync(path.join(root, rel), 'utf8');
 
 const RUNTIME_GLOBAL = 'htmPreact';
-const WITH_RUNTIME = ['dist/popup.js', 'dist/sidepanel.js'];
-const WITHOUT_RUNTIME = ['dist/background.js', 'dist/content.js', 'dist/options.js'];
+const WITH_RUNTIME = ['dist/popup.js', 'dist/sidepanel.js', 'dist/options.js'];
+const WITHOUT_RUNTIME = ['dist/background.js', 'dist/content.js'];
 
 // ── The runtime reaches exactly the surfaces that asked for it ────────────
 
@@ -53,8 +53,8 @@ const flagged = [...buildSource.matchAll(/name:\s*'([a-z]+)'[^}]*needsPreact:\s*
   .map(match => match[1]);
 assert.deepStrictEqual(
   flagged.sort(),
-  ['popup', 'sidepanel'],
-  'only the popup and sidepanel entries may opt into the component runtime'
+  ['options', 'popup', 'sidepanel'],
+  'only extension page entries may opt into the component runtime'
 );
 
 // ── MV3 CSP: nothing may compile code at runtime ─────────────────────────
@@ -66,7 +66,7 @@ for (const file of WITH_RUNTIME) {
 }
 
 // The runtime must be a local build-time artifact, never fetched at runtime.
-for (const file of ['dist/popup.html', 'dist/sidepanel.html']) {
+for (const file of ['dist/popup.html', 'dist/sidepanel.html', 'dist/options.html']) {
   const html = read(file);
   assert.ok(
     !/<script[^>]+type=["']module["']/.test(html),

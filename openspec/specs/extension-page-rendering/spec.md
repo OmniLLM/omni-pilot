@@ -33,7 +33,7 @@ Introducing the component runtime SHALL NOT introduce a bundler, a module system
 
 #### Scenario: Top-level declarations stay observable
 
-- **WHEN** a test loads `dist/popup.js` or `dist/sidepanel.js` with `vm.runInContext`
+- **WHEN** a test loads `dist/popup.js`, `dist/sidepanel.js`, or `dist/options.js` with `vm.runInContext`
 - **THEN** top-level `function` declarations from the entry source are readable as properties of the context object
 
 #### Scenario: Our code is not wrapped
@@ -54,7 +54,7 @@ Introducing the component runtime SHALL NOT introduce a bundler, a module system
 #### Scenario: Untouched surfaces are byte-identical
 
 - **WHEN** the build runs before and after this change
-- **THEN** `dist/background.js`, `dist/content.js`, and `dist/options.js` are byte-for-byte identical
+- **THEN** `dist/background.js` and `dist/content.js` are byte-for-byte identical
 
 ### Requirement: Component runtime is confined to extension pages
 
@@ -73,7 +73,7 @@ The component runtime SHALL be inlined only into bundles for extension pages. It
 #### Scenario: Runtime inlining is opt-in per entry
 
 - **WHEN** `build.mjs` is inspected
-- **THEN** runtime inlining is controlled by an explicit per-entry flag, enabled only for the popup and sidepanel entries
+- **THEN** runtime inlining is controlled by an explicit per-entry flag, enabled only for the popup, sidepanel, and options entries
 
 ### Requirement: Side panel renders from a message model
 
@@ -236,10 +236,16 @@ On surfaces rendered by components, translated text SHALL be produced during ren
 - **WHEN** the active language is applied
 - **THEN** the document's `lang` attribute is set to that language
 
-#### Scenario: Non-component surfaces keep the existing mechanism
+#### Scenario: Attribute-driven translation still covers static markup
 
-- **WHEN** the options page and content script are inspected
-- **THEN** they continue to use the existing attribute-driven translation pass, unchanged
+- **WHEN** the options page applies a language
+- **THEN** its static markup continues to be translated by the existing attribute-driven pass
+- **AND** that pass does not reach component-rendered regions, which resolve their own labels at render time
+
+#### Scenario: Content script keeps the existing mechanism
+
+- **WHEN** the content script is inspected
+- **THEN** it continues to use the existing attribute-driven translation pass, unchanged
 
 ### Requirement: Component surfaces are covered by browser-based tests
 
@@ -248,7 +254,7 @@ Surfaces rendered by components SHALL be verified in a real browser, because a h
 #### Scenario: Fake-DOM unit tests are retired
 
 - **WHEN** the unit test suite is inspected
-- **THEN** it contains no tests that simulate the popup or side panel through a hand-written DOM stub
+- **THEN** it contains no test that asserts on markup produced by a component-rendered region through a hand-written DOM stub
 
 #### Scenario: Side panel gains end-to-end coverage
 
@@ -260,6 +266,11 @@ Surfaces rendered by components SHALL be verified in a real browser, because a h
 - **WHEN** the browser test suite runs
 - **THEN** it exercises the popup's readiness states, preference persistence, and language switching
 
+#### Scenario: Agent list behavior is covered in a browser
+
+- **WHEN** the browser test suite runs
+- **THEN** it exercises the agent list's rendering of names and endpoints, its omission of tokens, its escaping of markup in agent metadata, its enable and disable controls, its skill panel, and its inline edit form
+
 #### Scenario: Visual parity pins still pass
 
 - **WHEN** the popup computed-style parity tests run against the component-rendered popup
@@ -268,5 +279,62 @@ Surfaces rendered by components SHALL be verified in a real browser, because a h
 #### Scenario: Whole suite is green
 
 - **WHEN** `npm run test:unit` and the browser suite run
-- **THEN** all tests pass, including the unmodified tests covering the background worker, content script, and options page
+- **THEN** all tests pass, including the unmodified tests covering the background worker and content script
+
+### Requirement: Options page agent list renders from state
+
+The options page's configured-agent list SHALL be produced by the component
+runtime from the agent array. It SHALL NOT be assembled by concatenating an HTML
+string, and no hand-written escaping helper SHALL be used to build its markup.
+
+#### Scenario: No string-built markup remains
+
+- **WHEN** the options page source is inspected
+- **THEN** the agent list is rendered through the component runtime, and neither `innerHTML` nor `outerHTML` is assigned to build any part of it
+
+#### Scenario: Untrusted agent metadata is escaped structurally
+
+- **WHEN** an agent's name, endpoint, skill name, skill identifier, or skill description contains HTML markup
+- **THEN** that value is rendered as literal text, and no element derived from it is created in the document
+
+#### Scenario: Secrets are never rendered
+
+- **WHEN** the agent list renders for an agent that has a stored authentication token
+- **THEN** the token value does not appear anywhere in the rendered output
+
+#### Scenario: Delegation contract is preserved
+
+- **WHEN** the agent list is rendered
+- **THEN** every control carries the same `data-action` and `data-server-id` attribute pair as before, and skill checkboxes carry the same skill-toggle attributes, so the existing delegated listeners match unchanged
+
+#### Scenario: Enablement state is visible and actionable
+
+- **WHEN** an agent is enabled
+- **THEN** its row offers a disable control and carries no disabled state class
+- **AND WHEN** an agent is disabled
+- **THEN** its row offers an enable control and carries the disabled state class
+
+#### Scenario: Toggling enablement re-renders from persisted state
+
+- **WHEN** the user activates an agent's enable or disable control
+- **THEN** the new enablement value is persisted and the row re-renders offering the opposite control
+
+#### Scenario: Skill panel expansion is state-driven
+
+- **WHEN** an agent has discovered skills
+- **THEN** a summary of enabled skills is rendered with a control to expand the skill panel
+- **AND WHEN** the panel is expanded
+- **THEN** one checkbox per skill is rendered, reflecting that skill's enabled state
+
+#### Scenario: Inline editing is rendered, not spliced
+
+- **WHEN** the user activates an agent's edit control
+- **THEN** that agent's row is replaced by an edit form as part of the rendered output rather than by out-of-band DOM replacement
+- **AND WHEN** the user cancels
+- **THEN** the list returns to its normal rendering with no agent left in the editing state
+
+#### Scenario: Health indicators survive rendering
+
+- **WHEN** the agent list renders
+- **THEN** a health indicator element is present for each agent, addressable by that agent's identifier, so the existing health check can update it
 
