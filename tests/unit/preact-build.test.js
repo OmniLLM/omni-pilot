@@ -13,8 +13,8 @@ const root = path.resolve(__dirname, '..', '..');
 const read = rel => fs.readFileSync(path.join(root, rel), 'utf8');
 
 const RUNTIME_GLOBAL = 'htmPreact';
-const WITH_RUNTIME = ['dist/popup.js', 'dist/sidepanel.js', 'dist/options.js'];
-const WITHOUT_RUNTIME = ['dist/background.js', 'dist/content.js'];
+const WITH_RUNTIME = ['dist/popup.js', 'dist/sidepanel.js', 'dist/options.js', 'dist/content.js'];
+const WITHOUT_RUNTIME = ['dist/background.js'];
 
 // ── The runtime reaches exactly the surfaces that asked for it ────────────
 
@@ -38,11 +38,16 @@ for (const file of WITHOUT_RUNTIME) {
   );
 }
 
-// The content script is injected into arbitrary websites with no DOM or style
-// isolation. Keeping a framework runtime out of it is a hard requirement.
+// The content script now renders its floating selectors with the component
+// runtime, which is safe because its UI is isolated in a shadow root. The
+// service worker renders no UI at all, so the runtime must never reach it.
 assert.ok(
-  !read('dist/content.js').includes('vendored: htm/preact'),
-  'the content script must never carry the component runtime'
+  !read('dist/background.js').includes('vendored: htm/preact'),
+  'the service worker must never carry the component runtime'
+);
+assert.ok(
+  read('dist/content.js').includes('vendored: htm/preact'),
+  'the content script must carry the component runtime for its shadow-root UI'
 );
 
 // ── Inlining is opt-in per entry, not global ─────────────────────────────
@@ -53,8 +58,8 @@ const flagged = [...buildSource.matchAll(/name:\s*'([a-z]+)'[^}]*needsPreact:\s*
   .map(match => match[1]);
 assert.deepStrictEqual(
   flagged.sort(),
-  ['options', 'popup', 'sidepanel'],
-  'only extension page entries may opt into the component runtime'
+  ['content', 'options', 'popup', 'sidepanel'],
+  'only entries that render component UI may opt into the component runtime'
 );
 
 // ── MV3 CSP: nothing may compile code at runtime ─────────────────────────

@@ -102,6 +102,17 @@ import { createAppearanceController } from '../utils/appearance.mjs';
     return ensureOmniPilotRoot();
   }
 
+  // Our UI lives in a shadow root, so by the time an event reaches a listener on
+  // `document` the browser has retargeted `event.target` to the shadow host.
+  // `el.contains(e.target)` therefore always reports false for our own elements.
+  // `composedPath()` still carries the real inner target, so hit-test with that.
+  function eventPathContains(e, el) {
+    if (!el) return false;
+    const path = typeof e?.composedPath === 'function' ? e.composedPath() : null;
+    if (path && path.length) return path.indexOf(el) !== -1;
+    return typeof el.contains === 'function' && el.contains(e?.target);
+  }
+
   function loadLanguagePreference() {
     safeStorageGet(chrome.storage?.sync, { languagePreference: 'en' }, config => {
       applyLanguage(config.languagePreference);
@@ -1382,177 +1393,169 @@ import { createAppearanceController } from '../utils/appearance.mjs';
     }
   }
 
-  function showModelSelector(anchorEl) {
-    // Remove existing selector if any
-    const existing = getUiMount().querySelector('#omnipilot-model-selector');
-    if (existing) { existing.remove(); return; }
+  // ── Floating selectors (component-rendered) ───────────────────────────────
+  //
+  // The action / provider / model chips each open a small floating list. They
+  // share one lifecycle (toggle, position below the anchor, dismiss on outside
+  // click) and one item shape, so both live here once rather than three times.
+
+  const { html: sHtml, render: sRender, useState: sUseState, useEffect: sUseEffect, useRef: sUseRef } = htmPreact;
+
+  function SelectorItem({ icon, text, current, onChoose }) {
+    return sHtml`
+      <div
+        class=${'omnipilot-model-item' + (current ? ' omnipilot-model-current' : '')}
+        onClick=${e => { e.stopPropagation(); onChoose(); }}
+      >
+        ${icon ? sHtml`<span style="margin-right:6px">${icon}</span>` : null}${text}
+      </div>`;
+  }
+
+  // Mounts a component into a positioned, dismissable floating host. Returns
+  // early (closing the open one) when the same chip is clicked twice.
+  function openFloatingSelector({ id, anchorEl, render: renderBody }) {
+    const mount = getUiMount();
+    const existing = mount.querySelector(`#${id}`);
+    if (existing) { existing.remove(); return null; }
 
     const selector = document.createElement('div');
-    selector.id = 'omnipilot-model-selector';
+    selector.id = id;
+    mount.appendChild(selector);
 
-    // Filter input
-    const filterInput = document.createElement('input');
-    filterInput.className = 'omnipilot-model-filter';
-    filterInput.placeholder = label('typeToFilter');
-    filterInput.addEventListener('mousedown', e => e.stopPropagation());
-    filterInput.addEventListener('keydown', e => e.stopPropagation());
-    selector.appendChild(filterInput);
-
-    const listContainer = document.createElement('div');
-    listContainer.className = 'omnipilot-model-list';
-    selector.appendChild(listContainer);
-
-    getUiMount().appendChild(selector);
-
-    // Position below the anchor
     const rect = anchorEl.getBoundingClientRect();
     selector.style.left = `${rect.left}px`;
     selector.style.top = `${rect.bottom + 4}px`;
 
-    // Fetch models from background
-    const runtime = globalThis.chrome?.runtime;
-    if (!runtime?.sendMessage) { selector.remove(); return; }
-
-    listContainer.innerHTML = `<div class="omnipilot-model-loading">${label('loadingModels')}</div>`;
-
-    let allModels = [];
-
-    function renderList(filter) {
-      const query = filter.toLowerCase();
-      const filtered = query ? allModels.filter(m => m.toLowerCase().includes(query)) : allModels;
-      listContainer.innerHTML = '';
-      if (!filtered.length) {
-        listContainer.innerHTML = `<div class="omnipilot-model-loading">${label('noMatches')}</div>`;
-        return;
-      }
-      filtered.forEach(model => {
-        const item = document.createElement('div');
-        item.className = 'omnipilot-model-item' + (model === currentModel ? ' omnipilot-model-current' : '');
-        item.textContent = model;
-        item.addEventListener('click', e => {
-          e.stopPropagation();
-          currentModel = model;
-          safeSendMessage(runtime, { type: 'SET_MODEL', model });
-          updatePanelMeta();
-          selector.remove();
-        });
-        listContainer.appendChild(item);
-      });
-    }
-
-    filterInput.addEventListener('input', () => renderList(filterInput.value));
-
-    const sent = safeSendMessage(runtime, { type: 'GET_MODELS' }, response => {
-      if (!response || !response.models || !response.models.length) {
-        allModels = [currentModel];
-      } else {
-        allModels = response.models;
-      }
-      renderList(filterInput.value);
-      filterInput.focus();
-    });
-    if (!sent) {
-      // Extension context was invalidated between opening the panel and clicking
-      // the model chip. Close the empty selector instead of leaving a permanent
-      // "loading models…" spinner.
+    const close = () => {
+      // Unmount first so component effects are torn down, then detach.
+      sRender(null, selector);
       selector.remove();
-      return;
-    }
+      document.removeEventListener('mousedown', closeHandler);
+    };
 
-    // Close on click outside
+    // Our UI is inside a shadow root, so `e.target` seen from `document` is the
+    // shadow host. `eventPathContains` looks through the boundary instead.
     const closeHandler = e => {
-      if (!selector.contains(e.target) && !anchorEl.contains(e.target)) {
-        selector.remove();
-        document.removeEventListener('mousedown', closeHandler);
-      }
+      if (!eventPathContains(e, selector) && !eventPathContains(e, anchorEl)) close();
     };
     setTimeout(() => document.addEventListener('mousedown', closeHandler), 0);
+
+    sRender(renderBody(close), selector);
+    return { selector, close };
+  }
+
+  function ModelSelector({ runtime, onChoose }) {
+    const [models, setModels] = sUseState(null);
+    const [filter, setFilter] = sUseState('');
+    const inputRef = sUseRef(null);
+
+    sUseEffect(() => {
+      const sent = safeSendMessage(runtime, { type: 'GET_MODELS' }, response => {
+        setModels(response?.models?.length ? response.models : [currentModel]);
+        inputRef.current?.focus();
+      });
+      // Extension context died between opening the panel and clicking the chip.
+      // Close rather than leave a permanent "loading models…" spinner.
+      if (!sent) onChoose(null);
+    }, []);
+
+    const query = filter.toLowerCase();
+    const visible = models === null
+      ? null
+      : (query ? models.filter(m => m.toLowerCase().includes(query)) : models);
+
+    return sHtml`
+      <input
+        class="omnipilot-model-filter"
+        placeholder=${label('typeToFilter')}
+        ref=${inputRef}
+        value=${filter}
+        onInput=${e => setFilter(e.target.value)}
+        onMouseDown=${e => e.stopPropagation()}
+        onKeyDown=${e => e.stopPropagation()}
+      />
+      <div class="omnipilot-model-list">
+        ${visible === null
+          ? sHtml`<div class="omnipilot-model-loading">${label('loadingModels')}</div>`
+          : visible.length
+            ? visible.map(model => sHtml`
+                <${SelectorItem}
+                  key=${model}
+                  text=${model}
+                  current=${model === currentModel}
+                  onChoose=${() => onChoose(model)}
+                />`)
+            : sHtml`<div class="omnipilot-model-loading">${label('noMatches')}</div>`}
+      </div>`;
+  }
+
+  function showModelSelector(anchorEl) {
+    const runtime = globalThis.chrome?.runtime;
+    const opened = openFloatingSelector({
+      id: 'omnipilot-model-selector',
+      anchorEl,
+      render: close => sHtml`
+        <${ModelSelector}
+          runtime=${runtime}
+          onChoose=${model => {
+            if (model !== null) {
+              currentModel = model;
+              safeSendMessage(runtime, { type: 'SET_MODEL', model });
+              updatePanelMeta();
+            }
+            close();
+          }}
+        />`
+    });
+    // Nothing to fetch models with — don't leave an empty box on screen.
+    if (opened && !runtime?.sendMessage) opened.close();
   }
 
   function showProviderSelector(anchorEl) {
-    const existing = getUiMount().querySelector('#omnipilot-provider-selector');
-    if (existing) { existing.remove(); return; }
-
-    const selector = document.createElement('div');
-    selector.id = 'omnipilot-provider-selector';
-
-    getProviderEntries().forEach(({ providerType, label: providerLabel }) => {
-      const item = document.createElement('div');
-      item.className = 'omnipilot-model-item' + (providerType === currentProviderType ? ' omnipilot-model-current' : '');
-      item.textContent = providerLabel;
-      item.addEventListener('click', e => {
-        e.stopPropagation();
-        const runtime = globalThis.chrome?.runtime;
-        if (runtime?.sendMessage) {
-          safeSendMessage(runtime, { type: 'SET_PROVIDER', providerType });
-        }
-        selector.remove();
-      });
-      selector.appendChild(item);
+    openFloatingSelector({
+      id: 'omnipilot-provider-selector',
+      anchorEl,
+      render: close => getProviderEntries().map(({ providerType, label: providerLabel }) => sHtml`
+        <${SelectorItem}
+          key=${providerType}
+          text=${providerLabel}
+          current=${providerType === currentProviderType}
+          onChoose=${() => {
+            const runtime = globalThis.chrome?.runtime;
+            if (runtime?.sendMessage) safeSendMessage(runtime, { type: 'SET_PROVIDER', providerType });
+            close();
+          }}
+        />`)
     });
-
-    getUiMount().appendChild(selector);
-
-    const rect = anchorEl.getBoundingClientRect();
-    selector.style.left = `${rect.left}px`;
-    selector.style.top = `${rect.bottom + 4}px`;
-
-    const closeHandler = e => {
-      if (!selector.contains(e.target) && !anchorEl.contains(e.target)) {
-        selector.remove();
-        document.removeEventListener('mousedown', closeHandler);
-      }
-    };
-    setTimeout(() => document.addEventListener('mousedown', closeHandler), 0);
   }
 
   function showActionSelector(anchorEl) {
-    // Remove existing selector if any
-    const existing = getUiMount().querySelector('#omnipilot-action-selector');
-    if (existing) { existing.remove(); return; }
-
-    const selector = document.createElement('div');
-    selector.id = 'omnipilot-action-selector';
-
     const allActions = [
       { id: '', labelKey: 'chat', icon: '💬' },
       ...ACTIONS
     ];
 
-    allActions.forEach(action => {
-      const item = document.createElement('div');
-      item.className = 'omnipilot-model-item' + (action.id === currentAction ? ' omnipilot-model-current' : '');
-      item.innerHTML = `<span style="margin-right:6px">${action.icon}</span>${label(action.labelKey)}`;
-      item.addEventListener('click', e => {
-        e.stopPropagation();
-        currentAction = action.id;
-        updatePanelMeta();
-        selector.remove();
-
-        // When switching actions from the panel header, keep existing context
-        // and run the new action as a continuation, not a fresh session.
-        if (action.id && (lastSelection || getActiveSelectionContextText())) {
-          runActionInContext(action.id);
-        }
-      });
-      selector.appendChild(item);
+    openFloatingSelector({
+      id: 'omnipilot-action-selector',
+      anchorEl,
+      render: close => allActions.map(action => sHtml`
+        <${SelectorItem}
+          key=${action.id}
+          icon=${action.icon}
+          text=${label(action.labelKey)}
+          current=${action.id === currentAction}
+          onChoose=${() => {
+            currentAction = action.id;
+            updatePanelMeta();
+            close();
+            // Switching actions from the panel header keeps existing context and
+            // runs the new action as a continuation, not a fresh session.
+            if (action.id && (lastSelection || getActiveSelectionContextText())) {
+              runActionInContext(action.id);
+            }
+          }}
+        />`)
     });
-
-    getUiMount().appendChild(selector);
-
-    // Position below the anchor
-    const rect = anchorEl.getBoundingClientRect();
-    selector.style.left = `${rect.left}px`;
-    selector.style.top = `${rect.bottom + 4}px`;
-
-    // Close on click outside
-    const closeHandler = e => {
-      if (!selector.contains(e.target) && !anchorEl.contains(e.target)) {
-        selector.remove();
-        document.removeEventListener('mousedown', closeHandler);
-      }
-    };
-    setTimeout(() => document.addEventListener('mousedown', closeHandler), 0);
   }
 
   function positionPanel() {
@@ -1666,8 +1669,13 @@ import { createAppearanceController } from '../utils/appearance.mjs';
     formatted = formatted.replace(/^\s*\d+\.\s+(.*?)$/gm, '<ol><li>$1</li></ol>');
     formatted = formatted.replace(/<\/ol>\s*<ol>/g, '');
 
-    // Newlines
-    formatted = formatted.replace(/\n/g, '<br>');
+    // Assemble block structure.
+    //
+    // Previously every newline became a <br>, which produced no paragraphs at
+    // all — prose ran together as one long block, and stray <br>s piled up
+    // around headings, lists and tables. Instead, group consecutive prose lines
+    // into <p> elements and leave block-level markup standing on its own.
+    formatted = assembleBlocks(formatted);
 
     // Restore inline codes
     inlineCodes.forEach((code, index) => {
@@ -1733,6 +1741,34 @@ import { createAppearanceController } from '../utils/appearance.mjs';
     });
 
     return formatted;
+  }
+
+  // Lines that already carry block-level markup, or stand in for it, must never
+  // be wrapped in a <p> — a <div> or <table> inside a <p> is invalid and the
+  // browser silently splits the paragraph, which is what produced the stray
+  // vertical gaps.
+  const BLOCK_LINE = /^\s*(?:<(?:h[1-6]|ul|ol|li|blockquote|hr|table|div|details|pre|p)\b|<\/(?:ul|ol|blockquote|table|div|details|pre)>|__OP_(?:CODE_BLOCK|TABLE|THINK)_PLACEHOLDER_\d+__\s*$)/i;
+
+  function assembleBlocks(html) {
+    const out = [];
+    let paragraph = [];
+
+    const flush = () => {
+      if (!paragraph.length) return;
+      // A single newline inside a paragraph is a deliberate line break.
+      const text = paragraph.join('<br>').trim();
+      if (text) out.push(`<p>${text}</p>`);
+      paragraph = [];
+    };
+
+    for (const line of html.split('\n')) {
+      if (!line.trim()) { flush(); continue; }        // blank line ends a paragraph
+      if (BLOCK_LINE.test(line)) { flush(); out.push(line.trim()); continue; }
+      paragraph.push(line.trim());
+    }
+    flush();
+
+    return out.join('\n');
   }
 
   function escapeHtml(str) {

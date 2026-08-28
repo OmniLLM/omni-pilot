@@ -583,6 +583,41 @@
   font-family: var(--op-font);
 }
 
+/* Paragraph rhythm. Space is applied between blocks only, so the first and
+   last block sit flush against the bubble padding instead of adding a gap. */
+#omnipilot-extension-root-7f3a9c .omnipilot-result p,
+#omnipilot-extension-root-7f3a9c .omnipilot-result ul,
+#omnipilot-extension-root-7f3a9c .omnipilot-result ol,
+#omnipilot-extension-root-7f3a9c .omnipilot-result blockquote,
+#omnipilot-extension-root-7f3a9c .omnipilot-result table,
+#omnipilot-extension-root-7f3a9c .omnipilot-result pre {
+  margin: 0 0 0.85em 0;
+}
+
+#omnipilot-extension-root-7f3a9c .omnipilot-result > *:last-child {
+  margin-bottom: 0;
+}
+
+#omnipilot-extension-root-7f3a9c .omnipilot-result h3,
+#omnipilot-extension-root-7f3a9c .omnipilot-result h4 {
+  margin: 1.15em 0 0.5em 0;
+  line-height: 1.3;
+}
+
+#omnipilot-extension-root-7f3a9c .omnipilot-result > h3:first-child,
+#omnipilot-extension-root-7f3a9c .omnipilot-result > h4:first-child {
+  margin-top: 0;
+}
+
+#omnipilot-extension-root-7f3a9c .omnipilot-result ul,
+#omnipilot-extension-root-7f3a9c .omnipilot-result ol {
+  padding-left: 1.4em;
+}
+
+#omnipilot-extension-root-7f3a9c .omnipilot-result li {
+  margin: 0.2em 0;
+}
+
 #omnipilot-extension-root-7f3a9c .omnipilot-error {
   color: #c5221f;
   font-size: var(--appearance-font-size-md);
