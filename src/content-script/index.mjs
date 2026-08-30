@@ -266,7 +266,10 @@ import { renderMarkdown, escapeHtml } from '../utils/markdown.mjs';
   function updatePanelStatus(message, kind = 'status') {
     const status = panel?.querySelector('#omnipilot-panel-status');
     if (!status) return;
-    status.setAttribute('role', kind === 'alert' ? 'alert' : 'status');
+    // Politeness is escalated via aria-live, never by reassigning role: an explicit
+    // aria-live overrides a role's implicit politeness, so swapping to role="alert"
+    // would never announce assertively.
+    status.setAttribute('aria-live', kind === 'alert' ? 'assertive' : 'polite');
     status.textContent = message || '';
   }
 
@@ -299,9 +302,9 @@ import { renderMarkdown, escapeHtml } from '../utils/markdown.mjs';
         'summarize-page': label('summarizingPage'),
         'summarize-github': label('summarizingGitHub')
       };
-      titleEl.textContent = `✦ ${actionLabels[currentAction] || 'OmniPilot'}`;
+      titleEl.innerHTML = `<span aria-hidden="true">✦</span> ${escapeHtml(actionLabels[currentAction] || 'OmniPilot')}`;
     } else if (titleEl) {
-      titleEl.textContent = '✦ OmniPilot';
+      titleEl.innerHTML = '<span aria-hidden="true">✦</span> OmniPilot';
     }
   }
 
@@ -552,7 +555,7 @@ import { renderMarkdown, escapeHtml } from '../utils/markdown.mjs';
     el.setAttribute('aria-label', label('omnipilotBubbleLabel') || 'OmniPilot: AI actions for selected text');
     el.setAttribute('aria-haspopup', 'menu');
     el.setAttribute('aria-expanded', 'false');
-    el.innerHTML = '<span class="omnipilot-icon">✦</span> OmniPilot';
+    el.innerHTML = '<span class="omnipilot-icon" aria-hidden="true">✦</span> OmniPilot';
     el.addEventListener('mousedown', e => { e.preventDefault(); e.stopPropagation(); });
     el.addEventListener('click', e => {
       e.preventDefault();
@@ -707,7 +710,7 @@ import { renderMarkdown, escapeHtml } from '../utils/markdown.mjs';
     const onboarding = document.createElement('div');
     onboarding.className = 'omnipilot-onboarding';
     onboarding.innerHTML = `
-      <div class="omnipilot-onboarding-icon">✦</div>
+      <div class="omnipilot-onboarding-icon" aria-hidden="true">✦</div>
       <div class="omnipilot-onboarding-title">${escapeHtml(label('welcomeTitle') || 'Welcome to OmniPilot')}</div>
       <div class="omnipilot-onboarding-desc">${escapeHtml(label('welcomeDesc') || 'Set up your AI provider to get started with text actions.')}</div>
       <ol class="omnipilot-onboarding-steps">
@@ -899,7 +902,7 @@ import { renderMarkdown, escapeHtml } from '../utils/markdown.mjs';
     const orb = document.createElement('button');
     orb.id = 'omnipilot-minimized-orb';
     orb.type = 'button';
-    orb.innerHTML = '<span class="omnipilot-orb-icon">✦</span>';
+    orb.innerHTML = '<span class="omnipilot-orb-icon" aria-hidden="true">✦</span>';
     orb.setAttribute('title', label('restorePanel') || 'Restore OmniPilot');
     orb.setAttribute('aria-label', label('restorePanel') || 'Restore OmniPilot');
 
@@ -1007,7 +1010,7 @@ import { renderMarkdown, escapeHtml } from '../utils/markdown.mjs';
 
       const header = document.createElement('header');
       header.className = 'omnipilot-panel-header';
-      header.innerHTML = `<a id="omnipilot-panel-heading" class="omnipilot-panel-title" href="${REPOSITORY_URL}" target="_blank" rel="noopener noreferrer" title="Open OmniPilot on GitHub">✦ OmniPilot</a>
+      header.innerHTML = `<a id="omnipilot-panel-heading" class="omnipilot-panel-title" href="${REPOSITORY_URL}" target="_blank" rel="noopener noreferrer" title="Open OmniPilot on GitHub"><span aria-hidden="true">✦</span> OmniPilot</a>
         <div class="omnipilot-meta" aria-label="Assistant configuration">
           <button type="button" class="omnipilot-meta-trigger omnipilot-meta-action-wrap" aria-haspopup="listbox" aria-expanded="false">
             <span class="omnipilot-meta-action">${currentAction ? label(ACTIONS.find(a => a.id === currentAction)?.labelKey || 'chat') : label('chat')}</span>
@@ -1614,7 +1617,7 @@ import { renderMarkdown, escapeHtml } from '../utils/markdown.mjs';
 
         const userMsgHtml = `<div class="omnipilot-msg-container">
           <div class="omnipilot-msg-header omnipilot-msg-header-user">
-            <span class="omnipilot-msg-header-avatar">U</span>
+            <span class="omnipilot-msg-header-avatar" aria-hidden="true">U</span>
             <span>You</span>
           </div>
           <div class="omnipilot-msg omnipilot-msg-user">${escapeHtml(trimmedTask)}</div>
@@ -1622,7 +1625,7 @@ import { renderMarkdown, escapeHtml } from '../utils/markdown.mjs';
 
         const assistantMsgHtml = `<div class="omnipilot-msg-container">
           <div class="omnipilot-msg-header">
-            <span class="omnipilot-msg-header-avatar">✦</span>
+            <span class="omnipilot-msg-header-avatar" aria-hidden="true">✦</span>
             <span>OmniPilot</span>
           </div>
           <div class="omnipilot-msg omnipilot-msg-assistant">${formatResult(response.result)}</div>
@@ -1988,7 +1991,7 @@ import { renderMarkdown, escapeHtml } from '../utils/markdown.mjs';
     container.className = 'omnipilot-msg-container';
     const headerDiv = document.createElement('div');
     headerDiv.className = 'omnipilot-msg-header omnipilot-msg-header-user';
-    headerDiv.innerHTML = `<span class="omnipilot-msg-header-avatar">U</span><span>You</span>`;
+    headerDiv.innerHTML = `<span class="omnipilot-msg-header-avatar" aria-hidden="true">U</span><span>You</span>`;
     const msgDiv = document.createElement('div');
     msgDiv.className = 'omnipilot-msg omnipilot-msg-user';
     msgDiv.textContent = text;
@@ -2002,7 +2005,7 @@ import { renderMarkdown, escapeHtml } from '../utils/markdown.mjs';
     container.className = 'omnipilot-msg-container';
     const headerDiv = document.createElement('div');
     headerDiv.className = 'omnipilot-msg-header';
-    headerDiv.innerHTML = `<span class="omnipilot-msg-header-avatar">✦</span><span>OmniPilot</span>`;
+    headerDiv.innerHTML = `<span class="omnipilot-msg-header-avatar" aria-hidden="true">✦</span><span>OmniPilot</span>`;
 
     // Message toolbar: copy + read aloud
     const toolbar = document.createElement('div');
@@ -2267,9 +2270,10 @@ import { renderMarkdown, escapeHtml } from '../utils/markdown.mjs';
     container.className = 'omnipilot-msg-container';
     const headerDiv = document.createElement('div');
     headerDiv.className = 'omnipilot-msg-header';
-    headerDiv.innerHTML = `<span class="omnipilot-msg-header-avatar">✦</span><span>OmniPilot</span>`;
+    headerDiv.innerHTML = `<span class="omnipilot-msg-header-avatar" aria-hidden="true">✦</span><span>OmniPilot</span>`;
     const msgDiv = document.createElement('div');
     msgDiv.className = 'omnipilot-msg omnipilot-msg-assistant omnipilot-streaming';
+    msgDiv.setAttribute('aria-busy', 'true');
     msgDiv.textContent = '';
     container.appendChild(headerDiv);
     container.appendChild(msgDiv);
@@ -2278,6 +2282,7 @@ import { renderMarkdown, escapeHtml } from '../utils/markdown.mjs';
 
   function finalizeStreamingMessage(msgDiv) {
     msgDiv.classList.remove('omnipilot-streaming');
+    msgDiv.setAttribute('aria-busy', 'false');
     const rawText = msgDiv.textContent;
     msgDiv.innerHTML = formatResult(rawText);
     // Re-attach copy button handlers for code blocks
