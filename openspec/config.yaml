@@ -5,23 +5,41 @@ context: |
   (translate, summarize, explain, improve) plus a side panel chat and an options page.
 
   Tech stack:
-    - Vanilla JavaScript ES modules (`.mjs`). No framework, no runtime dependencies.
-    - Only devDependency is `@playwright/test`.
-    - Build: `node build.mjs` — a hand-written CONCATENATION build, not a bundler.
-      It reads `src/**/*.mjs`, regex-strips `export` keywords, and concatenates shared
-      utilities (timeout/i18n/appearance/agent primitives) ahead of each entry file,
-      emitting flat non-IIFE scripts to `dist/`.
+    - JavaScript ES modules (`.mjs`) authored without a runtime framework loader.
+      Preact + htm are vendored at BUILD time and inlined; there is no runtime
+      module system and nothing is fetched at run time.
+    - devDependencies: `@playwright/test`, `preact`, `htm`, `tailwindcss`,
+      `@tailwindcss/vite`, `vite`. Runtime dependencies: none.
+    - Build: `node build.mjs`, which does two separate things:
+        * JavaScript — a hand-written CONCATENATION build, not a bundler. It reads
+          `src/**/*.mjs`, regex-strips `export` keywords, and concatenates shared
+          utilities (timeout/i18n/appearance/markdown/catalog/agent primitives and
+          the Preact runtime) ahead of each entry file, emitting flat non-IIFE
+          scripts to `dist/`.
+        * CSS — spawns the locally resolved Vite (`vite.config.mjs`, using the
+          official `@tailwindcss/vite` plugin) to emit `dist/tailwind.css` plus
+          `dist/{popup,options,sidepanel}.css`. Vite compiles STYLESHEETS ONLY and
+          must never be pointed at the extension's JavaScript.
+      The content script's CSS is a third path: it is inlined into `dist/content.js`
+      as the `OMNIPILOT_CONTENT_CSS` string constant and injected into its shadow
+      root. `dist/styles.css` is no longer emitted.
     - Surfaces: `background` (service worker), `content` (content script injected into
       every page), `popup`, `options`, `sidepanel`.
     - Styling: hand-written CSS driven by a semantic design-token contract in
       `src/styles/appearance.css` (`--appearance-*`), supporting 3 color themes
       (system/light/dark) x 5 visual styles (current, clean-minimal, terminal,
-      warm-editorial, neo-brutalist).
+      warm-editorial, neo-brutalist) x 4 component shapes (square, subtle, rounded,
+      pill). Defaults are dark / current / subtle. The `current` style is displayed
+      as "Modern"; the stored value and its selector are still `current`.
+      Extension pages carry no inline `<style>` block — each page's CSS lives in
+      `src/styles/<page>.css` and is linked after `appearance.css` and
+      `tailwind.css`.
 
   Hard constraints (violating any of these breaks the product or the test suite):
     1. NO IIFE / module-scoped output. All 13 Node unit tests load `dist/*.js` through
        `vm.runInContext` and assert on TOP-LEVEL declarations. Any bundler default
        (esbuild, rollup, vite) hides those declarations and breaks every unit test.
+       Vite is present for CSS only; never route JavaScript through it.
     2. The content script mounts its UI in an OPEN Shadow DOM and injects its own
        stylesheet inside it; nothing is injected into host documents by the manifest.
        Styles therefore cannot leak in either direction, and the component runtime
@@ -35,15 +53,22 @@ context: |
     3. Manifest V3 CSP: no remote CDN scripts or stylesheets, no `eval`, no runtime
        JIT compilers. Every framework or CSS toolchain must run at BUILD time and ship
        fully static assets inside the extension package.
-    4. `tests/unit/square-corners.test.js` forbids ANY nonzero `border-radius` in
-       authored UI sources and requires `--appearance-radius-*` / `--op-radius-*`
-       tokens to stay `0`. Square corners are a deliberate product decision.
+    4. `tests/unit/square-corners.test.js` enforces the SELECTABLE component-shape
+       policy — despite its name, it is no longer a square-corners rule. Authored
+       stylesheets (`src/styles/{popup,options,sidepanel}.css` and
+       `src/content-script/styles.css`) must set `border-radius` through
+       `var(--appearance-radius-*)` and must NOT hard-code `border-radius: 0`.
+       `src/styles/appearance.css` must define the `subtle`, `rounded`, and `pill`
+       shape blocks and all four radius tokens (`xs`, `sm`, `md`, `pill`); `square`
+       is the base scale, where every token is `0`. Tailwind's `--radius-*` namespace
+       is cleared and remapped onto the same tokens, so a literal radius can never
+       re-enter through a utility. See the `appearance-preferences` capability.
     5. `tests/unit/policy-compliance.test.js` requires `manifest.json`,
        `package.json`, and `package-lock.json` versions to stay in sync, forbids the
        `tabs` permission, and pins `pack.mjs` ENTRIES to
        `['manifest.json', 'PRIVACY.md', 'icons', 'dist']`.
-    6. `src/content-script/index.mjs` (~2160 lines) and `src/background/index.mjs`
-       (~2390 lines) interleave UI rendering with functional logic (streaming ports,
+    6. `src/content-script/index.mjs` (~2700 lines) and `src/background/index.mjs`
+       (~2760 lines) interleave UI rendering with functional logic (streaming ports,
        provider routing, session persistence, A2A delegation). Treat the functional
        logic as frozen unless a change explicitly scopes it.
 

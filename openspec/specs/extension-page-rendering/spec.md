@@ -1,7 +1,13 @@
 # extension-page-rendering Specification
 
 ## Purpose
-TBD - created by archiving change adopt-preact-popup-sidepanel. Update Purpose after archive.
+
+Governs how OmniPilot's user interfaces are constructed from state.
+
+This capability owns the vendored component runtime — how it is inlined at build time without introducing a bundler or a module scope — and the surfaces that render through it: the popup's preference state, the side panel's message model, the options page's agent list, and the content script's floating selectors. It also owns render-driven localization and the requirement that these surfaces are proven by browser-based tests rather than fake-DOM unit tests.
+
+Boundary: this capability covers how markup is produced and kept in sync with state. What that markup *looks* like is split between `extension-page-styling` (the CSS pipeline) and `appearance-preferences` (the tokens). The side panel's streaming wire protocol is preserved here but defined by the surfaces that speak it.
+
 ## Requirements
 ### Requirement: Component runtime is vendored at build time
 
