@@ -8,13 +8,14 @@ const requiredTokens = [
   'canvas', 'surface', 'surface-raised', 'text', 'text-muted', 'text-subtle',
   'border', 'border-strong', 'accent', 'accent-hover', 'on-accent', 'focus',
   'success', 'danger', 'warning', 'font-body', 'card-padding', 'border-width',
+  'control-height', 'icon-button-size', 'panel-padding', 'composer-padding',
+  'selected-surface', 'focus-ring-width', 'disabled-opacity',
   'shadow-1', 'transition-duration'
 ];
 
 for (const style of styles) {
   assert.match(appearance, new RegExp(`data-visual-style=["']${style}["']`), `missing style: ${style}`);
   for (const theme of themes) {
-    if (style === 'current' && theme === 'dark') continue;
     const styleIndex = appearance.indexOf(`data-visual-style="${style}"][data-theme="${theme}"]`);
     assert.notStrictEqual(styleIndex, -1, `missing ${style} ${theme} palette`);
   }

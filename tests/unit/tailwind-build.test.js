@@ -1,9 +1,8 @@
 // Enforces the guarantees of the `extension-page-styling` capability.
 //
 // The utility CSS framework runs at build time and is linked ONLY from the
-// popup, options, and sidepanel pages. The content script is injected into
-// arbitrary third-party pages with no Shadow DOM, so a leaked global reset or
-// an unprefixed utility class there would visually corrupt the open web.
+// popup, options, and sidepanel pages. The content script uses separately
+// scoped CSS inside its Shadow DOM, so utilities remain page-only.
 // These assertions are the mechanical guard for that boundary.
 
 const assert = require('node:assert');

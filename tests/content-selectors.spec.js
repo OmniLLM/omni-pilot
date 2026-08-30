@@ -78,6 +78,21 @@ async function openPanel(page) {
   await page.locator('#omnipilot-panel').waitFor({ state: 'visible' });
 }
 
+test('the panel exposes named region, log, status, and labeled controls', async ({ page }) => {
+  await setupPage(page);
+  await openPanel(page);
+
+  await expect(page.locator('#omnipilot-panel')).toHaveAttribute('role', 'region');
+  await expect(page.locator('#omnipilot-panel')).toHaveAttribute('aria-labelledby', 'omnipilot-panel-heading');
+  await expect(page.locator('.omnipilot-panel-body')).toHaveAttribute('role', 'log');
+  await expect(page.locator('.omnipilot-panel-body')).toHaveAttribute('aria-relevant', 'additions');
+  await expect(page.locator('.omnipilot-panel-body')).not.toHaveAttribute('aria-live', /.+/);
+  await expect(page.locator('#omnipilot-panel-status')).toHaveAttribute('role', 'status');
+  await expect(page.locator('#omnipilot-panel-input')).toHaveAccessibleName(/follow-up/i);
+  await expect(page.locator('.omnipilot-send-btn')).toHaveAccessibleName(/send/i);
+  await expect(page.locator('.omnipilot-resize-handle')).toHaveAccessibleName(/resize/i);
+});
+
 // ── Action selector ────────────────────────────────────────────────────────
 
 test('the action chip opens a selector listing chat plus every action', async ({ page }) => {
@@ -275,6 +290,51 @@ test('a click outside dismisses the model selector', async ({ page }) => {
   await expect(page.locator('#omnipilot-model-selector')).toHaveCount(1);
   await page.mouse.click(5, 5);
   await expect(page.locator('#omnipilot-model-selector')).toHaveCount(0);
+});
+
+test('selectors expose listbox semantics and restore focus after keyboard dismissal', async ({ page }) => {
+  await setupPage(page);
+  await openPanel(page);
+
+  const action = page.locator('.omnipilot-meta-action-wrap');
+  await expect(action).toHaveAttribute('aria-haspopup', 'listbox');
+  await action.focus();
+  await action.press('Enter');
+
+  const selector = page.locator('#omnipilot-action-selector');
+  await expect(selector).toHaveAttribute('role', 'listbox');
+  await expect(action).toHaveAttribute('aria-expanded', 'true');
+  await expect(selector.locator('[role="option"]')).not.toHaveCount(0);
+  await expect(selector.locator('[aria-selected="true"]')).toHaveCount(1);
+
+  await page.keyboard.press('End');
+  await page.keyboard.press('Escape');
+  await expect(selector).toHaveCount(0);
+  await expect(action).toBeFocused();
+  await expect(action).toHaveAttribute('aria-expanded', 'false');
+});
+
+test('the model filter Escape closes the selector and restores trigger focus', async ({ page }) => {
+  await setupPage(page);
+  await openPanel(page);
+
+  const model = page.locator('.omnipilot-meta-model-wrap');
+  await model.click();
+  await expect(page.locator('.omnipilot-model-filter')).toBeFocused();
+  await page.keyboard.press('Escape');
+
+  await expect(page.locator('#omnipilot-model-selector')).toHaveCount(0);
+  await expect(model).toBeFocused();
+});
+
+test('choosing a model restores focus to its trigger', async ({ page }) => {
+  await setupPage(page);
+  await openPanel(page);
+
+  const model = page.locator('.omnipilot-meta-model-wrap');
+  await model.click();
+  await page.locator('#omnipilot-model-selector .omnipilot-model-item').nth(1).click();
+  await expect(model).toBeFocused();
 });
 
 test('only one selector is open at a time per chip toggle', async ({ page }) => {

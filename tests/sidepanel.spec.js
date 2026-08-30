@@ -343,6 +343,56 @@ test('a disconnect with no text reports that no response arrived', async ({ page
 
 // ── Layout and appearance ────────────────────────────────────────────────
 
+test('the panel exposes semantic landmarks without making streamed tokens live', async ({ page }) => {
+  await open(page);
+
+  await expect(page.locator('main.sp-shell')).toHaveCount(1);
+  await expect(page.locator('header.sp-header')).toHaveCount(1);
+  await expect(page.locator('section.sp-toolbar[aria-label="Conversation settings"]')).toHaveCount(1);
+  await expect(page.locator('section.sp-body[role="log"][aria-label="Conversation"]')).toHaveCount(1);
+  await expect(page.locator('form.sp-input-area[aria-label="Message composer"]')).toHaveCount(1);
+  await expect(page.locator('#chatBody')).not.toHaveAttribute('aria-live', /.+/);
+  await expect(page.locator('.sp-sr-status')).toHaveAttribute('aria-live', 'polite');
+});
+
+test('status announcements are concise and streaming chunks do not rewrite them', async ({ page }) => {
+  await open(page);
+  await send(page, 'Hi');
+  await emit(page, { type: 'status', status: 'thinking' });
+  await expect(page.locator('.sp-sr-status')).toHaveText('Thinking…');
+
+  await emit(page, { type: 'chunk', text: 'One' });
+  await emit(page, { type: 'chunk', text: ' two' });
+  await expect(page.locator('.sp-sr-status')).toHaveText('Thinking…');
+
+  await emit(page, { type: 'done' });
+  await expect(page.locator('.sp-sr-status')).toHaveText('Response complete. One two');
+});
+
+test('primary controls provide effective 44 pixel targets', async ({ page }) => {
+  await open(page);
+
+  const heights = await page.locator('.sp-chip, .sp-context, #chatInput, #sendBtn').evaluateAll(elements =>
+    elements.map(element => element.getBoundingClientRect().height)
+  );
+  expect(heights.every(height => height >= 44)).toBe(true);
+});
+
+test('selectors stay within a narrow side panel viewport', async ({ page }) => {
+  await page.setViewportSize({ width: 280, height: 620 });
+  await open(page);
+  await page.click('#spModelChip');
+
+  const bounds = await page.locator('#spModelChip-selector').evaluate(element => {
+    const rect = element.getBoundingClientRect();
+    return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom };
+  });
+  expect(bounds.left).toBeGreaterThanOrEqual(0);
+  expect(bounds.right).toBeLessThanOrEqual(280);
+  expect(bounds.top).toBeGreaterThanOrEqual(0);
+  expect(bounds.bottom).toBeLessThanOrEqual(620);
+});
+
 test('the panel keeps its header / transcript / composer column layout', async ({ page }) => {
   await open(page);
 

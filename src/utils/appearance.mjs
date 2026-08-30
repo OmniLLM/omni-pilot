@@ -9,7 +9,7 @@ const VISUAL_STYLE_PREFERENCES = Object.freeze([
 const UI_SHAPE_PREFERENCES = Object.freeze(['square', 'subtle', 'rounded', 'pill']);
 const DEFAULT_THEME_PREFERENCE = 'dark';
 const DEFAULT_VISUAL_STYLE_PREFERENCE = 'current';
-const DEFAULT_UI_SHAPE_PREFERENCE = 'square';
+const DEFAULT_UI_SHAPE_PREFERENCE = 'subtle';
 const APPEARANCE_STORAGE_DEFAULTS = Object.freeze({
   themePreference: DEFAULT_THEME_PREFERENCE,
   visualStylePreference: DEFAULT_VISUAL_STYLE_PREFERENCE,

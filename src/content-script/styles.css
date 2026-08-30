@@ -8,9 +8,12 @@
      appearance contract supplies every palette, type, density and elevation. */
   --op-bg: var(--appearance-canvas);
   --op-bg2: var(--appearance-surface);
+  --op-raised: var(--appearance-surface-raised);
   --op-border: var(--appearance-border);
+  --op-border-strong: var(--appearance-border-strong);
   --op-ink: var(--appearance-text);
   --op-ink2: var(--appearance-text-muted);
+  --op-ink3: var(--appearance-text-subtle);
   --op-accent: var(--appearance-accent);
   --op-accent-dark: var(--appearance-accent-hover);
   --op-accent-dim: var(--appearance-hover);
@@ -53,6 +56,8 @@
   box-shadow: var(--op-shadow-2);
   user-select: none;
   white-space: nowrap;
+  min-height: 44px;
+  box-sizing: border-box;
   transition:
     background 0.15s var(--op-ease-standard),
     border-color 0.15s var(--op-ease-standard),
@@ -256,6 +261,16 @@
   font-size: 11px;
 }
 
+#omnipilot-extension-root-7f3a9c .omnipilot-meta-trigger {
+  appearance: none;
+  min-height: 44px;
+  margin: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
 #omnipilot-extension-root-7f3a9c .omnipilot-meta-model-wrap,
 #omnipilot-extension-root-7f3a9c .omnipilot-meta-provider-wrap {
   display: flex;
@@ -290,7 +305,8 @@
 /* ── Model Selector Dropdown ───────────────────────────── */
 
 #omnipilot-extension-root-7f3a9c #omnipilot-model-selector,
-#omnipilot-extension-root-7f3a9c #omnipilot-provider-selector {
+#omnipilot-extension-root-7f3a9c #omnipilot-provider-selector,
+#omnipilot-extension-root-7f3a9c #omnipilot-action-selector {
   position: fixed;
   z-index: 2147483647;
   background: var(--op-bg);
@@ -339,7 +355,13 @@
 }
 
 #omnipilot-extension-root-7f3a9c .omnipilot-model-item {
+  display: block;
+  width: 100%;
+  min-height: 44px;
   padding: 9px 16px;
+  border: 0;
+  background: transparent;
+  text-align: left;
   font-size: var(--appearance-font-size-md);
   font-family: var(--op-font);
   color: var(--op-ink);
@@ -351,8 +373,11 @@
   border-radius: var(--appearance-radius-sm);
 }
 
-#omnipilot-extension-root-7f3a9c .omnipilot-model-item:hover {
+#omnipilot-extension-root-7f3a9c .omnipilot-model-item:hover,
+#omnipilot-extension-root-7f3a9c .omnipilot-model-item:focus-visible {
   background: var(--op-hover);
+  outline: 2px solid var(--appearance-focus);
+  outline-offset: -2px;
 }
 
 #omnipilot-extension-root-7f3a9c .omnipilot-model-item.omnipilot-model-current {
@@ -405,6 +430,13 @@
   min-width: 156px;
   font-family: var(--op-font);
   animation: op-menu-in 0.12s var(--op-ease-decel) both;
+}
+
+#omnipilot-extension-root-7f3a9c .omnipilot-selector-icon {
+  display: inline-block;
+  width: 20px;
+  margin-right: 6px;
+  text-align: center;
 }
 
 /* ── Misc inline elements ─────────────────────────────── */
@@ -495,10 +527,9 @@
   border-radius: var(--appearance-radius-sm);
   padding: 9px 20px;
   font-family: var(--op-font);
-  font-size: var(--appearance-font-size-md);
-  font-weight: 500;
-  cursor: pointer;
-  transition: background 0.15s var(--op-ease-standard);
+  min-height: 44px;
+  box-sizing: border-box;
+  transition:
 }
 
 #omnipilot-extension-root-7f3a9c .omnipilot-onboarding-btn:hover {
@@ -536,6 +567,19 @@
   background: var(--op-pressed);
 }
 
+#omnipilot-extension-root-7f3a9c .omnipilot-panel-status,
+#omnipilot-extension-root-7f3a9c .omnipilot-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* ── Panel Body ─────────────────────────────────────── */
 
 #omnipilot-extension-root-7f3a9c .omnipilot-panel-body {
@@ -550,22 +594,26 @@
   position: absolute;
   bottom: 0;
   right: 0;
-  width: 18px;
-  height: 18px;
+  width: 44px;
+  height: 44px;
   cursor: nwse-resize;
+  touch-action: none;
   opacity: 0.28;
   transition: opacity 0.15s var(--op-ease-standard);
 }
 
-#omnipilot-extension-root-7f3a9c #omnipilot-panel .omnipilot-resize-handle:hover {
-  opacity: 0.65;
+#omnipilot-extension-root-7f3a9c #omnipilot-panel .omnipilot-resize-handle:hover,
+#omnipilot-extension-root-7f3a9c #omnipilot-panel .omnipilot-resize-handle:focus-visible {
+  opacity: 0.75;
+  outline: 2px solid var(--appearance-focus);
+  outline-offset: -4px;
 }
 
 #omnipilot-extension-root-7f3a9c #omnipilot-panel .omnipilot-resize-handle::before {
   content: '';
   position: absolute;
-  bottom: 4px;
-  right: 4px;
+  bottom: 9px;
+  right: 9px;
   width: 9px;
   height: 9px;
   border-right: 2px solid var(--op-ink2);
@@ -619,7 +667,7 @@
 }
 
 #omnipilot-extension-root-7f3a9c .omnipilot-error {
-  color: #c5221f;
+  color: var(--appearance-danger);
   font-size: var(--appearance-font-size-md);
   line-height: 1.55;
   font-family: var(--op-font);
@@ -762,9 +810,9 @@
   background: var(--op-accent);
   border: none;
   border-radius: var(--appearance-radius-sm);
-  width: 36px;
-  height: 36px;
-  min-width: 36px;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
   color: var(--appearance-on-accent);
   font-size: 16px;
   cursor: pointer;
@@ -1340,6 +1388,65 @@
 
 #omnipilot-extension-root-7f3a9c .omnipilot-a2a-submit:hover {
   background: var(--op-accent-dark);
+}
+
+#omnipilot-extension-root-7f3a9c .omnipilot-close-btn,
+#omnipilot-extension-root-7f3a9c .omnipilot-export-btn,
+#omnipilot-extension-root-7f3a9c .omnipilot-minimize-btn,
+#omnipilot-extension-root-7f3a9c .omnipilot-cancel-btn,
+#omnipilot-extension-root-7f3a9c .omnipilot-send-btn,
+#omnipilot-extension-root-7f3a9c .omnipilot-msg-toolbar-btn,
+#omnipilot-extension-root-7f3a9c .omnipilot-context-remove,
+#omnipilot-extension-root-7f3a9c .omnipilot-code-block-copy-btn {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+#omnipilot-extension-root-7f3a9c .omnipilot-a2a-form > label {
+  color: var(--op-ink);
+  font-size: var(--appearance-font-size-sm);
+  font-weight: var(--appearance-weight-strong);
+  margin-bottom: calc(var(--appearance-space-2) * -1);
+}
+
+#omnipilot-extension-root-7f3a9c .omnipilot-a2a-submit {
+  min-height: 44px;
+}
+
+@media (max-width: 340px) {
+  #omnipilot-extension-root-7f3a9c #omnipilot-panel {
+    min-width: 0;
+    width: calc(100vw - 16px) !important;
+    height: calc(100vh - 16px) !important;
+    max-width: calc(100vw - 16px);
+    max-height: calc(100vh - 16px);
+    left: 8px !important;
+    top: 8px !important;
+  }
+
+  #omnipilot-extension-root-7f3a9c .omnipilot-panel-header,
+  #omnipilot-extension-root-7f3a9c .omnipilot-meta {
+    flex-wrap: wrap;
+    width: 100%;
+  }
+
+  #omnipilot-extension-root-7f3a9c .omnipilot-panel-input-area {
+    position: relative;
+    display: flex;
+    visibility: visible;
+  }
+
+  #omnipilot-extension-root-7f3a9c .omnipilot-a2a-submit {
+    align-self: stretch;
+    width: 100%;
+  }
+
+  #omnipilot-extension-root-7f3a9c #omnipilot-model-selector,
+  #omnipilot-extension-root-7f3a9c #omnipilot-provider-selector,
+  #omnipilot-extension-root-7f3a9c #omnipilot-action-selector {
+    max-width: calc(100vw - 16px);
+    min-width: 0;
+  }
 }
 
 /* Theme-specific component exceptions remain local to the extension mount. */

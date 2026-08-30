@@ -26,6 +26,8 @@ async function open(page, stored = {}) {
     window.__writes = writes;
     window.__store = store;
     window.__openedOptions = 0;
+    window.__sidePanelOpens = [];
+    window.__tabsQueries = 0;
     window.__fireChange = (changes, area = 'sync') => {
       Object.entries(changes).forEach(([key, value]) => { store[key] = value.newValue; });
       changeListeners.slice().forEach(fn => fn(changes, area));
@@ -41,6 +43,18 @@ async function open(page, stored = {}) {
             postMessage() {},
             disconnect() {}
           };
+        }
+      },
+      tabs: {
+        query(_query, callback) {
+          window.__tabsQueries += 1;
+          callback([{ id: 37 }]);
+        }
+      },
+      sidePanel: {
+        open(options) {
+          window.__sidePanelOpens.push(options);
+          return undefined;
         }
       },
       storage: {
@@ -100,6 +114,13 @@ for (const [label, stored] of [
   });
 }
 
+test('the readiness dot is hidden from assistive technology', async ({ page }) => {
+  await open(page, {});
+
+  await expect(page.locator('#statusDot')).toHaveAttribute('aria-hidden', 'true');
+  await expect(page.locator('#statusText')).toHaveAttribute('aria-live', 'polite');
+});
+
 test('the status dot colour changes between states', async ({ page }) => {
   await open(page, {});
   const notReady = await page.evaluate(
@@ -150,8 +171,14 @@ test('changing the component shape persists it and applies it live', async ({ pa
 
   expect(await writes(page)).toContainEqual({ uiShapePreference: 'pill' });
   await expect(page.locator('html')).toHaveAttribute('data-ui-shape', 'pill');
-  const radius = await page.locator('#settingsBtn').evaluate(element => parseFloat(getComputedStyle(element).borderRadius));
-  expect(radius).toBeGreaterThanOrEqual(20);
+  const { radius, expectedRadius } = await page.locator('#settingsBtn').evaluate(element => {
+    const styles = getComputedStyle(element);
+    return {
+      radius: parseFloat(styles.borderRadius),
+      expectedRadius: parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--appearance-radius-md'))
+    };
+  });
+  expect(radius).toBe(expectedRadius);
 });
 
 test('changing the language persists it and re-labels the UI', async ({ page }) => {
@@ -235,6 +262,20 @@ test('changes from other storage areas are ignored', async ({ page }) => {
 });
 
 // ── Navigation ───────────────────────────────────────────────────────────
+
+test('the primary action opens the side panel synchronously for the resolved tab', async ({ page }) => {
+  await open(page, {});
+
+  await page.locator('#sidePanelBtn').evaluate(button => {
+    const callsBeforeClick = window.__sidePanelOpens.length;
+    button.click();
+    window.__sidePanelCallWasSynchronous = window.__sidePanelOpens.length === callsBeforeClick + 1;
+  });
+
+  expect(await page.evaluate(() => window.__tabsQueries)).toBe(1);
+  expect(await page.evaluate(() => window.__sidePanelCallWasSynchronous)).toBe(true);
+  expect(await page.evaluate(() => window.__sidePanelOpens)).toEqual([{ tabId: 37 }]);
+});
 
 test('the settings button opens the options page', async ({ page }) => {
   await open(page, {});

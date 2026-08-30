@@ -109,13 +109,15 @@ function isExtensionContextInvalidatedError(err) {
 
 function Message({ message }) {
   if (message.role === 'error') {
-    return html`<div class="sp-error" role="alert">${message.content}</div>`;
+    return html`<div class="sp-error" role="alert" aria-atomic="true">${message.content}</div>`;
   }
   if (message.role === 'divider') {
-    return html`<div class="sp-divider">${message.content}</div>`;
+    return html`<div class="sp-divider" role="separator" aria-label=${message.content}>
+      <span>${message.content}</span>
+    </div>`;
   }
   if (message.role === 'user') {
-    return html`<div class="sp-msg sp-msg-user">${message.content}</div>`;
+    return html`<article class="sp-msg sp-msg-user" aria-label="You">${message.content}</article>`;
   }
   // Two literal class attributes rather than one interpolated string: Tailwind
   // tokenizes candidates on whitespace and would swallow a utility written
@@ -125,23 +127,40 @@ function Message({ message }) {
   // before generating any markup, so nothing the model emits can inject HTML.
   const rendered = { __html: renderMarkdown(message.content) };
   return message.streaming
-    ? html`<div class="sp-msg sp-msg-assistant sp-streaming" dangerouslySetInnerHTML=${rendered}></div>`
-    : html`<div class="sp-msg sp-msg-assistant" dangerouslySetInnerHTML=${rendered}></div>`;
+    ? html`<article class="sp-msg sp-msg-assistant sp-streaming" aria-label="OmniPilot" aria-busy="true" dangerouslySetInnerHTML=${rendered}></article>`
+    : html`<article class="sp-msg sp-msg-assistant" aria-label="OmniPilot" dangerouslySetInnerHTML=${rendered}></article>`;
 }
 
 function PageContextChip({ page, enabled, onToggle }) {
-  if (!page) {
+  if (page === undefined) {
     return html`
-      <div class="sp-context sp-context-empty">
-        <span class="sp-context-icon" aria-hidden="true">🚫</span>
-        <span class="sp-context-text">This page can't be read</span>
+      <div class="sp-context sp-context-empty" aria-busy="true">
+        <span class="sp-context-icon" aria-hidden="true">◌</span>
+        <span class="sp-context-copy">
+          <span class="sp-context-kicker">Page context</span>
+          <span class="sp-context-text">Checking this page…</span>
+        </span>
+      </div>`;
+  }
+  if (page === null) {
+    return html`
+      <div class="sp-context sp-context-empty" role="status">
+        <span class="sp-context-icon" aria-hidden="true">⊘</span>
+        <span class="sp-context-copy">
+          <span class="sp-context-kicker">Page context</span>
+          <span class="sp-context-text">This page can't be read</span>
+        </span>
       </div>`;
   }
   return html`
     <label class="sp-context" title=${page.url}>
-      <input type="checkbox" checked=${enabled} onChange=${onToggle} />
-      <span class="sp-context-icon" aria-hidden="true">📄</span>
-      <span class="sp-context-text">${page.title || page.url}</span>
+      <span class="sp-context-icon" aria-hidden="true">◫</span>
+      <span class="sp-context-copy">
+        <span class="sp-context-kicker">Use page context</span>
+        <span class="sp-context-text">${page.title || page.url}</span>
+      </span>
+      <input class="sp-context-toggle" type="checkbox" checked=${enabled} onChange=${onToggle} />
+      <span class="sp-context-switch" aria-hidden="true"></span>
     </label>`;
 }
 
@@ -278,13 +297,14 @@ function Chip({ id, label: chipLabel, icon, open, onToggle, onClose, children })
 
 function SidePanel() {
   const [messages, setMessages] = useState([]);
-  const [page, setPage] = useState(null);
+  const [page, setPage] = useState(undefined);
   const [usesPage, setUsesPage] = useState(true);
   const [language, setLanguage] = useState('en');
   const [model, setModel] = useState(DEFAULT_MODEL);
   const [providerType, setProviderType] = useState(DEFAULT_PROVIDER_TYPE);
   const [action, setAction] = useState('');
   const [openSelector, setOpenSelector] = useState(null);
+  const [announcement, setAnnouncement] = useState('');
 
   const bodyRef = useRef(null);
   const inputRef = useRef(null);
@@ -427,6 +447,7 @@ function SidePanel() {
       sentContextRef.current = true;
     }
 
+    setAnnouncement('Message sent.');
     append({ id: nextId(), role: 'user', content: text });
     historyRef.current.push({ role: 'user', content: text });
 
@@ -465,9 +486,12 @@ function SidePanel() {
     const updateStream = content => setMessages(previous =>
       previous.map(message => (message.id === streamId ? { ...message, content } : message))
     );
-    const settleStream = () => setMessages(previous =>
-      previous.map(message => (message.id === streamId ? { ...message, streaming: false } : message))
-    );
+    const settleStream = () => {
+      setMessages(previous =>
+        previous.map(message => (message.id === streamId ? { ...message, streaming: false } : message))
+      );
+      setAnnouncement(accumulated ? `Response complete. ${accumulated}` : 'Response complete.');
+    };
     // Drops any pending placeholder, then reports "no response" unless the
     // transcript already carries an error. The check spans the whole
     // transcript, matching the original body-wide `.sp-error` lookup.
@@ -523,7 +547,11 @@ function SidePanel() {
         updateStream(accumulated);
       } else if (msg.type === 'status') {
         if (streamId === null) startStream();
-        if (!accumulated) updateStream(statusLabel(msg.status));
+        if (!accumulated) {
+          const label = statusLabel(msg.status);
+          updateStream(label);
+          setAnnouncement(label);
+        }
       } else if (msg.type === 'error') {
         if (!accumulated) append({ id: nextId(), role: 'error', content: msg.error });
       } else if (msg.type === 'done') {
@@ -652,76 +680,96 @@ function SidePanel() {
   const actionEntry = ACTIONS.find(entry => entry.id === action) || CHAT_ACTION;
 
   return html`
-    <div class="sp-header">
-      <span aria-hidden="true">✦</span>
-      <h1>OmniPilot</h1>
-    </div>
-    <div class="sp-meta">
-      <${Chip}
-        id="spActionChip"
-        icon=${actionEntry.icon}
-        label=${t(actionEntry.labelKey, language)}
-        open=${openSelector === 'action'}
-        onToggle=${() => toggleSelector('action')}
-        onClose=${() => setOpenSelector(null)}
-      >
-        <div role="listbox" aria-label="Actions">
-          ${[CHAT_ACTION, ...ACTIONS].map(entry => html`
-            <${SelectorItem}
-              key=${entry.id || 'chat'}
-              icon=${entry.icon}
-              text=${t(entry.labelKey, language)}
-              current=${entry.id === action}
-              onChoose=${() => onChooseAction(entry.id)}
-            />`)}
+    <main class="sp-shell">
+      <header class="sp-header">
+        <div class="sp-brand">
+          <span class="sp-brand-mark" aria-hidden="true">✦</span>
+          <div>
+            <h1>OmniPilot</h1>
+            <p>Page-aware assistant</p>
+          </div>
         </div>
-      <//>
-      <${Chip}
-        id="spProviderChip"
-        label=${providerLabel(providerType)}
-        open=${openSelector === 'provider'}
-        onToggle=${() => toggleSelector('provider')}
-        onClose=${() => setOpenSelector(null)}
-      >
-        <div role="listbox" aria-label="Providers">
-          ${getProviderEntries().map(entry => html`
-            <${SelectorItem}
-              key=${entry.providerType}
-              text=${entry.label}
-              current=${entry.providerType === providerType}
-              onChoose=${() => onChooseProvider(entry.providerType)}
-            />`)}
+      </header>
+      <section class="sp-toolbar" aria-label="Conversation settings">
+        <div class="sp-meta">
+          <${Chip}
+            id="spActionChip"
+            icon=${actionEntry.icon}
+            label=${t(actionEntry.labelKey, language)}
+            open=${openSelector === 'action'}
+            onToggle=${() => toggleSelector('action')}
+            onClose=${() => setOpenSelector(null)}
+          >
+            <div role="listbox" aria-label="Actions">
+              ${[CHAT_ACTION, ...ACTIONS].map(entry => html`
+                <${SelectorItem}
+                  key=${entry.id || 'chat'}
+                  icon=${entry.icon}
+                  text=${t(entry.labelKey, language)}
+                  current=${entry.id === action}
+                  onChoose=${() => onChooseAction(entry.id)}
+                />`)}
+            </div>
+          <//>
+          <${Chip}
+            id="spProviderChip"
+            label=${providerLabel(providerType)}
+            open=${openSelector === 'provider'}
+            onToggle=${() => toggleSelector('provider')}
+            onClose=${() => setOpenSelector(null)}
+          >
+            <div role="listbox" aria-label="Providers">
+              ${getProviderEntries().map(entry => html`
+                <${SelectorItem}
+                  key=${entry.providerType}
+                  text=${entry.label}
+                  current=${entry.providerType === providerType}
+                  onChoose=${() => onChooseProvider(entry.providerType)}
+                />`)}
+            </div>
+          <//>
+          <${Chip}
+            id="spModelChip"
+            label=${model}
+            open=${openSelector === 'model'}
+            onToggle=${() => toggleSelector('model')}
+            onClose=${() => setOpenSelector(null)}
+          >
+            <${ModelSelector} current=${model} onChoose=${onChooseModel} />
+          <//>
         </div>
-      <//>
-      <${Chip}
-        id="spModelChip"
-        label=${model}
-        open=${openSelector === 'model'}
-        onToggle=${() => toggleSelector('model')}
-        onClose=${() => setOpenSelector(null)}
-      >
-        <${ModelSelector} current=${model} onChoose=${onChooseModel} />
-      <//>
-    </div>
-    <${PageContextChip} page=${page} enabled=${usesPage} onToggle=${onToggleContext} />
-    <div class="sp-body" id="chatBody" ref=${bodyRef} onClick=${onBodyClick} aria-live="polite" aria-relevant="additions text">
-      ${messages.length === 0
-        ? html`<div class="sp-empty">${EMPTY_PROMPT}</div>`
-        : messages.map(message => html`<${Message} message=${message} key=${message.id} />`)}
-    </div>
-    <div class="sp-input-area">
-      <textarea
-        class="sp-input"
-        id="chatInput"
-        aria-label="Message OmniPilot"
-        placeholder="Ask anything..."
-        rows="1"
-        ref=${inputRef}
-        onInput=${onInput}
-        onKeyDown=${onKeyDown}
-      ></textarea>
-      <button class="sp-send" id="sendBtn" onClick=${sendMessage}>Send</button>
-    </div>
+        <${PageContextChip} page=${page} enabled=${usesPage} onToggle=${onToggleContext} />
+      </section>
+      <section class="sp-body" id="chatBody" ref=${bodyRef} onClick=${onBodyClick} role="log" aria-label="Conversation" aria-relevant="additions" aria-busy=${messages.some(message => message.streaming) ? 'true' : 'false'}>
+        ${messages.length === 0
+          ? html`<div class="sp-empty">
+              <span class="sp-empty-mark" aria-hidden="true">✦</span>
+              <h2>Ready when you are</h2>
+              <p>${EMPTY_PROMPT}</p>
+            </div>`
+          : messages.map(message => html`<${Message} message=${message} key=${message.id} />`)}
+      </section>
+      <div class="sp-sr-status" role="status" aria-live="polite" aria-atomic="true">${announcement}</div>
+      <form class="sp-input-area" aria-label="Message composer" onSubmit=${event => { event.preventDefault(); sendMessage(); }}>
+        <label class="sp-input-label" for="chatInput">Message</label>
+        <div class="sp-composer">
+          <textarea
+            class="sp-input"
+            id="chatInput"
+            aria-describedby="spComposerHint"
+            placeholder="Ask about this page…"
+            rows="1"
+            ref=${inputRef}
+            onInput=${onInput}
+            onKeyDown=${onKeyDown}
+          ></textarea>
+          <button class="sp-send" id="sendBtn" type="submit" aria-label="Send message">
+            <span>Send</span><span class="sp-send-icon" aria-hidden="true">↑</span>
+          </button>
+        </div>
+        <p class="sp-composer-hint" id="spComposerHint">Enter to send · Shift + Enter for a new line</p>
+      </form>
+    </main>
   `;
 }
 
