@@ -155,6 +155,14 @@ import { renderMarkdown, escapeHtml } from '../utils/markdown.mjs';
     return clampPlacement({ left: proposedLeft, top: proposedTop, ...size }, viewport, margin);
   }
 
+  function placeMiddleRightOfAnchor(anchor, size, viewport, gap = 8, margin = VIEWPORT_MARGIN) {
+    return clampPlacement({
+      left: anchor.right + gap,
+      top: anchor.top + ((anchor.bottom - anchor.top) - size.height) / 2,
+      ...size
+    }, viewport, margin);
+  }
+
   function viewportSize() {
     return { width: window.innerWidth, height: window.innerHeight };
   }
@@ -583,7 +591,7 @@ import { renderMarkdown, escapeHtml } from '../utils/markdown.mjs';
     bubble.style.display = 'flex';
     const width = bubble.offsetWidth || 130;
     const height = bubble.offsetHeight || ORB_SIZE;
-    const placement = placeNearAnchor(lastSelectionRect, { width, height }, viewportSize());
+    const placement = placeMiddleRightOfAnchor(lastSelectionRect, { width, height }, viewportSize());
     bubble.style.left = `${placement.left}px`;
     bubble.style.top = `${placement.top}px`;
   }

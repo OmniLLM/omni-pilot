@@ -66,7 +66,7 @@
 }
 
 #omnipilot-extension-root-7f3a9c #omnipilot-bubble:hover {
-  background: var(--op-accent-dim);
+  background: var(--op-bg);
   border-color: color-mix(in srgb, var(--appearance-accent) 35%, transparent);
   box-shadow: var(--op-shadow-3);
 }
