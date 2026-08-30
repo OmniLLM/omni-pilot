@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-appearance-root data-surface="options" data-theme-preference="dark" data-theme="dark" data-visual-style="current" data-ui-shape="square">
+<html lang="en" data-appearance-root data-surface="options" data-theme-preference="dark" data-theme="dark" data-visual-style="current" data-ui-shape="subtle">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -12,261 +12,260 @@
   <main class="container">
     <header class="header">
       <a class="header-left" href="https://github.com/OmniLLM/omni-pilot" target="_blank" rel="noopener noreferrer" title="Open OmniPilot on GitHub">
-        <div class="logo">✦</div>
-        <div>
+        <span class="logo" aria-hidden="true">✦</span>
+        <span>
           <h1 class="title">OmniPilot</h1>
-          <div class="subtitle" id="subtitle" data-i18n="settings">Settings</div>
-        </div>
+          <span class="subtitle" id="subtitle" data-i18n="settings">Settings</span>
+        </span>
       </a>
+      <p class="header-summary">Configure how OmniPilot looks, connects, and works.</p>
     </header>
 
-    <div class="card" id="appearanceCard">
-      <h2 class="card-title" data-i18n="appearance">Appearance</h2>
-      <div class="field appearance-theme-field">
-        <label for="themePreferenceSelect" data-i18n="themePreference">Color theme</label>
-        <select id="themePreferenceSelect">
-          <option value="system" data-i18n="themeSystem">System</option>
-          <option value="light" data-i18n="light">Light</option>
-          <option value="dark" data-i18n="dark">Dark</option>
-        </select>
-      </div>
-      <div class="field appearance-theme-field">
-        <label for="uiShapePreferenceSelect" data-i18n="uiShape">Component shape</label>
-        <select id="uiShapePreferenceSelect">
-          <option value="square" data-i18n="uiShapeSquare">Square</option>
-          <option value="subtle" data-i18n="uiShapeSubtle">Subtle</option>
-          <option value="rounded" data-i18n="uiShapeRounded">Rounded</option>
-          <option value="pill" data-i18n="uiShapePill">Pill</option>
-        </select>
-        <div class="hint" data-i18n="uiShapeHint">Controls, cards, menus, and messages update immediately.</div>
-      </div>
-      <fieldset class="style-options" id="visualStyleOptions">
-        <legend data-i18n="visualStyle">Visual style</legend>
-        <label class="style-option">
-          <input type="radio" name="visualStylePreference" value="current" checked>
-          <span class="style-preview" data-appearance-preview data-theme="dark" data-visual-style="current">
-            <span class="style-preview-header"><span class="style-preview-name" data-i18n="visualStyleCurrent">Current</span><span class="style-preview-selected" data-i18n-title="visualStyleSelected" title="Selected" aria-hidden="true">✓</span></span>
-            <span class="style-preview-description" data-i18n="visualStyleCurrentDescription">The familiar OmniPilot look.</span>
-            <span class="style-preview-sample"><span class="style-preview-lines"><span class="style-preview-line"></span><span class="style-preview-line muted"></span></span><span class="style-preview-action" aria-hidden="true">Aa</span></span>
-          </span>
-        </label>
-        <label class="style-option">
-          <input type="radio" name="visualStylePreference" value="clean-minimal">
-          <span class="style-preview" data-appearance-preview data-theme="dark" data-visual-style="clean-minimal">
-            <span class="style-preview-header"><span class="style-preview-name" data-i18n="visualStyleCleanMinimal">Clean Minimal</span><span class="style-preview-selected" data-i18n-title="visualStyleSelected" title="Selected" aria-hidden="true">✓</span></span>
-            <span class="style-preview-description" data-i18n="visualStyleCleanMinimalDescription">Quiet, spacious, and focused.</span>
-            <span class="style-preview-sample"><span class="style-preview-lines"><span class="style-preview-line"></span><span class="style-preview-line muted"></span></span><span class="style-preview-action" aria-hidden="true">Aa</span></span>
-          </span>
-        </label>
-        <label class="style-option">
-          <input type="radio" name="visualStylePreference" value="terminal">
-          <span class="style-preview" data-appearance-preview data-theme="dark" data-visual-style="terminal">
-            <span class="style-preview-header"><span class="style-preview-name" data-i18n="visualStyleTerminal">Terminal</span><span class="style-preview-selected" data-i18n-title="visualStyleSelected" title="Selected" aria-hidden="true">✓</span></span>
-            <span class="style-preview-description" data-i18n="visualStyleTerminalDescription">Compact, precise, and command-line inspired.</span>
-            <span class="style-preview-sample"><span class="style-preview-lines"><span class="style-preview-line"></span><span class="style-preview-line muted"></span></span><span class="style-preview-action" aria-hidden="true">Aa</span></span>
-          </span>
-        </label>
-        <label class="style-option">
-          <input type="radio" name="visualStylePreference" value="warm-editorial">
-          <span class="style-preview" data-appearance-preview data-theme="dark" data-visual-style="warm-editorial">
-            <span class="style-preview-header"><span class="style-preview-name" data-i18n="visualStyleWarmEditorial">Warm Editorial</span><span class="style-preview-selected" data-i18n-title="visualStyleSelected" title="Selected" aria-hidden="true">✓</span></span>
-            <span class="style-preview-description" data-i18n="visualStyleWarmEditorialDescription">Warm tones with expressive typography.</span>
-            <span class="style-preview-sample"><span class="style-preview-lines"><span class="style-preview-line"></span><span class="style-preview-line muted"></span></span><span class="style-preview-action" aria-hidden="true">Aa</span></span>
-          </span>
-        </label>
-        <label class="style-option">
-          <input type="radio" name="visualStylePreference" value="neo-brutalist">
-          <span class="style-preview" data-appearance-preview data-theme="dark" data-visual-style="neo-brutalist">
-            <span class="style-preview-header"><span class="style-preview-name" data-i18n="visualStyleNeoBrutalist">Neo-brutalist</span><span class="style-preview-selected" data-i18n-title="visualStyleSelected" title="Selected" aria-hidden="true">✓</span></span>
-            <span class="style-preview-description" data-i18n="visualStyleNeoBrutalistDescription">Bold borders, strong contrast, and punchy color.</span>
-            <span class="style-preview-sample"><span class="style-preview-lines"><span class="style-preview-line"></span><span class="style-preview-line muted"></span></span><span class="style-preview-action" aria-hidden="true">Aa</span></span>
-          </span>
-        </label>
-      </fieldset>
-    </div>
-
-    <div class="card">
-      <h2 class="card-title" id="connectionTitle" data-i18n="connection">Connection</h2>
-      <div class="field">
-        <label for="providerType" data-i18n="provider">Provider</label>
-        <select id="providerType">
-          <option value="github-copilot" data-i18n="providerGithubCopilot">GitHub Copilot</option>
-          <option value="custom-provider" data-i18n="providerCustom">Custom Provider</option>
-          <option value="azure-foundry" data-i18n="providerAzureFoundry">Azure Foundry</option>
-        </select>
-      </div>
-      <div class="field" id="apiKeyField">
-        <label for="apiKey" data-i18n="apiKey">API Key</label>
-        <input type="password" id="apiKey" placeholder="sk-···">
-      </div>
-      <div class="copilot-auth-section" id="copilotSection">
-        <div class="copilot-status" id="copilotStatus" role="status" aria-live="polite">
-          <span class="copilot-status-dot" id="copilotStatusDot"></span>
-          <span id="copilotStatusText" data-i18n="copilotNotConnected">Not connected</span>
+    <div class="settings-grid">
+      <section class="settings-group core-settings" aria-labelledby="coreSettingsTitle">
+        <div class="group-heading">
+          <p class="group-eyebrow">Core setup</p>
+          <h2 class="group-title" id="coreSettingsTitle">Your assistant</h2>
+          <p class="group-description">Choose a provider and model, then save the connection.</p>
         </div>
-        <button class="copilot-btn" id="copilotAuthBtn" data-i18n="copilotSignIn">Sign in with GitHub</button>
-        <div class="copilot-device-flow" id="copilotDeviceFlow">
-          <div class="copilot-code-box">
-            <span class="copilot-code" id="copilotUserCode"></span>
+
+        <div class="card" aria-labelledby="connectionTitle">
+          <div class="card-heading">
+            <h3 class="card-title" id="connectionTitle" data-i18n="connection">Connection</h3>
+            <span class="behavior-badge">Save required</span>
           </div>
-          <div class="copilot-instructions">
-            <span data-i18n="copilotGoTo">Go to</span> <a href="https://github.com/login/device" target="_blank" id="copilotVerifyLink">github.com/login/device</a> <span data-i18n="copilotAndEnter">and enter:</span>
+          <div class="field">
+            <label for="providerType" id="providerLabel" data-i18n="provider">Provider</label>
+            <select id="providerType">
+              <option value="github-copilot" data-i18n="providerGithubCopilot">GitHub Copilot</option>
+              <option value="custom-provider" data-i18n="providerCustom">Custom Provider</option>
+              <option value="azure-foundry" data-i18n="providerAzureFoundry">Azure Foundry</option>
+            </select>
           </div>
-          <div class="copilot-poll-status" id="copilotPollStatus" role="status" aria-live="polite" data-i18n="copilotWaiting">Waiting for authorization…</div>
-        </div>
-      </div>
-      <div class="field" id="endpointField">
-        <label for="endpoint" id="apiEndpointLabel" data-i18n="apiEndpoint">API Endpoint</label>
-        <input type="text" id="endpoint" placeholder="https://api.omnillm.com/v1">
-        <div class="hint" data-i18n="endpointHint">Use the provider base URL, such as http://localhost:5000/v1. The API format below controls the request shape.</div>
-      </div>
-      <div class="field" id="apiShapeField">
-        <label for="apiShape" data-i18n="apiFormat">API Format</label>
-        <select id="apiShape">
-          <option value="openai-compatible">OpenAI-compatible / Chat Completions</option>
-          <option value="anthropic-messages">Anthropic Messages</option>
-          <option value="openai-responses">OpenAI Responses</option>
-        </select>
-        <div class="hint" data-i18n="defaultApiShapeHint">Default is OpenAI-compatible. Choose Anthropic or Responses only when your provider supports that API shape.</div>
-      </div>
-    </div>
-
-    <div class="card" id="modelCard">
-      <h2 class="card-title" data-i18n="model">Model</h2>
-      <div class="field">
-        <div class="field-row">
-          <div>
-            <div class="field-label" id="modelFieldLabel" data-i18n="model">Model</div>
-            <select id="modelSelect" aria-labelledby="modelFieldLabel"></select>
-            <input type="text" id="model" aria-labelledby="modelFieldLabel" placeholder="claude-sonnet-4-5">
-            <textarea id="models" aria-labelledby="modelFieldLabel" placeholder="model-one, model-two" rows="3"></textarea>
-            <button type="button" class="edit-models-btn" id="editModelsBtn" data-i18n="editModels">Edit models</button>
+          <div class="field" id="apiKeyField">
+            <label for="apiKey" data-i18n="apiKey">API Key</label>
+            <input type="password" id="apiKey" placeholder="sk-···" autocomplete="off">
           </div>
-          <button class="refresh-btn" id="refreshBtn" data-i18n-title="fetchModels" title="Fetch models">↻</button>
+          <div class="copilot-auth-section" id="copilotSection">
+            <div class="copilot-status" id="copilotStatus" role="status" aria-live="polite">
+              <span class="copilot-status-dot" id="copilotStatusDot" aria-hidden="true"></span>
+              <span id="copilotStatusText" data-i18n="copilotNotConnected">Not connected</span>
+            </div>
+            <button type="button" class="copilot-btn" id="copilotAuthBtn" data-i18n="copilotSignIn">Sign in with GitHub</button>
+            <div class="copilot-device-flow" id="copilotDeviceFlow">
+              <div class="copilot-code-box"><span class="copilot-code" id="copilotUserCode"></span></div>
+              <div class="copilot-instructions">
+                <span data-i18n="copilotGoTo">Go to</span> <a href="https://github.com/login/device" target="_blank" rel="noopener noreferrer" id="copilotVerifyLink">github.com/login/device</a> <span data-i18n="copilotAndEnter">and enter:</span>
+              </div>
+              <div class="copilot-poll-status" id="copilotPollStatus" role="status" aria-live="polite" data-i18n="copilotWaiting">Waiting for authorization…</div>
+            </div>
+          </div>
+          <div class="field" id="endpointField">
+            <label for="endpoint" id="apiEndpointLabel" data-i18n="apiEndpoint">API Endpoint</label>
+            <input type="text" id="endpoint" placeholder="https://api.omnillm.com/v1" inputmode="url">
+            <div class="hint" data-i18n="endpointHint">Use the provider base URL, such as http://localhost:5000/v1. The API format below controls the request shape.</div>
+          </div>
+          <div class="field" id="apiShapeField">
+            <label for="apiShape" data-i18n="apiFormat">API Format</label>
+            <select id="apiShape">
+              <option value="openai-compatible">OpenAI-compatible / Chat Completions</option>
+              <option value="anthropic-messages">Anthropic Messages</option>
+              <option value="openai-responses">OpenAI Responses</option>
+            </select>
+            <div class="hint" data-i18n="defaultApiShapeHint">Default is OpenAI-compatible. Choose Anthropic or Responses only when your provider supports that API shape.</div>
+          </div>
         </div>
-        <div class="model-status" id="modelStatus" role="status" aria-live="polite"></div>
-      </div>
+
+        <div class="card" id="modelCard" aria-labelledby="modelCardTitle">
+          <div class="card-heading">
+            <h3 class="card-title" id="modelCardTitle" data-i18n="model">Model</h3>
+            <span class="behavior-badge">Save required</span>
+          </div>
+          <div class="field">
+            <div class="field-row">
+              <div class="model-field">
+                <div class="field-label" id="modelFieldLabel" data-i18n="model">Model</div>
+                <select id="modelSelect" aria-labelledby="modelFieldLabel"></select>
+                <input type="text" id="model" aria-labelledby="modelFieldLabel" placeholder="claude-sonnet-4-5">
+                <textarea id="models" aria-labelledby="modelFieldLabel" placeholder="model-one, model-two" rows="3"></textarea>
+                <button type="button" class="edit-models-btn" id="editModelsBtn" data-i18n="editModels">Edit models</button>
+              </div>
+              <button type="button" class="refresh-btn" id="refreshBtn" data-i18n-title="fetchModels" title="Fetch models" aria-label="Fetch models">↻</button>
+            </div>
+            <div class="model-status" id="modelStatus" role="status" aria-live="polite"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="settings-group appearance-settings" aria-labelledby="appearanceGroupTitle">
+        <div class="group-heading">
+          <p class="group-eyebrow">Personalization</p>
+          <h2 class="group-title" id="appearanceGroupTitle">Make it yours</h2>
+          <p class="group-description">These choices update every OmniPilot surface immediately.</p>
+        </div>
+
+        <div class="card" id="appearanceCard" aria-labelledby="appearanceTitle">
+          <div class="card-heading">
+            <h3 class="card-title" id="appearanceTitle" data-i18n="appearance">Appearance</h3>
+            <span class="behavior-badge immediate">Immediate</span>
+          </div>
+          <div class="appearance-preferences">
+            <div class="field appearance-theme-field">
+              <label for="themePreferenceSelect" data-i18n="themePreference">Color theme</label>
+              <select id="themePreferenceSelect">
+                <option value="system" data-i18n="themeSystem">System</option>
+                <option value="light" data-i18n="light">Light</option>
+                <option value="dark" data-i18n="dark">Dark</option>
+              </select>
+            </div>
+            <div class="field appearance-theme-field">
+              <label for="uiShapePreferenceSelect" data-i18n="uiShape">Component shape</label>
+              <select id="uiShapePreferenceSelect">
+                <option value="square" data-i18n="uiShapeSquare">Square</option>
+                <option value="subtle" data-i18n="uiShapeSubtle">Subtle</option>
+                <option value="rounded" data-i18n="uiShapeRounded">Rounded</option>
+                <option value="pill" data-i18n="uiShapePill">Pill</option>
+              </select>
+              <div class="hint" data-i18n="uiShapeHint">Controls, cards, menus, and messages update immediately.</div>
+            </div>
+          </div>
+          <fieldset class="style-options" id="visualStyleOptions">
+            <legend data-i18n="visualStyle">Visual style</legend>
+            <label class="style-option">
+              <input type="radio" name="visualStylePreference" value="current" checked>
+              <span class="style-preview" data-appearance-preview data-theme="dark" data-visual-style="current">
+                <span class="style-preview-header"><span class="style-preview-name" data-i18n="visualStyleCurrent">Modern</span><span class="style-preview-selected" data-i18n-title="visualStyleSelected" title="Selected" aria-hidden="true">✓</span></span>
+                <span class="style-preview-description" data-i18n="visualStyleCurrentDescription">Calm, polished, and focused.</span>
+                <span class="style-preview-sample"><span class="style-preview-lines"><span class="style-preview-line"></span><span class="style-preview-line muted"></span></span><span class="style-preview-action" aria-hidden="true">Aa</span></span>
+              </span>
+            </label>
+            <label class="style-option">
+              <input type="radio" name="visualStylePreference" value="clean-minimal">
+              <span class="style-preview" data-appearance-preview data-theme="dark" data-visual-style="clean-minimal">
+                <span class="style-preview-header"><span class="style-preview-name" data-i18n="visualStyleCleanMinimal">Clean Minimal</span><span class="style-preview-selected" data-i18n-title="visualStyleSelected" title="Selected" aria-hidden="true">✓</span></span>
+                <span class="style-preview-description" data-i18n="visualStyleCleanMinimalDescription">Quiet, spacious, and focused.</span>
+                <span class="style-preview-sample"><span class="style-preview-lines"><span class="style-preview-line"></span><span class="style-preview-line muted"></span></span><span class="style-preview-action" aria-hidden="true">Aa</span></span>
+              </span>
+            </label>
+            <label class="style-option">
+              <input type="radio" name="visualStylePreference" value="terminal">
+              <span class="style-preview" data-appearance-preview data-theme="dark" data-visual-style="terminal">
+                <span class="style-preview-header"><span class="style-preview-name" data-i18n="visualStyleTerminal">Terminal</span><span class="style-preview-selected" data-i18n-title="visualStyleSelected" title="Selected" aria-hidden="true">✓</span></span>
+                <span class="style-preview-description" data-i18n="visualStyleTerminalDescription">Compact, precise, and command-line inspired.</span>
+                <span class="style-preview-sample"><span class="style-preview-lines"><span class="style-preview-line"></span><span class="style-preview-line muted"></span></span><span class="style-preview-action" aria-hidden="true">Aa</span></span>
+              </span>
+            </label>
+            <label class="style-option">
+              <input type="radio" name="visualStylePreference" value="warm-editorial">
+              <span class="style-preview" data-appearance-preview data-theme="dark" data-visual-style="warm-editorial">
+                <span class="style-preview-header"><span class="style-preview-name" data-i18n="visualStyleWarmEditorial">Warm Editorial</span><span class="style-preview-selected" data-i18n-title="visualStyleSelected" title="Selected" aria-hidden="true">✓</span></span>
+                <span class="style-preview-description" data-i18n="visualStyleWarmEditorialDescription">Warm tones with expressive typography.</span>
+                <span class="style-preview-sample"><span class="style-preview-lines"><span class="style-preview-line"></span><span class="style-preview-line muted"></span></span><span class="style-preview-action" aria-hidden="true">Aa</span></span>
+              </span>
+            </label>
+            <label class="style-option">
+              <input type="radio" name="visualStylePreference" value="neo-brutalist">
+              <span class="style-preview" data-appearance-preview data-theme="dark" data-visual-style="neo-brutalist">
+                <span class="style-preview-header"><span class="style-preview-name" data-i18n="visualStyleNeoBrutalist">Neo-brutalist</span><span class="style-preview-selected" data-i18n-title="visualStyleSelected" title="Selected" aria-hidden="true">✓</span></span>
+                <span class="style-preview-description" data-i18n="visualStyleNeoBrutalistDescription">Bold borders, strong contrast, and punchy color.</span>
+                <span class="style-preview-sample"><span class="style-preview-lines"><span class="style-preview-line"></span><span class="style-preview-line muted"></span></span><span class="style-preview-action" aria-hidden="true">Aa</span></span>
+              </span>
+            </label>
+          </fieldset>
+        </div>
+      </section>
+
+      <section class="settings-group behavior-settings" aria-labelledby="behaviorSettingsTitle">
+        <div class="group-heading">
+          <p class="group-eyebrow">Behavior</p>
+          <h2 class="group-title" id="behaviorSettingsTitle">Everyday defaults</h2>
+          <p class="group-description">Set the starting workspace and display language.</p>
+        </div>
+        <div class="card behavior-card">
+          <div class="behavior-fields">
+            <div class="behavior-block">
+              <h3 class="card-title" data-i18n="popupInitialSize">Initial Popup Size</h3>
+              <div class="popup-size-grid">
+                <div class="field"><label for="popupInitialWidth" data-i18n="popupInitialWidth">Width</label><input type="number" id="popupInitialWidth" min="300" max="1200" step="10" inputmode="numeric"></div>
+                <div class="field"><label for="popupInitialHeight" data-i18n="popupInitialHeight">Height</label><input type="number" id="popupInitialHeight" min="180" max="900" step="10" inputmode="numeric"></div>
+              </div>
+              <div class="hint" data-i18n="popupInitialSizeHint">Used when the floating popup opens for the first time. Values are clamped to fit the current viewport.</div>
+            </div>
+            <div class="behavior-block">
+              <div class="card-heading">
+                <h3 class="card-title" data-i18n="language">Language</h3>
+                <span class="behavior-badge immediate">Immediate</span>
+              </div>
+              <div class="field"><label for="languageSelect" data-i18n="language">Language</label><select id="languageSelect"><option value="en">English</option><option value="zh">中文</option></select></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="settings-group advanced-settings" aria-labelledby="advancedGroupTitle">
+        <h2 class="visually-hidden" id="advancedGroupTitle">Advanced controls</h2>
+        <button type="button" class="advanced-toggle" id="advancedToggle" aria-expanded="false" aria-controls="advancedSection">
+          <span class="advanced-toggle-copy"><span class="group-eyebrow">More controls</span><span class="group-title" id="advancedLabel" data-i18n="advancedSettings">AdvancedSettings</span></span>
+          <span class="advanced-toggle-arrow" aria-hidden="true">↓</span>
+        </button>
+
+        <div class="advanced-section" id="advancedSection">
+          <div class="advanced-grid">
+            <div class="card compact-card timeout-card">
+              <h3 class="card-title" data-i18n="responseTimeout">Response timeout</h3>
+              <div class="field"><label for="responseTimeout" data-i18n="responseTimeoutMinutes">Minutes</label><input type="number" id="responseTimeout" min="0.5" max="30" step="0.5" inputmode="decimal"><div class="hint" data-i18n="responseTimeoutHint">Maximum total wait for an AI request. Streaming activity keeps the interface active, but the request still stops at this total limit.</div></div>
+            </div>
+
+            <div class="card compact-card integrations-card" id="a2aCard">
+              <div class="card-heading"><h3 class="card-title" data-i18n="a2aServers">A2A Servers</h3><span class="behavior-badge immediate">Immediate</span></div>
+              <div class="compact-stack">
+                <div class="a2a-create-grid">
+                  <div class="field"><label for="a2aServerName" data-i18n="a2aServerName">Server Name</label><input type="text" id="a2aServerName" data-i18n-placeholder="a2aServerName" placeholder="Server Name"></div>
+                  <div class="field"><label for="a2aServerEndpoint" data-i18n="a2aEndpoint">A2A Endpoint</label><input type="text" id="a2aServerEndpoint" placeholder="https://a2a.example.com" inputmode="url"><div class="hint" data-i18n="a2aEndpointHint">Use the server base URL for discovery and task delegation.</div></div>
+                  <div class="field"><label for="a2aServerToken" data-i18n="a2aToken">A2A Token</label><input type="password" id="a2aServerToken" placeholder="token" autocomplete="off"><div class="hint" data-i18n="a2aTokenHint">Stored locally only and never synced with server metadata.</div></div>
+                </div>
+                <div class="inline-actions"><button type="button" class="secondary-btn" id="addA2aServerBtn" data-i18n="addA2aServer">Add Server</button></div>
+                <div class="a2a-status" id="a2aStatus" role="status" aria-live="polite"></div>
+                <div class="a2a-server-list" id="a2aServerList"></div>
+                <div class="field a2a-auto-route-field">
+                  <label class="a2a-auto-route-control" for="a2aAutoRoute">
+                    <input type="checkbox" class="a2a-auto-route-checkbox" id="a2aAutoRoute" checked>
+                    <span class="a2a-auto-route-box" aria-hidden="true"></span>
+                    <span class="a2a-auto-route-copy"><span class="a2a-auto-route-title" data-i18n="a2aAutoRouteLabel">Auto-route to A2A agents</span><span class="a2a-auto-route-state">On</span></span>
+                  </label>
+                  <div class="hint" data-i18n="a2aAutoRouteHint">When on, OmniPilot lets the model pick the right enabled A2A agent for your prompt based on its discovered capabilities. Use <code>@AgentName task</code> to override manually.</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="card memory-card">
+              <div class="card-heading"><h3 class="card-title" data-i18n="memory">Memory</h3><span class="behavior-badge immediate">Immediate</span></div>
+              <div class="field">
+                <label class="a2a-auto-route-control" for="memoryEnabled"><input type="checkbox" class="a2a-auto-route-checkbox" id="memoryEnabled" checked><span class="a2a-auto-route-box" aria-hidden="true"></span><span class="a2a-auto-route-copy"><span class="a2a-auto-route-title" data-i18n="memoryEnabled">Enable cross-session memory</span></span></label>
+                <div class="hint" data-i18n="memoryEnabledHint">When on, the assistant sees your long-term notes and recent activity across sessions.</div>
+              </div>
+              <div class="field"><label for="memoryLongTerm" data-i18n="memoryLongTerm">Long-term notes</label><textarea id="memoryLongTerm" rows="8"></textarea><div class="hint" data-i18n="memoryLongTermHint">Facts, preferences, and context you want the assistant to remember across sessions.</div></div>
+              <div class="field action-row"><button type="button" id="saveMemory" data-i18n="memorySave">Save memory</button><button type="button" class="destructive-btn" id="clearDailyLogs" data-i18n="memoryClearLogs">Clear recent activity</button><div class="status" id="memoryStatus" role="status" aria-live="polite"></div></div>
+            </div>
+
+            <div class="card diagnostics-card">
+              <h3 class="card-title" data-i18n="debug">Debug</h3>
+              <div class="field"><div class="field-label" id="debugRecentRunsLabel" data-i18n="debugRecentRuns">Recent runs</div><pre class="debug-traces-view" id="debugTracesView" aria-labelledby="debugRecentRunsLabel"></pre></div>
+              <div class="field action-row"><button type="button" id="refreshTraces" data-i18n="debugRefresh">Refresh</button><button type="button" class="destructive-btn" id="clearTraces" data-i18n="debugClearTraces">Clear traces</button></div>
+            </div>
+          </div>
+        </div><!-- end .advanced-section -->
+      </section>
     </div>
 
-    <div class="card">
-      <h2 class="card-title" data-i18n="popupInitialSize">Initial Popup Size</h2>
-      <div class="popup-size-grid">
-        <div class="field">
-          <label for="popupInitialWidth" data-i18n="popupInitialWidth">Width</label>
-          <input type="number" id="popupInitialWidth" min="300" max="1200" step="10" inputmode="numeric">
-        </div>
-        <div class="field">
-          <label for="popupInitialHeight" data-i18n="popupInitialHeight">Height</label>
-          <input type="number" id="popupInitialHeight" min="180" max="900" step="10" inputmode="numeric">
-        </div>
+    <div class="save-action-bar" role="region" aria-label="Save settings">
+      <div class="save-action-copy">
+        <strong>Save connection changes</strong>
+        <p class="hint save-hint">Connection, model, popup size, and timeout changes are applied when you save. Appearance, language, and switches apply immediately.</p>
+        <div class="status" id="status" role="status" aria-live="polite"></div>
       </div>
-      <div class="hint" data-i18n="popupInitialSizeHint">Used when the floating popup opens for the first time. Values are clamped to fit the current viewport.</div>
+      <button type="button" class="save-btn" id="saveBtn"><span id="saveLabel" data-i18n="save">Save</span></button>
     </div>
-
-    <button type="button" class="advanced-toggle" id="advancedToggle" aria-expanded="false" aria-controls="advancedSection">
-      <span id="advancedLabel" data-i18n="advancedSettings">AdvancedSettings</span>
-      <span class="advanced-toggle-arrow">▾</span>
-    </button>
-
-    <div class="advanced-section" id="advancedSection">
-
-    <div class="card compact-card">
-      <h2 class="card-title" data-i18n="responseTimeout">Response timeout</h2>
-      <div class="field">
-        <label for="responseTimeout" data-i18n="responseTimeoutMinutes">Minutes</label>
-        <input type="number" id="responseTimeout" min="0.5" max="30" step="0.5" inputmode="decimal">
-        <div class="hint" data-i18n="responseTimeoutHint">Maximum total wait for an AI request. Streaming activity keeps the interface active, but the request still stops at this total limit.</div>
-      </div>
-    </div>
-
-    <div class="card compact-card" id="a2aCard">
-      <h2 class="card-title" data-i18n="a2aServers">A2A Servers</h2>
-      <div class="compact-stack">
-        <div class="field">
-          <label for="a2aServerName" data-i18n="a2aServerName">Server Name</label>
-          <input type="text" id="a2aServerName" data-i18n-placeholder="a2aServerName" placeholder="Server Name">
-        </div>
-        <div class="field">
-          <label for="a2aServerEndpoint" data-i18n="a2aEndpoint">A2A Endpoint</label>
-          <input type="text" id="a2aServerEndpoint" placeholder="https://a2a.example.com">
-          <div class="hint" data-i18n="a2aEndpointHint">Use the server base URL for discovery and task delegation.</div>
-        </div>
-        <div class="field">
-          <label for="a2aServerToken" data-i18n="a2aToken">A2A Token</label>
-          <input type="password" id="a2aServerToken" placeholder="token">
-          <div class="hint" data-i18n="a2aTokenHint">Stored locally only and never synced with server metadata.</div>
-        </div>
-        <div class="inline-actions">
-          <button type="button" class="secondary-btn" id="addA2aServerBtn" data-i18n="addA2aServer">Add Server</button>
-        </div>
-        <div class="a2a-status" id="a2aStatus" role="status" aria-live="polite"></div>
-        <div class="a2a-server-list" id="a2aServerList"></div>
-        <div class="field a2a-auto-route-field">
-          <label class="a2a-auto-route-control" for="a2aAutoRoute">
-            <input type="checkbox" class="a2a-auto-route-checkbox" id="a2aAutoRoute" checked>
-            <span class="a2a-auto-route-box" aria-hidden="true"></span>
-            <span class="a2a-auto-route-copy">
-              <span class="a2a-auto-route-title" data-i18n="a2aAutoRouteLabel">Auto-route to A2A agents</span>
-              <span class="a2a-auto-route-state">On</span>
-            </span>
-          </label>
-          <div class="hint" data-i18n="a2aAutoRouteHint">When on, OmniPilot lets the model pick the right enabled A2A agent for your prompt based on its discovered capabilities. Use <code>@AgentName task</code> to override manually.</div>
-        </div>
-      </div>
-    </div>
-
-    <div class="card">
-      <h2 class="card-title" data-i18n="memory">Memory</h2>
-      <div class="field">
-        <label class="a2a-auto-route-control" for="memoryEnabled">
-          <input type="checkbox" class="a2a-auto-route-checkbox" id="memoryEnabled" checked>
-          <span class="a2a-auto-route-box" aria-hidden="true"></span>
-          <span class="a2a-auto-route-copy">
-            <span class="a2a-auto-route-title" data-i18n="memoryEnabled">Enable cross-session memory</span>
-          </span>
-        </label>
-        <div class="hint" data-i18n="memoryEnabledHint">When on, the assistant sees your long-term notes and recent activity across sessions.</div>
-      </div>
-      <div class="field">
-        <label for="memoryLongTerm" data-i18n="memoryLongTerm">Long-term notes</label>
-        <textarea id="memoryLongTerm" rows="8"></textarea>
-        <div class="hint" data-i18n="memoryLongTermHint">Facts, preferences, and context you want the assistant to remember across sessions.</div>
-      </div>
-      <div class="field">
-        <button type="button" id="saveMemory" data-i18n="memorySave">Save memory</button>
-        <button type="button" id="clearDailyLogs" data-i18n="memoryClearLogs">Clear recent activity</button>
-        <div class="status" id="memoryStatus" role="status" aria-live="polite"></div>
-      </div>
-    </div>
-
-    <div class="card">
-      <h2 class="card-title" data-i18n="debug">Debug</h2>
-      <div class="field">
-        <div class="field-label" id="debugRecentRunsLabel" data-i18n="debugRecentRuns">Recent runs</div>
-        <pre class="debug-traces-view" id="debugTracesView" aria-labelledby="debugRecentRunsLabel"></pre>
-      </div>
-      <div class="field">
-        <button id="refreshTraces" data-i18n="debugRefresh">Refresh</button>
-        <button id="clearTraces" data-i18n="debugClearTraces">Clear traces</button>
-      </div>
-    </div>
-
-    </div><!-- end .advanced-section -->
-
-    <div class="card">
-      <h2 class="card-title" data-i18n="language">Language</h2>
-      <div class="field">
-        <label for="languageSelect" data-i18n="language">Language</label>
-        <select id="languageSelect">
-          <option value="en">English</option>
-          <option value="zh">中文</option>
-        </select>
-      </div>
-    </div>
-
-    <p class="hint save-hint">Connection, model, popup size, and timeout changes are applied when you save. Appearance, language, and switches apply immediately.</p>
-    <button class="save-btn" id="saveBtn"><span id="saveLabel" data-i18n="save">Save</span></button>
-    <div class="status" id="status" role="status" aria-live="polite"></div>
   </main>
   <script src="options.js"></script>
 </body>

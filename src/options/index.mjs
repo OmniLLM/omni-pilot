@@ -424,15 +424,36 @@ async function setAllA2aSkillsEnabled(serverId, enabled) {
   renderA2aServers();
 }
 
+function getA2aDomId(kind, serverId, suffix = '') {
+  const safeId = String(serverId || '').replace(/[^a-zA-Z0-9_-]/g, '-');
+  const safeSuffix = String(suffix || '').replace(/[^a-zA-Z0-9_-]/g, '-');
+  return `a2a-${kind}-${safeId}${safeSuffix ? `-${safeSuffix}` : ''}`;
+}
+
+function getA2aServerActionLabel(action, serverName) {
+  const name = String(serverName || 'A2A server').trim();
+  const verbs = {
+    edit: label('edit'),
+    enable: label('enable'),
+    disable: label('disable'),
+    discover: label('discover'),
+    remove: label('remove')
+  };
+  if (action === 'health') return `Check health for ${name}`;
+  return `${verbs[action] || action} ${name}`;
+}
+
 function A2aSkillRow({ server, skill }) {
   const sid = String(skill.id || skill.name);
+  const inputId = getA2aDomId('skill', server.id, sid);
   const checked = !new Set(server.disabledSkillIds || []).has(sid);
   const displayName = skill.name || skill.id || '';
   const showId = Boolean(skill.name && skill.id && skill.name !== skill.id);
   const desc = skill.description ? skill.description.slice(0, 120) : '';
   return html`
-    <label class="a2a-skill-row">
+    <label class="a2a-skill-row" for=${inputId}>
       <input
+        id=${inputId}
         type="checkbox"
         checked=${checked}
         data-skill-toggle=${''}
@@ -502,6 +523,7 @@ function A2aServerItem({ server }) {
   const disabled = server.enabled === false;
   const toggleAction = disabled ? 'enable' : 'disable';
   const toggleLabel = disabled ? label('enable') : label('disable');
+  const healthStatusId = getA2aDomId('health', server.id);
   return html`
     <div
       class=${`a2a-server-item${disabled ? ' disabled' : ''}`}
@@ -509,37 +531,47 @@ function A2aServerItem({ server }) {
     >
       <div class="a2a-server-meta">
         <div class="a2a-server-name">
-          <span class="a2a-health-dot" data-health-for=${server.id} title="Checking…"></span>
           ${server.name}
           ${disabled ? html`<span class="disabled-label">${label('disabled')}</span>` : null}
         </div>
         <div class="a2a-server-endpoint">${server.endpoint}</div>
+        <span
+          class="a2a-health-dot a2a-health-status checking"
+          id=${healthStatusId}
+          data-health-for=${server.id}
+          role="status"
+          aria-live="polite"
+        >Checking health…</span>
       </div>
       <div class="a2a-server-actions">
-        <button type="button" class="secondary-btn" data-action="edit" data-server-id=${server.id}>${label('edit')}</button>
-        <button type="button" class="secondary-btn" data-action=${toggleAction} data-server-id=${server.id}>${toggleLabel}</button>
-        <button type="button" class="secondary-btn" data-action="health" data-server-id=${server.id} data-endpoint=${server.endpoint}>Health</button>
-        <button type="button" class="secondary-btn" data-action="discover" data-server-id=${server.id}>${label('discover')}</button>
-        <button type="button" class="secondary-btn" data-action="remove" data-server-id=${server.id}>${label('remove')}</button>
+        <button type="button" class="secondary-btn" data-action="edit" data-server-id=${server.id} aria-label=${getA2aServerActionLabel('edit', server.name)}>${label('edit')}</button>
+        <button type="button" class="secondary-btn" data-action=${toggleAction} data-server-id=${server.id} aria-label=${getA2aServerActionLabel(toggleAction, server.name)}>${toggleLabel}</button>
+        <button type="button" class="secondary-btn" data-action="health" data-server-id=${server.id} data-endpoint=${server.endpoint} aria-label=${getA2aServerActionLabel('health', server.name)}>Health</button>
+        <button type="button" class="secondary-btn" data-action="discover" data-server-id=${server.id} aria-label=${getA2aServerActionLabel('discover', server.name)}>${label('discover')}</button>
+        <button type="button" class="secondary-btn danger" data-action="remove" data-server-id=${server.id} aria-label=${getA2aServerActionLabel('remove', server.name)}>${label('remove')}</button>
       </div>
       <${A2aSkillControls} server=${server} />
     </div>`;
 }
 
 function A2aEditForm({ server, token }) {
+  const nameId = getA2aDomId('edit-name', server.id);
+  const endpointId = getA2aDomId('edit-endpoint', server.id);
+  const tokenId = getA2aDomId('edit-token', server.id);
   return html`
     <div class="a2a-edit-form" data-server-id=${server.id}>
       <div class="field">
-        <label>${label('a2aServerName')}</label>
-        <input type="text" class="a2a-edit-name" value=${server.name} />
+        <label for=${nameId}>${label('a2aServerName')}</label>
+        <input id=${nameId} type="text" class="a2a-edit-name" value=${server.name} />
       </div>
       <div class="field">
-        <label>${label('a2aEndpoint')}</label>
-        <input type="text" class="a2a-edit-endpoint" value=${server.endpoint} />
+        <label for=${endpointId}>${label('a2aEndpoint')}</label>
+        <input id=${endpointId} type="text" class="a2a-edit-endpoint" value=${server.endpoint} />
       </div>
       <div class="field">
-        <label>${label('a2aToken')}</label>
+        <label for=${tokenId}>${label('a2aToken')}</label>
         <input
+          id=${tokenId}
           type="password"
           class="a2a-edit-token"
           value=${token}
@@ -547,8 +579,8 @@ function A2aEditForm({ server, token }) {
         />
       </div>
       <div class="a2a-edit-actions">
-        <button type="button" class="secondary-btn" data-action="cancel-edit" data-server-id=${server.id}>${label('cancel')}</button>
-        <button type="button" class="secondary-btn save-edit" data-action="save-edit" data-server-id=${server.id}>${label('save')}</button>
+        <button type="button" class="secondary-btn" data-action="cancel-edit" data-server-id=${server.id} aria-label=${`Cancel editing ${server.name}`}>${label('cancel')}</button>
+        <button type="button" class="secondary-btn save-edit" data-action="save-edit" data-server-id=${server.id} aria-label=${`Save changes to ${server.name}`}>${label('save')}</button>
       </div>
     </div>`;
 }
@@ -646,10 +678,11 @@ function renderA2aServers(serverList = a2aServers) {
 
 async function checkA2aServerHealth(serverId, endpoint) {
   if (typeof document?.querySelector !== 'function') return;
-  const dot = document.querySelector(`.a2a-health-dot[data-health-for="${serverId}"]`);
-  if (!dot) return;
-  dot.className = 'a2a-health-dot checking';
-  dot.title = 'Checking…';
+  const status = document.querySelector(`.a2a-health-status[data-health-for="${serverId}"]`);
+  if (!status) return;
+  status.className = 'a2a-health-dot a2a-health-status checking';
+  status.textContent = 'Checking health…';
+  status.title = 'Checking health…';
 
   try {
     const response = await new Promise((resolve, reject) => {
@@ -665,17 +698,21 @@ async function checkA2aServerHealth(serverId, endpoint) {
 
     if (response?.success && response.health?.status === 'ok') {
       const upstreams = response.health.upstreams || {};
-      dot.className = 'a2a-health-dot healthy';
-      dot.title = response.health.standalone
+      const healthText = response.health.standalone
         ? 'Reachable — standalone A2A agent'
         : `Healthy — ${upstreams.healthy || 0}/${upstreams.total || 0} upstreams`;
+      status.className = 'a2a-health-dot a2a-health-status healthy';
+      status.textContent = healthText;
+      status.title = healthText;
     } else {
-      dot.className = 'a2a-health-dot unhealthy';
-      dot.title = 'Unhealthy or unreachable';
+      status.className = 'a2a-health-dot a2a-health-status unhealthy';
+      status.textContent = 'Unhealthy or unreachable';
+      status.title = 'Unhealthy or unreachable';
     }
   } catch {
-    dot.className = 'a2a-health-dot unhealthy';
-    dot.title = 'Health check failed';
+    status.className = 'a2a-health-status unhealthy';
+    status.textContent = 'Health check failed';
+    status.title = 'Health check failed';
   }
 }
 

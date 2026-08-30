@@ -87,6 +87,7 @@ import { renderMarkdown, escapeHtml } from '../utils/markdown.mjs';
     omniPilotRoot.setAttribute('data-theme-preference', 'dark');
     omniPilotRoot.setAttribute('data-theme', 'dark');
     omniPilotRoot.setAttribute('data-visual-style', 'current');
+    omniPilotRoot.setAttribute('data-ui-shape', 'subtle');
     mount.appendChild(omniPilotRoot);
 
     if (document.body && !omniPilotHost.parentNode) {
@@ -114,6 +115,53 @@ import { renderMarkdown, escapeHtml } from '../utils/markdown.mjs';
     safeStorageGet(chrome.storage?.sync, { languagePreference: 'en' }, config => {
       applyLanguage(config.languagePreference);
     });
+  }
+
+  const VIEWPORT_MARGIN = 12;
+  const PANEL_MIN_WIDTH = 300;
+  const PANEL_MIN_HEIGHT = 180;
+  const ORB_SIZE = 44;
+
+  function clamp(value, min, max) {
+    const lower = Math.min(min, max);
+    const upper = Math.max(min, max);
+    return Math.min(Math.max(Number(value) || 0, lower), upper);
+  }
+
+  function clampSize({ width, height }, viewport, margin = VIEWPORT_MARGIN) {
+    const maxWidth = Math.max(1, viewport.width - margin * 2);
+    const maxHeight = Math.max(1, viewport.height - margin * 2);
+    return {
+      width: clamp(width, Math.min(PANEL_MIN_WIDTH, maxWidth), maxWidth),
+      height: clamp(height, Math.min(PANEL_MIN_HEIGHT, maxHeight), maxHeight)
+    };
+  }
+
+  function clampPlacement({ left, top, width, height }, viewport, margin = VIEWPORT_MARGIN) {
+    return {
+      left: clamp(left, margin, Math.max(margin, viewport.width - width - margin)),
+      top: clamp(top, margin, Math.max(margin, viewport.height - height - margin))
+    };
+  }
+
+  function placeNearAnchor(anchor, size, viewport, gap = 8, margin = VIEWPORT_MARGIN) {
+    const roomBelow = viewport.height - anchor.bottom - margin;
+    const proposedTop = roomBelow >= size.height
+      ? anchor.bottom + gap
+      : anchor.top - size.height - gap;
+    const proposedLeft = anchor.left + size.width <= viewport.width - margin
+      ? anchor.left
+      : anchor.right - size.width;
+    return clampPlacement({ left: proposedLeft, top: proposedTop, ...size }, viewport, margin);
+  }
+
+  function viewportSize() {
+    return { width: window.innerWidth, height: window.innerHeight };
+  }
+
+  function cssPixels(value) {
+    const parsed = Number.parseFloat(value);
+    return Number.isFinite(parsed) ? parsed : null;
   }
 
   function normalizePopupSizeValue(value, min, max) {
@@ -213,6 +261,13 @@ import { renderMarkdown, escapeHtml } from '../utils/markdown.mjs';
     if (endpoint.includes('openai.com')) return 'OpenAI';
     if (endpoint.includes('localhost') || endpoint.includes('127.0.0.1')) return 'Local';
     try { return new URL(endpoint).hostname.split('.').slice(-2, -1)[0] || 'Custom'; } catch { return 'Custom'; }
+  }
+
+  function updatePanelStatus(message, kind = 'status') {
+    const status = panel?.querySelector('#omnipilot-panel-status');
+    if (!status) return;
+    status.setAttribute('role', kind === 'alert' ? 'alert' : 'status');
+    status.textContent = message || '';
   }
 
   function updatePanelMeta() {
@@ -522,12 +577,12 @@ import { renderMarkdown, escapeHtml } from '../utils/markdown.mjs';
   function showBubble(rect) {
     if (!bubble) bubble = createBubble();
     lastSelectionRect = { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom };
-    // position:fixed — viewport coords, no scroll offset
-    const x = rect.left + rect.width + 8;
-    const y = rect.top + rect.height / 2 - 16;
-    bubble.style.left = `${Math.min(Math.max(4, x), window.innerWidth - 130)}px`;
-    bubble.style.top = `${Math.max(4, y)}px`;
     bubble.style.display = 'flex';
+    const width = bubble.offsetWidth || 130;
+    const height = bubble.offsetHeight || ORB_SIZE;
+    const placement = placeNearAnchor(lastSelectionRect, { width, height }, viewportSize());
+    bubble.style.left = `${placement.left}px`;
+    bubble.style.top = `${placement.top}px`;
   }
 
   function hideBubble() {
@@ -734,6 +789,59 @@ import { renderMarkdown, escapeHtml } from '../utils/markdown.mjs';
     saveSessionTimer = setTimeout(saveSessionState, 250);
   }
 
+  function clampPanelToViewport() {
+    if (!panel) return;
+    const viewport = viewportSize();
+    const requestedSize = {
+      width: panel.offsetWidth || cssPixels(panel.style.width) || calcInitialPanelSize().w,
+      height: panel.offsetHeight || cssPixels(panel.style.height) || calcInitialPanelSize().h
+    };
+    const size = clampSize(requestedSize, viewport);
+    const position = clampPlacement({
+      left: cssPixels(panel.style.left) ?? VIEWPORT_MARGIN,
+      top: cssPixels(panel.style.top) ?? VIEWPORT_MARGIN,
+      ...size
+    }, viewport);
+    panel.style.width = `${size.width}px`;
+    panel.style.height = `${size.height}px`;
+    panel.style.left = `${position.left}px`;
+    panel.style.top = `${position.top}px`;
+  }
+
+  function clampOrbToViewport() {
+    if (!minimizedOrb) return;
+    const rect = minimizedOrb.getBoundingClientRect();
+    const position = clampPlacement({
+      left: cssPixels(minimizedOrb.style.left) ?? rect.left,
+      top: cssPixels(minimizedOrb.style.top) ?? rect.top,
+      width: rect.width || ORB_SIZE,
+      height: rect.height || ORB_SIZE
+    }, viewportSize(), 4);
+    minimizedOrb.style.left = `${position.left}px`;
+    minimizedOrb.style.top = `${position.top}px`;
+    minimizedOrb.style.right = 'auto';
+    minimizedOrb.style.bottom = 'auto';
+  }
+
+  function applyRestoredPanelGeometry(state) {
+    if (!panel) return;
+    const fallback = calcInitialPanelSize();
+    const viewport = viewportSize();
+    const size = clampSize({
+      width: cssPixels(state.width) ?? fallback.w,
+      height: cssPixels(state.height) ?? fallback.h
+    }, viewport);
+    const position = clampPlacement({
+      left: cssPixels(state.left) ?? (viewport.width - size.width) / 2,
+      top: cssPixels(state.top) ?? 80,
+      ...size
+    }, viewport);
+    panel.style.width = `${size.width}px`;
+    panel.style.height = `${size.height}px`;
+    panel.style.left = `${position.left}px`;
+    panel.style.top = `${position.top}px`;
+  }
+
   function restoreSessionState() {
     const state = readSessionState();
     if (!state || (!state.html && !(state.history || []).length)) return;
@@ -755,10 +863,7 @@ import { renderMarkdown, escapeHtml } from '../utils/markdown.mjs';
         body.scrollTop = body.scrollHeight;
       }
 
-      if (state.left) panel.style.left = state.left;
-      if (state.top) panel.style.top = state.top;
-      if (state.width) panel.style.width = state.width;
-      if (state.height) panel.style.height = state.height;
+      applyRestoredPanelGeometry(state);
       if (state.dragged) panel.dataset.dragged = '1';
       if (state.userResized) panel.dataset.userResized = '1';
       panelPositionFixed = true;
@@ -771,6 +876,7 @@ import { renderMarkdown, escapeHtml } from '../utils/markdown.mjs';
           minimizedOrb.style.top = state.orbTop;
           minimizedOrb.style.right = 'auto';
           minimizedOrb.style.bottom = 'auto';
+          clampOrbToViewport();
         }
       }
     } finally {
@@ -798,38 +904,51 @@ import { renderMarkdown, escapeHtml } from '../utils/markdown.mjs';
     orb.setAttribute('aria-label', label('restorePanel') || 'Restore OmniPilot');
 
     // Drag support — click without drag restores the panel.
-    let dragging = false;
+    let activePointerId = null;
     let moved = false;
     let offsetX = 0;
     let offsetY = 0;
 
-    orb.addEventListener('mousedown', e => {
-      if (e.button !== 0) return;
-      dragging = true;
+    const finishOrbDrag = e => {
+      if (activePointerId === null || (e.pointerId !== undefined && e.pointerId !== activePointerId)) return;
+      const wasMoved = moved;
+      try { orb.releasePointerCapture?.(activePointerId); } catch {}
+      activePointerId = null;
+      moved = false;
+      if (wasMoved) scheduleSessionSave();
+      else if (e.type === 'pointerup') restorePanel();
+    };
+
+    orb.addEventListener('pointerdown', e => {
+      if (e.button !== 0 || activePointerId !== null) return;
+      activePointerId = e.pointerId;
       moved = false;
       const rect = orb.getBoundingClientRect();
       offsetX = e.clientX - rect.left;
       offsetY = e.clientY - rect.top;
+      orb.setPointerCapture?.(e.pointerId);
       e.preventDefault();
     });
 
-    document.addEventListener('mousemove', e => {
-      if (!dragging) return;
-      moved = true;
-      const size = orb.offsetWidth || 44;
-      const left = Math.max(4, Math.min(window.innerWidth - size - 4, e.clientX - offsetX));
-      const top = Math.max(4, Math.min(window.innerHeight - size - 4, e.clientY - offsetY));
-      orb.style.left = `${left}px`;
-      orb.style.top = `${top}px`;
+    orb.addEventListener('pointermove', e => {
+      if (e.pointerId !== activePointerId) return;
+      moved = moved || Math.abs(e.movementX || 0) + Math.abs(e.movementY || 0) > 0;
+      const position = clampPlacement({
+        left: e.clientX - offsetX,
+        top: e.clientY - offsetY,
+        width: orb.offsetWidth || ORB_SIZE,
+        height: orb.offsetHeight || ORB_SIZE
+      }, viewportSize(), 4);
+      orb.style.left = `${position.left}px`;
+      orb.style.top = `${position.top}px`;
       orb.style.right = 'auto';
       orb.style.bottom = 'auto';
     });
 
-    document.addEventListener('mouseup', () => {
-      if (!dragging) return;
-      dragging = false;
-      if (moved) scheduleSessionSave();
-      else restorePanel();
+    orb.addEventListener('pointerup', finishOrbDrag);
+    orb.addEventListener('pointercancel', finishOrbDrag);
+    orb.addEventListener('lostpointercapture', e => {
+      if (activePointerId !== null && e.pointerId === activePointerId) finishOrbDrag(e);
     });
 
     orb.addEventListener('keydown', e => {
@@ -850,6 +969,7 @@ import { renderMarkdown, escapeHtml } from '../utils/markdown.mjs';
     panel.style.display = 'none';
     const orb = ensureMinimizedOrb();
     orb.style.display = 'flex';
+    clampOrbToViewport();
     saveSessionState();
   }
 
@@ -879,27 +999,28 @@ import { renderMarkdown, escapeHtml } from '../utils/markdown.mjs';
 
   function showPanel(content, isLoading = false, isError = false) {
     if (!panel) {
-      panel = document.createElement('div');
+      panel = document.createElement('section');
       panel.id = 'omnipilot-panel';
+      panel.setAttribute('role', 'region');
+      panel.setAttribute('aria-labelledby', 'omnipilot-panel-heading');
+      panel.setAttribute('aria-describedby', 'omnipilot-panel-status');
 
-      const header = document.createElement('div');
+      const header = document.createElement('header');
       header.className = 'omnipilot-panel-header';
-      header.innerHTML = `<a class="omnipilot-panel-title" href="${REPOSITORY_URL}" target="_blank" rel="noopener noreferrer" title="Open OmniPilot on GitHub">✦ OmniPilot</a>
-        <div class="omnipilot-meta">
-          <span class="omnipilot-meta-action-wrap">
+      header.innerHTML = `<a id="omnipilot-panel-heading" class="omnipilot-panel-title" href="${REPOSITORY_URL}" target="_blank" rel="noopener noreferrer" title="Open OmniPilot on GitHub">✦ OmniPilot</a>
+        <div class="omnipilot-meta" aria-label="Assistant configuration">
+          <button type="button" class="omnipilot-meta-trigger omnipilot-meta-action-wrap" aria-haspopup="listbox" aria-expanded="false">
             <span class="omnipilot-meta-action">${currentAction ? label(ACTIONS.find(a => a.id === currentAction)?.labelKey || 'chat') : label('chat')}</span>
-            <span class="omnipilot-meta-arrow">▾</span>
-          </span>
-          <span class="omnipilot-meta-sep">·</span>
-          <span class="omnipilot-meta-provider-wrap">
+            <span class="omnipilot-meta-arrow" aria-hidden="true">▾</span>
+          </button>
+          <button type="button" class="omnipilot-meta-trigger omnipilot-meta-provider-wrap" aria-haspopup="listbox" aria-expanded="false">
             <span class="omnipilot-meta-provider">${escapeHtml(currentProvider)}</span>
-            <span class="omnipilot-meta-arrow">▾</span>
-          </span>
-          <span class="omnipilot-meta-sep">·</span>
-          <span class="omnipilot-meta-model-wrap">
+            <span class="omnipilot-meta-arrow" aria-hidden="true">▾</span>
+          </button>
+          <button type="button" class="omnipilot-meta-trigger omnipilot-meta-model-wrap" aria-haspopup="listbox" aria-expanded="false">
             <span class="omnipilot-meta-model">${escapeHtml(currentModel)}</span>
-            <span class="omnipilot-meta-arrow">▾</span>
-          </span>
+            <span class="omnipilot-meta-arrow" aria-hidden="true">▾</span>
+          </button>
         </div>`;
 
       const titleLink = header.querySelector('.omnipilot-panel-title');
@@ -909,26 +1030,22 @@ import { renderMarkdown, escapeHtml } from '../utils/markdown.mjs';
         window.open(REPOSITORY_URL, '_blank', 'noopener,noreferrer');
       });
 
-      // Action selector dropdown
-      const actionWrap = header.querySelector('.omnipilot-meta-action-wrap');
-      actionWrap.addEventListener('click', e => {
-        e.stopPropagation();
-        showActionSelector(actionWrap);
-      });
+      function bindSelectorTrigger(trigger, showSelector) {
+        trigger.addEventListener('click', e => {
+          e.stopPropagation();
+          showSelector(trigger);
+        });
+        trigger.addEventListener('keydown', e => {
+          if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'Enter' && e.key !== ' ') return;
+          e.preventDefault();
+          e.stopPropagation();
+          showSelector(trigger, e.key === 'ArrowUp' ? 'last' : 'first');
+        });
+      }
 
-      // Provider selector dropdown
-      const providerWrap = header.querySelector('.omnipilot-meta-provider-wrap');
-      providerWrap.addEventListener('click', e => {
-        e.stopPropagation();
-        showProviderSelector(providerWrap);
-      });
-
-      // Model selector dropdown
-      const modelWrap = header.querySelector('.omnipilot-meta-model-wrap');
-      modelWrap.addEventListener('click', e => {
-        e.stopPropagation();
-        showModelSelector(modelWrap);
-      });
+      bindSelectorTrigger(header.querySelector('.omnipilot-meta-action-wrap'), showActionSelector);
+      bindSelectorTrigger(header.querySelector('.omnipilot-meta-provider-wrap'), showProviderSelector);
+      bindSelectorTrigger(header.querySelector('.omnipilot-meta-model-wrap'), showModelSelector);
 
       const exportBtn = document.createElement('button');
       exportBtn.className = 'omnipilot-export-btn';
@@ -973,78 +1090,154 @@ import { renderMarkdown, escapeHtml } from '../utils/markdown.mjs';
       });
       header.appendChild(closeBtn);
 
-      // Drag support on header
-      let dragging = false;
+      // Pointer capture keeps drag state correct if the pointer leaves the panel.
+      let dragPointerId = null;
       let dragOffsetX = 0;
       let dragOffsetY = 0;
 
-      header.addEventListener('mousedown', e => {
-        if (e.target === closeBtn || e.target === exportBtn || e.target === minimizeBtn || e.target.closest('.omnipilot-panel-title') || e.target.closest('.omnipilot-meta-action-wrap') || e.target.closest('.omnipilot-meta-provider-wrap') || e.target.closest('.omnipilot-meta-model-wrap')) return;
-        dragging = true;
-        const panelLeft = parseFloat(panel.style.left) || 0;
-        const panelTop = parseFloat(panel.style.top) || 0;
-        // position:fixed — viewport coords only
-        dragOffsetX = e.clientX - panelLeft;
-        dragOffsetY = e.clientY - panelTop;
+      const finishPanelDrag = e => {
+        if (dragPointerId === null || (e.pointerId !== undefined && e.pointerId !== dragPointerId)) return;
+        try { header.releasePointerCapture?.(dragPointerId); } catch {}
+        dragPointerId = null;
+        panel.style.transition = '';
+        if (e.type === 'pointerup') {
+          panel.dataset.dragged = '1';
+          clampPanelToViewport();
+          scheduleSessionSave();
+        }
+      };
+
+      header.addEventListener('pointerdown', e => {
+        if (e.button !== 0 || dragPointerId !== null || e.target.closest('button, a')) return;
+        dragPointerId = e.pointerId;
+        const rect = panel.getBoundingClientRect();
+        dragOffsetX = e.clientX - rect.left;
+        dragOffsetY = e.clientY - rect.top;
+        header.setPointerCapture?.(e.pointerId);
         panel.style.transition = 'none';
         e.preventDefault();
       });
 
-      document.addEventListener('mousemove', e => {
-        if (!dragging) return;
-        const left = e.clientX - dragOffsetX;
-        const top = e.clientY - dragOffsetY;
-        panel.style.left = `${left}px`;
-        panel.style.top = `${top}px`;
+      header.addEventListener('pointermove', e => {
+        if (e.pointerId !== dragPointerId) return;
+        const rect = panel.getBoundingClientRect();
+        const position = clampPlacement({
+          left: e.clientX - dragOffsetX,
+          top: e.clientY - dragOffsetY,
+          width: rect.width,
+          height: rect.height
+        }, viewportSize());
+        panel.style.left = `${position.left}px`;
+        panel.style.top = `${position.top}px`;
       });
 
-      document.addEventListener('mouseup', () => {
-        if (dragging) {
-          panel.dataset.dragged = '1';
-          scheduleSessionSave();
-        }
-        dragging = false;
-        panel.style.transition = '';
+      header.addEventListener('pointerup', finishPanelDrag);
+      header.addEventListener('pointercancel', finishPanelDrag);
+      header.addEventListener('lostpointercapture', e => {
+        if (dragPointerId !== null && e.pointerId === dragPointerId) finishPanelDrag(e);
       });
 
-      // Resize handle (custom, more reliable than CSS resize)
+      // Resize handle supports pointer and keyboard operation.
       const resizeHandle = document.createElement('div');
       resizeHandle.className = 'omnipilot-resize-handle';
-      let resizing = false;
-      let resizeStartX, resizeStartY, resizeStartW, resizeStartH;
+      resizeHandle.setAttribute('role', 'separator');
+      resizeHandle.setAttribute('aria-label', 'Resize assistant panel');
+      resizeHandle.setAttribute('aria-orientation', 'horizontal');
+      resizeHandle.setAttribute('tabindex', '0');
+      let resizePointerId = null;
+      let resizeStartX = 0;
+      let resizeStartY = 0;
+      let resizeStartW = 0;
+      let resizeStartH = 0;
 
-      resizeHandle.addEventListener('mousedown', e => {
+      const applyPanelSize = (width, height) => {
+        const size = clampSize({ width, height }, viewportSize());
+        panel.style.width = `${size.width}px`;
+        panel.style.height = `${size.height}px`;
+        clampPanelToViewport();
+      };
+
+      const finishPanelResize = e => {
+        if (resizePointerId === null || (e.pointerId !== undefined && e.pointerId !== resizePointerId)) return;
+        try { resizeHandle.releasePointerCapture?.(resizePointerId); } catch {}
+        resizePointerId = null;
+        panel.style.transition = '';
+        if (e.type === 'pointerup') {
+          panel.dataset.userResized = '1';
+          scheduleSessionSave();
+        }
+      };
+
+      resizeHandle.addEventListener('pointerdown', e => {
+        if (e.button !== 0 || resizePointerId !== null) return;
         e.preventDefault();
         e.stopPropagation();
-        resizing = true;
+        resizePointerId = e.pointerId;
         resizeStartX = e.clientX;
         resizeStartY = e.clientY;
         resizeStartW = panel.offsetWidth;
         resizeStartH = panel.offsetHeight;
+        resizeHandle.setPointerCapture?.(e.pointerId);
         panel.style.transition = 'none';
       });
 
-      document.addEventListener('mousemove', e => {
-        if (!resizing) return;
-        const newW = Math.max(300, resizeStartW + (e.clientX - resizeStartX));
-        const newH = Math.max(180, resizeStartH + (e.clientY - resizeStartY));
-        panel.style.width = `${newW}px`;
-        panel.style.height = `${newH}px`;
+      resizeHandle.addEventListener('pointermove', e => {
+        if (e.pointerId !== resizePointerId) return;
+        applyPanelSize(
+          resizeStartW + (e.clientX - resizeStartX),
+          resizeStartH + (e.clientY - resizeStartY)
+        );
       });
 
-      document.addEventListener('mouseup', () => {
-        if (resizing) {
-          resizing = false;
-          panel.style.transition = '';
-          panel.dataset.userResized = '1';
-          scheduleSessionSave();
-        }
+      resizeHandle.addEventListener('pointerup', finishPanelResize);
+      resizeHandle.addEventListener('pointercancel', finishPanelResize);
+      resizeHandle.addEventListener('lostpointercapture', e => {
+        if (resizePointerId !== null && e.pointerId === resizePointerId) finishPanelResize(e);
       });
+      resizeHandle.addEventListener('keydown', e => {
+        const step = e.shiftKey ? 40 : 10;
+        let width = panel.offsetWidth;
+        let height = panel.offsetHeight;
+        if (e.key === 'ArrowLeft') width -= step;
+        else if (e.key === 'ArrowRight') width += step;
+        else if (e.key === 'ArrowUp') height -= step;
+        else if (e.key === 'ArrowDown') height += step;
+        else if (e.key === 'Home') {
+          const initial = calcInitialPanelSize();
+          width = initial.w;
+          height = initial.h;
+        } else return;
+        e.preventDefault();
+        e.stopPropagation();
+        applyPanelSize(width, height);
+        panel.dataset.userResized = e.key === 'Home' ? '' : '1';
+        resizeHandle.setAttribute('aria-valuetext', `${Math.round(panel.offsetWidth)} by ${Math.round(panel.offsetHeight)} pixels`);
+        scheduleSessionSave();
+      });
+
+      const status = document.createElement('div');
+      status.id = 'omnipilot-panel-status';
+      status.className = 'omnipilot-panel-status';
+      status.setAttribute('role', 'status');
+      status.setAttribute('aria-live', 'polite');
+      status.setAttribute('aria-atomic', 'true');
+      status.textContent = 'Assistant ready';
 
       const body = document.createElement('div');
       body.className = 'omnipilot-panel-body';
+      body.setAttribute('role', 'log');
+      body.setAttribute('aria-label', 'Conversation transcript');
+      body.setAttribute('aria-relevant', 'additions');
 
       body.addEventListener('click', e => {
+        const settingsLink = e.target.closest?.('.omnipilot-error-link');
+        if (settingsLink) {
+          e.preventDefault();
+          e.stopPropagation();
+          try { chrome.runtime.openOptionsPage(); } catch {}
+          return;
+        }
+
         const removeBtn = e.target.closest?.('.omnipilot-context-remove');
         if (removeBtn) {
           e.preventDefault();
@@ -1068,9 +1261,15 @@ import { renderMarkdown, escapeHtml } from '../utils/markdown.mjs';
         }
       });
 
-      const inputArea = document.createElement('div');
+      const inputArea = document.createElement('form');
       inputArea.className = 'omnipilot-panel-input-area';
+      inputArea.setAttribute('aria-label', 'Send a follow-up message');
+      const inputLabel = document.createElement('label');
+      inputLabel.className = 'omnipilot-sr-only';
+      inputLabel.htmlFor = 'omnipilot-panel-input';
+      inputLabel.textContent = label('askFollowUp') || 'Ask a follow-up';
       const input = document.createElement('textarea');
+      input.id = 'omnipilot-panel-input';
       input.className = 'omnipilot-panel-input';
       input.placeholder = label('askFollowUp');
       input.rows = 1;
@@ -1091,19 +1290,24 @@ import { renderMarkdown, escapeHtml } from '../utils/markdown.mjs';
       });
       input.addEventListener('mousedown', e => e.stopPropagation());
       const sendBtn = document.createElement('button');
+      sendBtn.type = 'submit';
       sendBtn.className = 'omnipilot-send-btn';
       sendBtn.textContent = '→';
       sendBtn.setAttribute('aria-label', label('sendMessage') || 'Send message');
-      sendBtn.addEventListener('click', () => {
-        if (input.value.trim()) {
-          sendFollowUp(input.value.trim());
-          input.value = '';
-        }
+      inputArea.addEventListener('submit', e => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!input.value.trim()) return;
+        sendFollowUp(input.value.trim());
+        input.value = '';
+        input.style.height = 'auto';
       });
+      inputArea.appendChild(inputLabel);
       inputArea.appendChild(input);
       inputArea.appendChild(sendBtn);
 
       panel.appendChild(header);
+      panel.appendChild(status);
       panel.appendChild(body);
       panel.appendChild(inputArea);
       panel.appendChild(resizeHandle);
@@ -1132,14 +1336,16 @@ import { renderMarkdown, escapeHtml } from '../utils/markdown.mjs';
     const body = panel.querySelector('.omnipilot-panel-body');
     restorePanel();
     panel.style.display = 'flex';
+    clampPanelToViewport();
 
     if (isLoading) {
-      body.innerHTML = `<div class="omnipilot-loading"><div class="omnipilot-spinner"></div><span class="omnipilot-loading-text">${label('thinking')}</span><button class="omnipilot-cancel-btn" title="${label('cancel')}">✕</button></div>`;
-      body.querySelector('.omnipilot-cancel-btn')?.addEventListener('click', cancelRequest);
+      body.replaceChildren(createLoadingIndicator());
+      updatePanelStatus(label('thinking'));
     } else if (isError) {
-      body.innerHTML = `<div class="omnipilot-error">${escapeHtml(content)}</div>`;
+      body.replaceChildren(createErrorElement(content));
     } else {
       body.innerHTML = `<div class="omnipilot-result">${formatResult(content)}</div>`;
+      updatePanelStatus('Assistant ready');
     }
 
     // Only position on first show (not after drag or previously positioned)
@@ -1171,7 +1377,7 @@ import { renderMarkdown, escapeHtml } from '../utils/markdown.mjs';
 
     if (a2aMentionTask?.error) {
       body.querySelector('.omnipilot-loading')?.remove();
-      body.appendChild(createErrorElement(escapeHtml(a2aMentionTask.error)));
+      body.appendChild(createErrorElement(a2aMentionTask.error));
       return;
     }
 
@@ -1312,9 +1518,11 @@ import { renderMarkdown, escapeHtml } from '../utils/markdown.mjs';
 
     return `<div class="omnipilot-a2a-form">
       ${lastSelection ? renderSelectionContext(lastSelection) : ''}
-      <select class="omnipilot-a2a-select">${options}</select>
-      <textarea class="omnipilot-a2a-textarea" placeholder="${escapeHtml(label('a2aTaskPlaceholder'))}"></textarea>
-      <button class="omnipilot-a2a-submit">${escapeHtml(label('delegate'))}</button>
+      <label for="omnipilot-a2a-agent">A2A agent</label>
+      <select id="omnipilot-a2a-agent" class="omnipilot-a2a-select">${options}</select>
+      <label for="omnipilot-a2a-task">Task</label>
+      <textarea id="omnipilot-a2a-task" class="omnipilot-a2a-textarea" placeholder="${escapeHtml(label('a2aTaskPlaceholder'))}"></textarea>
+      <button type="button" class="omnipilot-a2a-submit">${escapeHtml(label('delegate'))}</button>
     </div>`;
   }
 
@@ -1436,47 +1644,112 @@ import { renderMarkdown, escapeHtml } from '../utils/markdown.mjs';
 
   const { html: sHtml, render: sRender, useState: sUseState, useEffect: sUseEffect, useRef: sUseRef } = htmPreact;
 
-  function SelectorItem({ icon, text, current, onChoose }) {
+  let openSelector = null;
+
+  function closeOpenSelector({ restoreFocus = false } = {}) {
+    if (!openSelector) return;
+    const closing = openSelector;
+    openSelector = null;
+    closing.close(restoreFocus);
+  }
+
+  function SelectorItem({ id, icon, text, current, onChoose, optionRef }) {
     return sHtml`
-      <div
+      <button
+        id=${id}
+        type="button"
+        role="option"
+        aria-selected=${current ? 'true' : 'false'}
+        tabIndex="-1"
+        ref=${optionRef}
         class=${'omnipilot-model-item' + (current ? ' omnipilot-model-current' : '')}
         onClick=${e => { e.stopPropagation(); onChoose(); }}
       >
-        ${icon ? sHtml`<span style="margin-right:6px">${icon}</span>` : null}${text}
-      </div>`;
+        ${icon ? sHtml`<span class="omnipilot-selector-icon" aria-hidden="true">${icon}</span>` : null}${text}
+      </button>`;
+  }
+
+  function focusSelectorOption(selector, where = 'first') {
+    const options = Array.from(selector.querySelectorAll('[role="option"]'));
+    const option = where === 'last' ? options.at(-1) : options[0];
+    option?.focus();
   }
 
   // Mounts a component into a positioned, dismissable floating host. Returns
   // early (closing the open one) when the same chip is clicked twice.
-  function openFloatingSelector({ id, anchorEl, render: renderBody }) {
+  function openFloatingSelector({ id, anchorEl, labelText, initialFocus = 'first', render: renderBody }) {
     const mount = getUiMount();
-    const existing = mount.querySelector(`#${id}`);
-    if (existing) { existing.remove(); return null; }
+    if (openSelector?.id === id) {
+      closeOpenSelector({ restoreFocus: true });
+      return null;
+    }
+    closeOpenSelector();
 
     const selector = document.createElement('div');
     selector.id = id;
+    selector.className = 'omnipilot-selector';
+    selector.setAttribute('role', 'listbox');
+    selector.setAttribute('aria-label', labelText);
+    selector.setAttribute('tabindex', '-1');
     mount.appendChild(selector);
+    anchorEl.setAttribute('aria-controls', id);
+    anchorEl.setAttribute('aria-expanded', 'true');
 
-    const rect = anchorEl.getBoundingClientRect();
-    selector.style.left = `${rect.left}px`;
-    selector.style.top = `${rect.bottom + 4}px`;
+    const positionSelector = () => {
+      const anchor = anchorEl.getBoundingClientRect();
+      const size = {
+        width: selector.offsetWidth || 220,
+        height: selector.offsetHeight || 240
+      };
+      const position = placeNearAnchor(anchor, size, viewportSize(), 4);
+      selector.style.left = `${position.left}px`;
+      selector.style.top = `${position.top}px`;
+    };
 
-    const close = () => {
-      // Unmount first so component effects are torn down, then detach.
+    const close = (restoreFocus = false) => {
+      if (!selector.isConnected) return;
       sRender(null, selector);
       selector.remove();
-      document.removeEventListener('mousedown', closeHandler);
+      anchorEl.setAttribute('aria-expanded', 'false');
+      anchorEl.removeAttribute('aria-controls');
+      document.removeEventListener('pointerdown', outsideHandler, true);
+      window.removeEventListener('resize', positionSelector);
+      if (openSelector?.selector === selector) openSelector = null;
+      if (restoreFocus) anchorEl.focus();
     };
 
-    // Our UI is inside a shadow root, so `e.target` seen from `document` is the
-    // shadow host. `eventPathContains` looks through the boundary instead.
-    const closeHandler = e => {
-      if (!eventPathContains(e, selector) && !eventPathContains(e, anchorEl)) close();
+    const outsideHandler = e => {
+      if (!eventPathContains(e, selector) && !eventPathContains(e, anchorEl)) close(true);
     };
-    setTimeout(() => document.addEventListener('mousedown', closeHandler), 0);
+
+    selector.addEventListener('keydown', e => {
+      const options = Array.from(selector.querySelectorAll('[role="option"]'));
+      const currentIndex = options.indexOf(selector.getRootNode().activeElement);
+      let target = null;
+      if (e.key === 'ArrowDown') target = options[(currentIndex + 1 + options.length) % options.length];
+      else if (e.key === 'ArrowUp') target = options[(currentIndex - 1 + options.length) % options.length];
+      else if (e.key === 'Home') target = options[0];
+      else if (e.key === 'End') target = options.at(-1);
+      else if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        close(true);
+        return;
+      } else return;
+      e.preventDefault();
+      e.stopPropagation();
+      target?.focus();
+    });
 
     sRender(renderBody(close), selector);
-    return { selector, close };
+    positionSelector();
+    openSelector = { id, selector, anchorEl, close };
+    setTimeout(() => {
+      document.addEventListener('pointerdown', outsideHandler, true);
+      window.addEventListener('resize', positionSelector);
+      focusSelectorOption(selector, initialFocus);
+    }, 0);
+    return openSelector;
   }
 
   function ModelSelector({ runtime, onChoose }) {
@@ -1502,12 +1775,23 @@ import { renderMarkdown, escapeHtml } from '../utils/markdown.mjs';
     return sHtml`
       <input
         class="omnipilot-model-filter"
+        aria-label=${label('typeToFilter') || 'Filter models'}
         placeholder=${label('typeToFilter')}
         ref=${inputRef}
         value=${filter}
         onInput=${e => setFilter(e.target.value)}
         onMouseDown=${e => e.stopPropagation()}
-        onKeyDown=${e => e.stopPropagation()}
+        onKeyDown=${e => {
+          if (e.key === 'Escape') return;
+          if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            focusSelectorOption(e.currentTarget.closest('[role="listbox"]'), 'first');
+          } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            focusSelectorOption(e.currentTarget.closest('[role="listbox"]'), 'last');
+          }
+          e.stopPropagation();
+        }}
       />
       <div class="omnipilot-model-list">
         ${visible === null
@@ -1516,6 +1800,7 @@ import { renderMarkdown, escapeHtml } from '../utils/markdown.mjs';
             ? visible.map(model => sHtml`
                 <${SelectorItem}
                   key=${model}
+                  id=${`omnipilot-model-option-${Math.abs(model.split('').reduce((hash, char) => ((hash * 31) + char.charCodeAt(0)) | 0, 0))}`}
                   text=${model}
                   current=${model === currentModel}
                   onChoose=${() => onChoose(model)}
@@ -1524,11 +1809,13 @@ import { renderMarkdown, escapeHtml } from '../utils/markdown.mjs';
       </div>`;
   }
 
-  function showModelSelector(anchorEl) {
+  function showModelSelector(anchorEl, initialFocus = 'first') {
     const runtime = globalThis.chrome?.runtime;
     const opened = openFloatingSelector({
       id: 'omnipilot-model-selector',
       anchorEl,
+      labelText: 'Model',
+      initialFocus,
       render: close => sHtml`
         <${ModelSelector}
           runtime=${runtime}
@@ -1538,7 +1825,7 @@ import { renderMarkdown, escapeHtml } from '../utils/markdown.mjs';
               safeSendMessage(runtime, { type: 'SET_MODEL', model });
               updatePanelMeta();
             }
-            close();
+            close(true);
           }}
         />`
     });
@@ -1546,25 +1833,28 @@ import { renderMarkdown, escapeHtml } from '../utils/markdown.mjs';
     if (opened && !runtime?.sendMessage) opened.close();
   }
 
-  function showProviderSelector(anchorEl) {
+  function showProviderSelector(anchorEl, initialFocus = 'first') {
     openFloatingSelector({
       id: 'omnipilot-provider-selector',
       anchorEl,
-      render: close => getProviderEntries().map(({ providerType, label: providerLabel }) => sHtml`
+      labelText: 'Provider',
+      initialFocus,
+      render: close => getProviderEntries().map(({ providerType, label: providerLabel }, index) => sHtml`
         <${SelectorItem}
           key=${providerType}
+          id=${`omnipilot-provider-option-${index}`}
           text=${providerLabel}
           current=${providerType === currentProviderType}
           onChoose=${() => {
             const runtime = globalThis.chrome?.runtime;
             if (runtime?.sendMessage) safeSendMessage(runtime, { type: 'SET_PROVIDER', providerType });
-            close();
+            close(true);
           }}
         />`)
     });
   }
 
-  function showActionSelector(anchorEl) {
+  function showActionSelector(anchorEl, initialFocus = 'first') {
     const allActions = [
       { id: '', labelKey: 'chat', icon: '💬' },
       ...ACTIONS
@@ -1573,16 +1863,19 @@ import { renderMarkdown, escapeHtml } from '../utils/markdown.mjs';
     openFloatingSelector({
       id: 'omnipilot-action-selector',
       anchorEl,
-      render: close => allActions.map(action => sHtml`
+      labelText: 'Action',
+      initialFocus,
+      render: close => allActions.map((action, index) => sHtml`
         <${SelectorItem}
           key=${action.id}
+          id=${`omnipilot-action-option-${index}`}
           icon=${action.icon}
           text=${label(action.labelKey)}
           current=${action.id === currentAction}
           onChoose=${() => {
             currentAction = action.id;
             updatePanelMeta();
-            close();
+            close(true);
             // Switching actions from the panel header keeps existing context and
             // runs the new action as a continuation, not a fresh session.
             if (action.id && (lastSelection || getActiveSelectionContextText())) {
@@ -1595,44 +1888,38 @@ import { renderMarkdown, escapeHtml } from '../utils/markdown.mjs';
 
   function positionPanel() {
     if (!panel) return;
-    const { w: panelW, h: panelH } = calcInitialPanelSize();
+    const viewport = viewportSize();
+    const initial = calcInitialPanelSize();
+    const size = clampSize({
+      width: panel.dataset.userResized ? panel.offsetWidth : initial.w,
+      height: panel.dataset.userResized ? panel.offsetHeight : initial.h
+    }, viewport);
 
-    // Set initial size (only if not already resized by user)
     if (!panel.dataset.userResized) {
-      panel.style.width = `${panelW}px`;
-      panel.style.height = `${panelH}px`;
+      panel.style.width = `${size.width}px`;
+      panel.style.height = `${size.height}px`;
     }
 
-    const actualW = panel.offsetWidth || panelW;
-    const actualH = panel.offsetHeight || panelH;
-    const gap = 12;
-    const margin = 16;
-
+    let position;
     if (lastSelectionRect) {
-      // Try right side of selection first
-      // position:fixed — viewport coords
-      let left = lastSelectionRect.right + gap;
-      let top = lastSelectionRect.top;
-
-      // If right side overflows, try left side
-      if (left + actualW > window.innerWidth - margin) {
-        left = lastSelectionRect.left - actualW - gap;
-      }
-
-      // Clamp to viewport
-      left = Math.max(margin, Math.min(left, window.innerWidth - actualW - margin));
-      top = Math.max(margin, Math.min(top, window.innerHeight - actualH - margin));
-
-      panel.style.left = `${left}px`;
-      panel.style.top = `${top}px`;
+      const anchor = lastSelectionRect;
+      const right = anchor.right + 12;
+      const left = right + size.width <= viewport.width - VIEWPORT_MARGIN
+        ? right
+        : anchor.left - size.width - 12;
+      position = clampPlacement({ left, top: anchor.top, ...size }, viewport);
     } else if (bubble && bubble.style.display !== 'none') {
-      const bRect = bubble.getBoundingClientRect();
-      panel.style.left = `${Math.min(bRect.left, window.innerWidth - actualW - margin)}px`;
-      panel.style.top = `${bRect.bottom + gap}px`;
+      position = placeNearAnchor(bubble.getBoundingClientRect(), size, viewport, 12);
     } else {
-      panel.style.left = `${Math.max(margin, (window.innerWidth - actualW) / 2)}px`;
-      panel.style.top = `80px`;
+      position = clampPlacement({
+        left: (viewport.width - size.width) / 2,
+        top: 80,
+        ...size
+      }, viewport);
     }
+
+    panel.style.left = `${position.left}px`;
+    panel.style.top = `${position.top}px`;
   }
 
   // Rendering lives in src/utils/markdown.mjs so the side panel formats replies
@@ -1669,6 +1956,8 @@ import { renderMarkdown, escapeHtml } from '../utils/markdown.mjs';
   function createLoadingIndicator() {
     const loading = document.createElement('div');
     loading.className = 'omnipilot-loading';
+    loading.setAttribute('role', 'status');
+    loading.setAttribute('aria-live', 'polite');
     loading.innerHTML = `<div class="omnipilot-spinner"></div><span class="omnipilot-loading-text">${label('thinking')}</span>`;
     const cancelBtn = document.createElement('button');
     cancelBtn.className = 'omnipilot-cancel-btn';
@@ -1722,6 +2011,7 @@ import { renderMarkdown, escapeHtml } from '../utils/markdown.mjs';
     const copyBtn = document.createElement('button');
     copyBtn.className = 'omnipilot-msg-toolbar-btn';
     copyBtn.title = label('copyMessage');
+    copyBtn.setAttribute('aria-label', label('copyMessage') || 'Copy message');
     copyBtn.textContent = '📋';
     copyBtn.addEventListener('click', e => {
       e.preventDefault();
@@ -1736,6 +2026,7 @@ import { renderMarkdown, escapeHtml } from '../utils/markdown.mjs';
     const readBtn = document.createElement('button');
     readBtn.className = 'omnipilot-msg-toolbar-btn';
     readBtn.title = label('readAloud');
+    readBtn.setAttribute('aria-label', label('readAloud') || 'Read aloud');
     readBtn.textContent = '🔊';
     let speaking = false;
     readBtn.addEventListener('click', e => {
@@ -1794,15 +2085,28 @@ import { renderMarkdown, escapeHtml } from '../utils/markdown.mjs';
   function createErrorElement(message) {
     const el = document.createElement('div');
     el.className = 'omnipilot-error';
-    el.innerHTML = message;
+    el.setAttribute('role', 'alert');
+    const value = String(message || label('somethingWrong'));
+    const settingsMarker = ` ${label('checkSettings')}`;
+    if (value.endsWith(settingsMarker)) {
+      el.append(document.createTextNode(value.slice(0, -settingsMarker.length) + ' '));
+      const link = document.createElement('a');
+      link.className = 'omnipilot-error-link';
+      link.href = '#';
+      link.textContent = label('checkSettings');
+      el.appendChild(link);
+    } else {
+      el.textContent = value;
+    }
+    updatePanelStatus(el.textContent || label('somethingWrong'), 'alert');
     return el;
   }
 
   function humanizeError(msg) {
     if (!msg) return label('somethingWrong');
-    const s = escapeHtml(msg);
+    const s = String(msg);
     if (/extension context invalidated/i.test(s)) return label('extensionContextUnavailable');
-    if (/401|403|api key/i.test(s)) return `${label('apiKeyRejected')} <a class="omnipilot-error-link" href="#">${label('checkSettings')}</a>`;
+    if (/401|403|api key/i.test(s)) return `${label('apiKeyRejected')} ${label('checkSettings')}`;
     if (/429|rate.?limit|quota/i.test(s)) return label('rateLimit');
     if (/network|fetch|timeout|ECONNREFUSED/i.test(s)) return label('networkError');
     if (/empty.*response/i.test(s)) return label('emptyResponseError');
@@ -2348,6 +2652,14 @@ import { renderMarkdown, escapeHtml } from '../utils/markdown.mjs';
       }
     }, 10);
   });
+
+  function reconcileViewport() {
+    clampPanelToViewport();
+    clampOrbToViewport();
+  }
+
+  window.addEventListener?.('resize', reconcileViewport);
+  window.visualViewport?.addEventListener?.('resize', reconcileViewport);
 
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape') {

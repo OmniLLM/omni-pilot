@@ -108,7 +108,7 @@ test('exposes a semantic settings hierarchy and named live feedback', async ({ p
 
   await expect(page.locator('main')).toHaveCount(1);
   await expect(page.getByRole('heading', { level: 1, name: 'OmniPilot' })).toHaveCount(1);
-  await expect(page.getByRole('heading', { level: 2 })).toHaveCount(5);
+  await expect(page.getByRole('heading', { level: 2 })).toHaveCount(4);
   await expect(page.locator('#status')).toHaveAttribute('aria-live', 'polite');
   await expect(page.locator('#modelStatus')).toHaveAttribute('role', 'status');
   await expect(page.getByLabel('Provider')).toHaveAttribute('id', 'providerType');
@@ -116,6 +116,35 @@ test('exposes a semantic settings hierarchy and named live feedback', async ({ p
   await expect(page.getByLabel('Language')).toHaveAttribute('id', 'languageSelect');
 });
 
+test('keeps the responsive settings shell inside narrow viewports', async ({ page }) => {
+  for (const width of [320, 375, 768]) {
+    await page.setViewportSize({ width, height: 700 });
+    await openOptionsPage(page);
+
+    const layout = await page.evaluate(() => ({
+      viewportWidth: document.documentElement.clientWidth,
+      scrollWidth: document.documentElement.scrollWidth,
+      actionBar: document.querySelector('.save-action-bar')?.getBoundingClientRect(),
+      saveButton: document.querySelector('#saveBtn')?.getBoundingClientRect()
+    }));
+
+    expect(layout.scrollWidth).toBeLessThanOrEqual(layout.viewportWidth);
+    expect(layout.actionBar.left).toBeGreaterThanOrEqual(0);
+    expect(layout.actionBar.right).toBeLessThanOrEqual(layout.viewportWidth);
+    expect(layout.saveButton.height).toBeGreaterThanOrEqual(44);
+  }
+});
+
+test('shows saved versus immediate behavior and supports keyboard focus', async ({ page }) => {
+  await openOptionsPage(page);
+
+  await expect(page.locator('.save-action-bar')).toBeVisible();
+  await expect(page.locator('.save-hint')).toContainText('Appearance, language, and switches apply immediately');
+  await page.locator('#providerType').focus();
+  await expect(page.locator('#providerType')).toBeFocused();
+  const outlineStyle = await page.locator('#providerType').evaluate(element => getComputedStyle(element).outlineStyle);
+  expect(outlineStyle).not.toBe('none');
+});
 test('primary controls meet the minimum 44px target size', async ({ page }) => {
   await openOptionsPage(page);
 

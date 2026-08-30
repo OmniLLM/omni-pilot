@@ -107,6 +107,76 @@ test('minimized panel is restored as the floating orb after a refresh', async ({
   await expect(page.locator('#omnipilot-panel')).toBeVisible();
 });
 
+test('restored panel geometry is clamped to a smaller viewport', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 480 });
+  await page.goto(baseUrl);
+  await page.evaluate(() => {
+    sessionStorage.setItem('omnipilot:panel-session:v1', JSON.stringify({
+      minimized: false,
+      html: '<div class="omnipilot-result">Restored</div>',
+      history: [{ role: 'assistant', content: 'Restored' }],
+      dragged: true,
+      userResized: true,
+      left: '1400px',
+      top: '900px',
+      width: '900px',
+      height: '700px'
+    }));
+  });
+  await injectContentScript(page);
+
+  const bounds = await page.locator('#omnipilot-panel').evaluate(element => {
+    const rect = element.getBoundingClientRect();
+    return { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom };
+  });
+  expect(bounds.left).toBeGreaterThanOrEqual(0);
+  expect(bounds.top).toBeGreaterThanOrEqual(0);
+  expect(bounds.right).toBeLessThanOrEqual(320);
+  expect(bounds.bottom).toBeLessThanOrEqual(480);
+});
+
+test('narrow viewport uses an inset sheet with reachable header and composer', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 480 });
+  await page.goto(baseUrl);
+  await injectContentScript(page);
+  await openTranslatePanel(page);
+
+  const layout = await page.locator('#omnipilot-panel').evaluate(element => {
+    const panel = element.getBoundingClientRect();
+    const header = element.querySelector('.omnipilot-panel-header').getBoundingClientRect();
+    const composer = element.querySelector('.omnipilot-panel-input-area').getBoundingClientRect();
+    return { panel, header, composer, minWidth: getComputedStyle(element).minWidth };
+  });
+  expect(layout.panel.left).toBeGreaterThanOrEqual(0);
+  expect(layout.panel.right).toBeLessThanOrEqual(320);
+  expect(layout.panel.bottom).toBeLessThanOrEqual(480);
+  expect(layout.header.height).toBeGreaterThan(0);
+  expect(layout.composer.height).toBeGreaterThan(0);
+  expect(layout.minWidth).toBe('0px');
+});
+
+test('keyboard resize stays inside the viewport and Home restores a valid size', async ({ page }) => {
+  await page.setViewportSize({ width: 800, height: 600 });
+  await page.goto(baseUrl);
+  await injectContentScript(page);
+  await openTranslatePanel(page);
+
+  const handle = page.locator('.omnipilot-resize-handle');
+  await handle.focus();
+  await handle.press('Shift+ArrowRight');
+  await handle.press('Shift+ArrowDown');
+  await handle.press('Home');
+
+  const bounds = await page.locator('#omnipilot-panel').evaluate(element => {
+    const rect = element.getBoundingClientRect();
+    return { width: rect.width, height: rect.height, right: rect.right, bottom: rect.bottom };
+  });
+  expect(bounds.width).toBeGreaterThanOrEqual(300);
+  expect(bounds.height).toBeGreaterThanOrEqual(180);
+  expect(bounds.right).toBeLessThanOrEqual(800);
+  expect(bounds.bottom).toBeLessThanOrEqual(600);
+});
+
 test('explicitly closing the panel clears the saved session', async ({ page }) => {
   await page.goto(baseUrl);
   await injectContentScript(page);

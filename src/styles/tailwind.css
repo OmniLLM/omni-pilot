@@ -3,8 +3,7 @@
  *
  * Compiled by build.mjs into dist/tailwind.css and linked ONLY from the
  * popup, options, and sidepanel pages. It must never reach the content
- * script, which is injected into arbitrary third-party pages without any
- * Shadow DOM isolation.
+ * script, whose UI is isolated in a Shadow DOM and uses its own scoped CSS.
  *
  * Three deliberate hardening choices:
  *   1. `tailwindcss/preflight.css` is never imported, so no global reset is

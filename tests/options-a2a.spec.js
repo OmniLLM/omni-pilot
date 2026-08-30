@@ -218,6 +218,35 @@ test('renders the standard action controls for each agent', async ({ page }) => 
     .toHaveAttribute('data-endpoint', 'https://stored.example.com');
 });
 
+test('renders readable health status and server-specific accessible actions', async ({ page }) => {
+  await openOptionsPage(page, { servers: [SIMPLE_SERVER] });
+
+  const health = page.locator('.a2a-health-status[data-health-for="server-1"]');
+  await expect(health).toHaveAttribute('role', 'status');
+  await expect(health).not.toHaveText('');
+  await expect(page.getByRole('button', { name: 'Edit Stored Server' })).toHaveCount(1);
+  await expect(page.getByRole('button', { name: 'Check health for Stored Server' })).toHaveCount(1);
+  await expect(page.getByRole('button', { name: 'Remove Stored Server' })).toHaveCount(1);
+});
+
+test('dynamic A2A edit fields and skill controls use unique label pairs', async ({ page }) => {
+  await openOptionsPage(page, { servers: [SKILLED_SERVER] });
+
+  await page.getByRole('button', { name: 'Edit Skilled Agent' }).click();
+  const form = page.locator('.a2a-edit-form');
+  const nameInput = form.getByLabel('Server Name');
+  const endpointInput = form.getByLabel('A2A Endpoint');
+  const tokenInput = form.getByLabel('A2A Token');
+  await expect(nameInput).toHaveAttribute('id', /a2a-edit-name-server-skills/);
+  await expect(endpointInput).toHaveAttribute('id', /a2a-edit-endpoint-server-skills/);
+  await expect(tokenInput).toHaveAttribute('id', /a2a-edit-token-server-skills/);
+
+  await page.getByRole('button', { name: 'Cancel editing Skilled Agent' }).click();
+  await page.locator('[data-action="toggle-skills-panel"][data-server-id="server-skills"]').click();
+  const alpha = page.locator('[data-skill-toggle][data-skill-id="alpha"]');
+  const alphaId = await alpha.getAttribute('id');
+  await expect(page.locator(`label[for="${alphaId}"]`)).toHaveCount(1);
+});
 test('renders a health indicator addressable by agent id', async ({ page }) => {
   await openOptionsPage(page, { servers: [SIMPLE_SERVER, SKILLED_SERVER] });
 
