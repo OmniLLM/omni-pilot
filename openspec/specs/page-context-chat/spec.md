@@ -1,7 +1,13 @@
 # page-context-chat Specification
 
 ## Purpose
-TBD - created by archiving change add-page-context-side-panel. Update Purpose after archive.
+
+Governs the side panel's ability to answer questions about the page the user is looking at.
+
+This capability owns how the panel is opened for the current tab, how the page's main content is extracted and ranked so a promotional banner is never mistaken for the article, how the panel shows which page it is working from, and the guarantee that a function runs against the page as it is at that moment rather than a stale snapshot taken when the panel opened.
+
+Boundary: this capability covers sourcing and grounding the page context. How the resulting reply is formatted belongs to `assistant-response-formatting`, and the panel's model and provider controls belong to `side-panel-session-controls`.
+
 ## Requirements
 ### Requirement: The side panel can be opened for the current tab
 

@@ -1,7 +1,13 @@
 # assistant-response-formatting Specification
 
 ## Purpose
-TBD - created by archiving change format-assistant-response-blocks. Update Purpose after archive.
+
+Governs how a model's reply becomes readable text on screen.
+
+This capability owns both halves of that problem. On the output side it owns the shared markdown renderer — block structure, tables, copyable code cards, inline markup, and escaping — and the rule that every surface renders replies through that one formatter so the floating panel and the side panel cannot drift apart. On the input side it owns the formatting instructions sent to the model: which prompts ask for structure, which verbatim transformations must be left alone, and how those rules yield to the task instructions when the context budget is tight.
+
+Boundary: this capability decides how a reply is shaped and displayed, not which provider produced it or how it was streamed.
+
 ## Requirements
 ### Requirement: Assistant replies are rendered as structured blocks
 

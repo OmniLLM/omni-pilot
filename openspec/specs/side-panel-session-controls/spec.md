@@ -1,7 +1,13 @@
 # side-panel-session-controls Specification
 
 ## Purpose
-TBD - created by archiving change add-side-panel-session-controls. Update Purpose after archive.
+
+Governs the side panel's session controls — the action, provider, and model chips in its header.
+
+This capability owns making the active provider and model visible and changeable from the panel, fetching and filtering the model list, reaching the built-in functions without leaving the panel, and localizing provider and function names. It also owns the requirement that these selectors behave identically to the floating panel's, so the two surfaces cannot diverge into two different interaction models.
+
+Boundary: this capability covers what the controls offer and how they behave. How they are rendered belongs to `extension-page-rendering`, and the page content a chosen function runs against belongs to `page-context-chat`.
+
 ## Requirements
 ### Requirement: The side panel exposes the active model and provider
 

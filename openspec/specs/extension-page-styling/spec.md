@@ -1,7 +1,13 @@
 # extension-page-styling Specification
 
 ## Purpose
-TBD - created by archiving change adopt-tailwind-extension-pages. Update Purpose after archive.
+
+Governs how CSS is produced and where it is allowed to reach.
+
+This capability owns the build-time utility CSS pipeline for the popup, options, and side panel — its compilation, its `op` namespacing, its deliberate omission of a global reset, its cascade-layer order, and its binding to the `--appearance-*` tokens. It also owns the isolation guarantees for the content script, whose UI is mounted in an open shadow root and styled by its own inlined stylesheet so that nothing crosses into or out of a third-party page.
+
+Two boundaries matter. The token *values* belong to `appearance-preferences`; this capability only consumes them. And while a bundler compiles the stylesheets, it must never be applied to the extension's JavaScript, which stays flat and concatenated so the unit tests can keep reading top-level declarations out of `dist/*.js`.
+
 ## Requirements
 ### Requirement: Build-time utility CSS compilation
 
@@ -43,7 +49,7 @@ Every utility class produced by the CSS framework SHALL carry the `op` namespace
 
 ### Requirement: No global CSS reset is emitted
 
-The compiled stylesheet SHALL NOT contain a global CSS reset (Tailwind Preflight). No bare element-selector rule and no universal-selector rule may set any inherited or box-model property. The per-page `*, *::before, *::after` resets already authored in the extension pages remain the single source of reset behavior.
+The compiled stylesheet SHALL NOT contain a global CSS reset (Tailwind Preflight). No bare element-selector rule and no universal-selector rule may set any inherited or box-model property. Each extension page's own universal reset remains the single source of reset behavior.
 
 Note: Tailwind v4 emits a universal-selector rule inside an `@supports` guard in its `properties` layer to polyfill `@property` fallbacks. That rule assigns only `--tw-*` custom properties and is therefore not a reset; it is permitted.
 
@@ -57,43 +63,34 @@ Note: Tailwind v4 emits a universal-selector rule inside an `@supports` guard in
 - **WHEN** every universal-selector rule in `dist/tailwind.css` is inspected
 - **THEN** none of them declares `margin`, `padding`, `box-sizing`, `border`, `font`, or `line-height`; they assign only `--tw-*` custom properties
 
-#### Scenario: Existing page resets are preserved
+#### Scenario: Each page keeps its own reset in its component stylesheet
+
+- **WHEN** each extension page's component stylesheet — `src/styles/popup.css`, `src/styles/options.css`, and `src/styles/sidepanel.css` — is inspected
+- **THEN** each declares a universal reset setting `box-sizing: border-box`, `margin: 0`, and `padding: 0` (popup and options use the `*, *::before, *::after` form; sidepanel uses the bare `*` form)
+
+#### Scenario: Pages carry no inline styling
 
 - **WHEN** `src/popup/index.html`, `src/options/index.html`, and `src/sidepanel/index.html` are inspected
-- **THEN** each still declares its own universal reset setting `box-sizing: border-box`, `margin: 0`, and `padding: 0` (popup and options use the `*, *::before, *::after` form; sidepanel uses the `*` form)
+- **THEN** none contains a `<style>` block or a `style="…"` attribute; all page CSS is reached through linked stylesheets
 
 ### Requirement: Utility theme is bound to appearance tokens
 
-The utility framework's color, spacing, typography, and shadow scales SHALL be defined in terms of the existing `--appearance-*` custom properties from `src/styles/appearance.css`, so that all supported color themes and visual styles continue to apply without any change to the token contract.
+The utility framework's color, spacing, typography, radius, and shadow scales SHALL be defined in terms of the `--appearance-*` custom properties owned by the `appearance-preferences` capability. The framework SHALL be a consumer of that contract only: it SHALL NOT declare, redefine, or shadow any `--appearance-*` token, so every supported color theme, visual style, and component shape continues to apply without a rebuild.
 
 #### Scenario: Colors resolve through appearance tokens
 
-- **WHEN** a color utility such as `op-bg-surface` or `op-text-muted` is emitted
+- **WHEN** a color utility such as `op:bg-surface` or `op:text-ink-muted` is emitted
 - **THEN** its declaration resolves to a `var(--appearance-*)` reference rather than a hard-coded color literal
 
-#### Scenario: Theme switching still works
+#### Scenario: Every appearance dimension switches live
 
-- **WHEN** the `data-theme` or `data-visual-style` attribute on the appearance root changes
-- **THEN** elements styled with utility classes re-render with the new theme's token values, with no rebuild required
+- **WHEN** the `data-theme`, `data-visual-style`, or `data-ui-shape` attribute on the appearance root changes
+- **THEN** elements styled with utility classes re-render with the new values, with no rebuild required
 
-#### Scenario: Token contract is unmodified
+#### Scenario: The framework declares no appearance token
 
-- **WHEN** `src/styles/appearance.css` is compared against its pre-change contents
-- **THEN** no `--appearance-*` token is added, removed, or redefined by this change
-
-### Requirement: Square corners remain enforced
-
-The utility framework's border-radius scale SHALL be overridden so that every radius value is `0`. It SHALL be impossible to introduce a rounded corner by applying a utility class.
-
-#### Scenario: Radius utilities are zero
-
-- **WHEN** `dist/tailwind.css` is searched for `border-radius` declarations
-- **THEN** every matched value is `0` or `0px`
-
-#### Scenario: Existing square-corner policy still passes
-
-- **WHEN** `tests/unit/square-corners.test.js` runs
-- **THEN** it passes without modification to its assertions
+- **WHEN** every custom property declared in `dist/tailwind.css` is inspected
+- **THEN** each is prefixed `--op-` or `--tw-`; `--appearance-*` names appear only as `var()` references, never on the left-hand side of a declaration
 
 ### Requirement: Utility CSS is confined to extension pages
 
@@ -116,19 +113,19 @@ The utility framework SHALL apply only to the popup, options, and sidepanel surf
 
 ### Requirement: Cascade order preserves both the reset and hand-written CSS
 
-The utility stylesheet SHALL declare an explicit cascade layer order of `base`, then `theme`, then `utilities`. Each extension page SHALL wrap its universal reset — and only its reset — in `@layer base`, leaving its remaining hand-written rules unlayered.
+The utility stylesheet SHALL declare an explicit cascade layer order of `base`, then `theme`, then `utilities`. Each extension page's component stylesheet SHALL wrap its universal reset — and only its reset — in `@layer base`, leaving its remaining hand-written rules unlayered.
 
 This yields the ordering `base < theme < utilities < unlayered page CSS`, so a utility can override the zero-specificity reset while hand-written page rules still take precedence over utilities during incremental migration. Without it, unlayered page CSS would beat all layered utilities regardless of specificity, and the reset would silently cancel every utility margin and padding.
 
 #### Scenario: Layer order is declared
 
 - **WHEN** `dist/tailwind.css` is inspected
-- **THEN** it declares `@layer base, theme, utilities`
+- **THEN** the `base`, `theme`, and `utilities` layers each appear, and their first appearance is in that order
 
-#### Scenario: Each page layers only its reset
+#### Scenario: Each component stylesheet layers only its reset
 
-- **WHEN** `src/popup/index.html`, `src/options/index.html`, and `src/sidepanel/index.html` are inspected
-- **THEN** each wraps its universal reset in `@layer base { ... }`, and no other rule in the page is placed in a layer
+- **WHEN** `src/styles/popup.css`, `src/styles/options.css`, and `src/styles/sidepanel.css` are inspected
+- **THEN** each declares exactly one `@layer` block, `@layer base`, containing its universal reset; every other rule in the file is unlayered
 
 #### Scenario: Utilities override the reset
 
@@ -143,33 +140,38 @@ This yields the ordering `base < theme < utilities < unlayered page CSS`, so a u
 #### Scenario: Link ordering
 
 - **WHEN** an extension page's `<head>` is inspected
-- **THEN** the `tailwind.css` `<link>` appears after `appearance.css` and before the page's inline `<style>` block
+- **THEN** it links `appearance.css`, then `tailwind.css`, then its own component stylesheet (`popup.css`, `options.css`, or `sidepanel.css`), in that order
 
 #### Scenario: Visual parity after migration
 
-- **WHEN** the popup markup has been migrated to utility classes
+- **WHEN** a surface's markup has been migrated to utility classes
 - **THEN** every migrated element's computed layout, spacing, typography, and color values match the values produced by the pre-migration hand-written CSS
 
 ### Requirement: JavaScript behavior is unaffected
 
-Adopting the CSS framework SHALL NOT alter any JavaScript control flow, event handling, storage access, or message passing. The styling pipeline SHALL NOT introduce a bundler, a module system, or any wrapper around built scripts.
+The styling pipeline SHALL NOT alter any JavaScript control flow, event handling, storage access, or message passing, and SHALL NOT change the shape of the emitted scripts. A bundler MAY be used to compile stylesheets; it SHALL NOT be applied to the extension's JavaScript, which SHALL continue to be emitted as flat, concatenated, non-module scripts with no IIFE, module registry, or other wrapper around them.
 
-This requirement is restated because vendoring a component runtime adds a build-time inline step. The guarantee that actually matters — no bundler, no module-scoped output, no IIFE around our own code, so that `vm.runInContext` still observes top-level declarations — is unchanged and is now stated directly rather than by freezing the build file. Build-time inlining of pre-built runtime source is permitted; it is the same mechanism already used for the shared utility modules.
+This boundary is what the unit tests depend on: they load `dist/*.js` through `vm.runInContext` and assert on top-level declarations, which any module scope would hide. The guarantee is stated in terms of the emitted output rather than the tools installed, so it survives a change of toolchain.
 
 #### Scenario: Unit tests keep loading built scripts
 
 - **WHEN** `npm run test:unit` runs
 - **THEN** all existing unit tests pass, including those that load `dist/*.js` through `vm.runInContext` and assert on top-level declarations
 
+#### Scenario: Stylesheet compilation does not reach the scripts
+
+- **WHEN** the build's stylesheet compilation step runs
+- **THEN** its inputs and outputs are stylesheets only, and every `dist/*.js` entry is produced by the concatenation path unchanged
+
+#### Scenario: Emitted scripts are unwrapped
+
+- **WHEN** any `dist/*.js` entry is inspected
+- **THEN** no bundler preamble, module registry, or IIFE wraps the concatenated source, and its declarations remain at the top level
+
 #### Scenario: Element identifiers are preserved
 
 - **WHEN** an extension page's rendered DOM is inspected
 - **THEN** every element `id` that the page's script or stylesheet depends on resolves to exactly one element, whether that element is authored in the page markup or produced by rendering
-
-#### Scenario: Styling changes add no bundler
-
-- **WHEN** `build.mjs` is inspected
-- **THEN** its `export`-stripping and concatenation helpers are driven by the same per-entry mechanism as before, and no bundler, module registry, or IIFE wraps the concatenated entry source
 
 #### Scenario: Utility classes are discoverable wherever markup lives
 
@@ -213,4 +215,30 @@ The extension SHALL NOT declare any CSS file for injection into pages it matches
 
 - **WHEN** `dist/content.js` is inspected after a build
 - **THEN** it declares the content stylesheet as a top-level string constant, and `dist/styles.css` is not emitted as a build output
+
+### Requirement: Radius utilities resolve through the selectable shape contract
+
+The utility framework's `--radius-*` theme namespace SHALL be cleared and redefined so that every radius scale resolves through a `var(--appearance-radius-*)` reference owned by the `appearance-preferences` capability. A radius utility SHALL NOT introduce a hard-coded corner size of its own: the only permitted literal value is `0`.
+
+This makes the utility layer a pure consumer of the shape contract. Applying `op:rounded-md` yields whatever the user's selected component shape defines, and a scale value that was never mapped cannot survive into a build.
+
+#### Scenario: The radius namespace is cleared
+
+- **WHEN** `src/styles/tailwind.css` is inspected
+- **THEN** its `@theme` block declares `--radius-*: initial`, so no unlisted scale inherited from the framework's defaults can be emitted
+
+#### Scenario: Every scale resolves through the appearance contract
+
+- **WHEN** the `--radius-xs`, `--radius-sm`, `--radius-md`, `--radius-lg`, `--radius-xl`, `--radius-2xl`, `--radius-3xl`, `--radius-4xl`, and `--radius-full` declarations in `src/styles/tailwind.css` are inspected
+- **THEN** each one resolves to a `var(--appearance-radius-*)` reference rather than a length literal
+
+#### Scenario: Compiled radius declarations are token references or zero
+
+- **WHEN** every `border-radius` declaration in `dist/tailwind.css` is inspected
+- **THEN** each value is either a `var(--op-radius-*)` reference to a token the stylesheet itself declares, or the literal `0`
+
+#### Scenario: Changing the shape restyles utility-styled elements
+
+- **WHEN** the `data-ui-shape` attribute on the appearance root changes
+- **THEN** elements carrying radius utilities re-render with the new shape's corner sizes, with no rebuild required
 
