@@ -141,6 +141,49 @@ test('hostile host-page styles do not reach the OmniPilot UI', async ({ page }) 
   expect(Number(computed.opacity)).toBeGreaterThan(0.5);
 });
 
+test('the selection bubble keeps its solid background when hovered', async ({ page }) => {
+  await setupPage(page);
+  await showBubble(page);
+
+  const bubble = page.locator('#omnipilot-bubble');
+  const restingBackground = await bubble.evaluate(el => getComputedStyle(el).backgroundColor);
+  await bubble.hover();
+
+  await expect.poll(() => bubble.evaluate(el => getComputedStyle(el).backgroundColor)).toBe(restingBackground);
+  await expect(bubble).toHaveCSS('opacity', '1');
+});
+
+test('the selection bubble appears at the middle-right of selected text', async ({ page }) => {
+  await setupPage(page);
+
+  const selectionRect = await page.evaluate(() => {
+    const textNode = document.querySelector('#para').firstChild;
+    const range = document.createRange();
+    range.setStart(textNode, 0);
+    range.setEnd(textNode, 7);
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+    const rect = range.getBoundingClientRect();
+    document.querySelector('#para').dispatchEvent(new MouseEvent('mouseup', {
+      bubbles: true,
+      clientX: rect.right,
+      clientY: rect.bottom
+    }));
+    return { right: rect.right, middleY: rect.top + rect.height / 2 };
+  });
+
+  const bubble = page.locator('#omnipilot-bubble');
+  await bubble.waitFor({ state: 'visible' });
+  await bubble.evaluate(async el => {
+    await Promise.all(el.getAnimations().map(animation => animation.finished.catch(() => {})));
+  });
+  const bubbleRect = await bubble.boundingBox();
+
+  expect(bubbleRect.x).toBeGreaterThan(selectionRect.right);
+  expect(bubbleRect.y + bubbleRect.height / 2).toBeCloseTo(selectionRect.middleY, 0);
+});
+
 test('the host page keeps its own styling once the UI is mounted', async ({ page }) => {
   await setupPage(page);
   await showBubble(page);
