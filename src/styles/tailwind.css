@@ -51,7 +51,7 @@
 
   /*
    * Colors resolve through the shared appearance contract rather than
-   * literals, so all 3 color themes x 5 visual styles keep working with no
+   * literals, so all 3 color themes x 9 visual styles keep working with no
    * change to src/styles/appearance.css and no rebuild on theme switch.
    */
   --color-*: initial;

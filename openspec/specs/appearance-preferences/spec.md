@@ -16,17 +16,17 @@ The extension SHALL expose exactly three appearance preferences, each independen
 | Preference | Storage key | Values | Default |
 |---|---|---|---|
 | Color theme | `themePreference` | `system`, `light`, `dark` | `dark` |
-| Visual style | `visualStylePreference` | `current`, `clean-minimal`, `terminal`, `warm-editorial`, `neo-brutalist` | `current` |
+| Visual style | `visualStylePreference` | `current`, `clean-minimal`, `terminal`, `warm-editorial`, `neo-brutalist`, `apple`, `google`, `meta`, `microsoft` | `current` |
 | Component shape | `uiShapePreference` | `square`, `subtle`, `rounded`, `pill` | `subtle` |
 
-The three are orthogonal: any combination SHALL be valid, giving 3 x 5 x 4 renderable appearances.
+The three are orthogonal: any combination SHALL be valid, giving 3 x 9 x 4 renderable appearances.
 
 The `current` visual style is presented to the user as "Modern". That is display copy only; the stored value, the enumeration member, and the `data-visual-style="current"` selector SHALL remain `current`.
 
 #### Scenario: Enumerations are fixed
 
 - **WHEN** the appearance module's exported enumerations are inspected
-- **THEN** `THEME_PREFERENCES` is `['system', 'light', 'dark']`, `VISUAL_STYLE_PREFERENCES` is `['current', 'clean-minimal', 'terminal', 'warm-editorial', 'neo-brutalist']`, and `UI_SHAPE_PREFERENCES` is `['square', 'subtle', 'rounded', 'pill']`
+- **THEN** `THEME_PREFERENCES` is `['system', 'light', 'dark']`, `VISUAL_STYLE_PREFERENCES` is `['current', 'clean-minimal', 'terminal', 'warm-editorial', 'neo-brutalist', 'apple', 'google', 'meta', 'microsoft']`, and `UI_SHAPE_PREFERENCES` is `['square', 'subtle', 'rounded', 'pill']`
 
 #### Scenario: Defaults are supplied to storage reads
 
@@ -177,14 +177,14 @@ The component shape preference SHALL select the values of a four-token radius sc
 
 ### Requirement: Every visual style defines a complete token palette in both themes
 
-Each of the five visual styles SHALL define a complete palette for both the `light` and `dark` themes, so no combination of theme and visual style can leave a token unresolved. The palette SHALL cover surface, text, border, accent, state, feedback, typographic, spacing, sizing, elevation, and motion tokens.
+Each of the nine visual styles SHALL define a complete palette for both the `light` and `dark` themes, so no combination of theme and visual style can leave a token unresolved. The palette SHALL cover surface, text, border, accent, state, feedback, typographic, spacing, sizing, elevation, and motion tokens.
 
 The stylesheet SHALL additionally honor `prefers-reduced-motion: reduce` and `forced-colors: active`, so the appearance system degrades correctly for users who need reduced motion or a forced color palette.
 
-#### Scenario: All ten style-and-theme combinations are defined
+#### Scenario: All eighteen style-and-theme combinations are defined
 
 - **WHEN** `src/styles/appearance.css` is inspected
-- **THEN** each of the five visual styles declares a palette for `data-theme="light"` and for `data-theme="dark"`
+- **THEN** each of the nine visual styles declares a palette for `data-theme="light"` and for `data-theme="dark"`
 
 #### Scenario: The token contract is complete
 

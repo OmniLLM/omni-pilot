@@ -4,7 +4,11 @@ const VISUAL_STYLE_PREFERENCES = Object.freeze([
   'clean-minimal',
   'terminal',
   'warm-editorial',
-  'neo-brutalist'
+  'neo-brutalist',
+  'apple',
+  'google',
+  'meta',
+  'microsoft'
 ]);
 const UI_SHAPE_PREFERENCES = Object.freeze(['square', 'subtle', 'rounded', 'pill']);
 const DEFAULT_THEME_PREFERENCE = 'dark';

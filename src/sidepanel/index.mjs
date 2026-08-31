@@ -119,6 +119,16 @@ function Message({ message }) {
   if (message.role === 'user') {
     return html`<article class="sp-msg sp-msg-user" aria-label="You">${message.content}</article>`;
   }
+  // A request can sit briefly before the worker emits its first status or
+  // token. Render that gap as an explicit state instead of an empty transcript.
+  // The dots are decorative; the text and live region carry the same status
+  // for assistive technology and reduced-motion users.
+  if (message.thinking) {
+    return html`<article class="sp-msg sp-msg-assistant sp-streaming sp-thinking" aria-label="OmniPilot is thinking" aria-busy="true">
+      <span class="sp-thinking-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span>${message.content || 'Thinking…'}</span>
+    </article>`;
+  }
   // Two literal class attributes rather than one interpolated string: Tailwind
   // tokenizes candidates on whitespace and would swallow a utility written
   // flush against an interpolation.
@@ -476,15 +486,17 @@ function SidePanel() {
     }
 
     let accumulated = '';
-    let streamId = null;
+    let streamId = nextId();
     let settled = false;
 
-    const startStream = () => {
-      streamId = nextId();
-      append({ id: streamId, role: 'assistant', content: '', streaming: true });
-    };
+    // Insert the pending row before posting to the port. This guarantees
+    // immediate feedback even when the service worker is still waking up.
+    // The same row becomes the streamed response once the first chunk arrives,
+    // avoiding a visual jump or a second assistant message.
+    append({ id: streamId, role: 'assistant', content: 'Thinking…', streaming: true, thinking: true });
+    setAnnouncement('Thinking…');
     const updateStream = content => setMessages(previous =>
-      previous.map(message => (message.id === streamId ? { ...message, content } : message))
+      previous.map(message => (message.id === streamId ? { ...message, content, thinking: false } : message))
     );
     const settleStream = () => {
       setMessages(previous =>
@@ -542,18 +554,25 @@ function SidePanel() {
       if (settled) return;
       armWatchdog();
       if (msg.type === 'chunk') {
-        if (streamId === null) startStream();
         accumulated += msg.text;
         updateStream(accumulated);
       } else if (msg.type === 'status') {
-        if (streamId === null) startStream();
         if (!accumulated) {
           const label = statusLabel(msg.status);
-          updateStream(label);
+          setMessages(previous => previous.map(message => (
+            message.id === streamId ? { ...message, content: label, thinking: true } : message
+          )));
           setAnnouncement(label);
         }
       } else if (msg.type === 'error') {
-        if (!accumulated) append({ id: nextId(), role: 'error', content: msg.error });
+        if (!accumulated) {
+          const pendingId = streamId;
+          streamId = null;
+          setMessages(previous => [
+            ...previous.filter(message => message.id !== pendingId),
+            { id: nextId(), role: 'error', content: msg.error }
+          ]);
+        }
       } else if (msg.type === 'done') {
         if (streamId !== null && accumulated) {
           settleStream();
@@ -585,7 +604,12 @@ function SidePanel() {
       if (isExtensionContextInvalidatedError(err)) {
         clearWatchdog();
         try { port.disconnect(); } catch {}
-        append({ id: nextId(), role: 'error', content: CONTEXT_LOST_ERROR });
+        const pendingId = streamId;
+        streamId = null;
+        setMessages(previous => [
+          ...previous.filter(message => message.id !== pendingId),
+          { id: nextId(), role: 'error', content: CONTEXT_LOST_ERROR }
+        ]);
         return;
       }
       throw err;

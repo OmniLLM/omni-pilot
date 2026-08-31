@@ -2,7 +2,7 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 
 const appearance = fs.readFileSync('src/styles/appearance.css', 'utf8');
-const styles = ['current', 'clean-minimal', 'terminal', 'warm-editorial', 'neo-brutalist'];
+const styles = ['current', 'clean-minimal', 'terminal', 'warm-editorial', 'neo-brutalist', 'apple', 'google', 'meta', 'microsoft'];
 const themes = ['light', 'dark'];
 const requiredTokens = [
   'canvas', 'surface', 'surface-raised', 'text', 'text-muted', 'text-subtle',

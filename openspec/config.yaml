@@ -27,8 +27,8 @@ context: |
       every page), `popup`, `options`, `sidepanel`.
     - Styling: hand-written CSS driven by a semantic design-token contract in
       `src/styles/appearance.css` (`--appearance-*`), supporting 3 color themes
-      (system/light/dark) x 5 visual styles (current, clean-minimal, terminal,
-      warm-editorial, neo-brutalist) x 4 component shapes (square, subtle, rounded,
+      (system/light/dark) x 9 visual styles (current, clean-minimal, terminal,
+      warm-editorial, neo-brutalist, apple, google, meta, microsoft) x 4 component shapes (square, subtle, rounded,
       pill). Defaults are dark / current / subtle. The `current` style is displayed
       as "Modern"; the stored value and its selector are still `current`.
       Extension pages carry no inline `<style>` block — each page's CSS lives in

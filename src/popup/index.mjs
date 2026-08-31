@@ -26,7 +26,11 @@ const VISUAL_STYLE_OPTIONS = [
   ['clean-minimal', 'visualStyleCleanMinimal'],
   ['terminal', 'visualStyleTerminal'],
   ['warm-editorial', 'visualStyleWarmEditorial'],
-  ['neo-brutalist', 'visualStyleNeoBrutalist']
+  ['neo-brutalist', 'visualStyleNeoBrutalist'],
+  ['apple', 'visualStyleApple'],
+  ['google', 'visualStyleGoogle'],
+  ['meta', 'visualStyleMeta'],
+  ['microsoft', 'visualStyleMicrosoft']
 ];
 
 const UI_SHAPE_OPTIONS = [

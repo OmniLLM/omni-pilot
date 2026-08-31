@@ -35,7 +35,7 @@ function loadAppearanceContext(matchMedia) {
   );
   assert.deepStrictEqual(
     Array.from(vm.runInContext('VISUAL_STYLE_PREFERENCES', context)),
-    ['current', 'clean-minimal', 'terminal', 'warm-editorial', 'neo-brutalist']
+    ['current', 'clean-minimal', 'terminal', 'warm-editorial', 'neo-brutalist', 'apple', 'google', 'meta', 'microsoft']
   );
 }
 

@@ -173,7 +173,7 @@ test('applies and persists theme and visual style immediately', async ({ page })
   await expect(page.locator('#themePreferenceSelect')).toHaveValue('system');
   await expect(page.locator('input[name="visualStylePreference"][value="terminal"]')).toBeChecked();
   await expect(page.locator('#uiShapePreferenceSelect')).toHaveValue('subtle');
-  await expect(page.locator('[data-appearance-preview]')).toHaveCount(5);
+  await expect(page.locator('[data-appearance-preview]')).toHaveCount(9);
 
   await page.locator('#themePreferenceSelect').selectOption('dark');
   await expect(root).toHaveAttribute('data-theme', 'dark');

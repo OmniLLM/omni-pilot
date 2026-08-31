@@ -112,6 +112,17 @@ test('sending replaces the empty state with the user message', async ({ page }) 
   await expect(page.locator('.sp-msg-user')).toHaveText('Hello there');
 });
 
+test('sending immediately shows a visible thinking indicator', async ({ page }) => {
+  await open(page);
+  await send(page, 'Hello there');
+
+  const indicator = page.locator('.sp-thinking');
+  await expect(indicator).toBeVisible();
+  await expect(indicator).toContainText('Thinking…');
+  await expect(indicator).toHaveAttribute('aria-busy', 'true');
+  await expect(page.locator('#chatBody')).toHaveAttribute('aria-busy', 'true');
+});
+
 test('sending clears the input and resets its height', async ({ page }) => {
   await open(page);
   await send(page, 'Hello there');
@@ -478,11 +489,11 @@ test('a stream that goes silent after a status reports a timeout', async ({ page
   await expect(page.locator('.sp-error')).toHaveText(TIMED_OUT);
 });
 
-test('a port that never responds at all does not arm the watchdog', async ({ page }) => {
+test('a port that never responds keeps showing the thinking indicator', async ({ page }) => {
   // Existing behavior: the watchdog is armed by incoming messages, so a port
   // that stays completely silent leaves the turn pending indefinitely.
-  // Documented here so the component conversion preserves it rather than
-  // silently changing it.
+  // The pending request remains visible even before the background sends its
+  // first status or content event.
   await page.clock.install();
   await open(page);
   await send(page, 'Hi');
@@ -490,7 +501,7 @@ test('a port that never responds at all does not arm the watchdog', async ({ pag
   await page.clock.fastForward(WATCHDOG_MS + 1000);
 
   await expect(page.locator('.sp-error')).toHaveCount(0);
-  await expect(page.locator('.sp-msg-assistant')).toHaveCount(0);
+  await expect(page.locator('.sp-thinking')).toContainText('Thinking…');
 });
 
 test('a stream that goes silent after partial text keeps the text', async ({ page }) => {
