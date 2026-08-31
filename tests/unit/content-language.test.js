@@ -584,6 +584,11 @@ async function testChatFollowUpRelabelsSpinnerOnDelegatingStatus() {
 }
 
 async function main() {
+  const staleStorageContext = await createContentContext({ apiKey: 'test-key', languagePreference: 'en' });
+  staleStorageContext.context.chrome.storage = undefined;
+  assert.doesNotThrow(() => staleStorageContext.storageListeners[0]({}, 'sync'),
+    'a late storage event must tolerate an invalidated storage namespace');
+
   await testA2aServersDoNotAppearAsProviderEntries();
   await testSyncRemovalOfLegacyA2aServersDoesNotClearLocalServers();
   await testLocalA2aServerChangesUpdateContentState();

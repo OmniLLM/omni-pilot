@@ -209,7 +209,7 @@ import { renderMarkdown, escapeHtml } from '../utils/markdown.mjs';
     if (changes.providerType) currentProviderType = normalizeProviderType(changes.providerType.newValue || 'custom-provider');
     if (changes.authMethod) currentAuthMethod = changes.authMethod.newValue || 'api-key';
     if (changes.apiKey) currentApiKey = changes.apiKey.newValue || '';
-    const a2aServersStorageName = (chrome.storage.local ? 'local' : 'sync');
+    const a2aServersStorageName = (chrome.storage?.local ? 'local' : 'sync');
     const a2aServersChanged = Boolean(changes.a2aServers) && (areaName === undefined || areaName === a2aServersStorageName);
     if (a2aServersChanged) a2aServers = changes.a2aServers.newValue || [];
     if (changes.endpoint || changes.providerType || changes.authMethod || a2aServersChanged) {
@@ -230,7 +230,7 @@ import { renderMarkdown, escapeHtml } from '../utils/markdown.mjs';
   }
 
   function getA2aServersStorageArea() {
-    return chrome.storage.local || chrome.storage.sync;
+    return chrome.storage?.local || chrome.storage?.sync;
   }
 
   function loadA2aServersFromStorage(callback) {

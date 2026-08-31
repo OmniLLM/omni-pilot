@@ -146,64 +146,81 @@ const CHAT_SYSTEM_PROMPT = 'You are a helpful assistant. Continue the conversati
 
 // ── Context Menu Setup ─────────────────────────────────────────────────────────
 
+let contextMenuSetupInProgress = false;
+
 function setupContextMenus() {
+  // onInstalled and onStartup can fire close enough together for both
+  // removeAll callbacks to run before either caller creates its items.  Keep
+  // the remove/create sequence atomic from this worker's point of view.
+  if (contextMenuSetupInProgress) return;
+  contextMenuSetupInProgress = true;
+
   chrome.contextMenus.removeAll(() => {
-    chrome.contextMenus.create({
+    // Reading lastError marks an extension API failure as handled.  A failed
+    // remove means creating the fixed IDs could itself produce duplicate-ID
+    // errors, so leave the existing menu intact and try again next lifecycle.
+    if (chrome.runtime.lastError) {
+      contextMenuSetupInProgress = false;
+      return;
+    }
+
+    const items = [{
       id: 'omnipilot-translate',
       title: '🌍 Translate',
       contexts: ['selection']
-    });
-    chrome.contextMenus.create({
+    }, {
       id: 'omnipilot-summarize',
       title: '📝 Summarize',
       contexts: ['selection']
-    });
-    chrome.contextMenus.create({
+    }, {
       id: 'omnipilot-explain',
       title: '💡 Explain',
       contexts: ['selection']
-    });
-    chrome.contextMenus.create({
+    }, {
       id: 'omnipilot-improve',
       title: '✨ Improve',
       contexts: ['selection']
-    });
-    chrome.contextMenus.create({
+    }, {
       id: 'omnipilot-sentiment',
       title: '😊 Sentiment',
       contexts: ['selection']
-    });
-    chrome.contextMenus.create({
+    }, {
       id: 'omnipilot-code-explain',
       title: '🔧 Code Explain',
       contexts: ['selection']
-    });
-    chrome.contextMenus.create({
+    }, {
       id: 'omnipilot-ask',
       title: '❓ Ask',
       contexts: ['selection']
-    });
-    chrome.contextMenus.create({
+    }, {
       id: 'omnipilot-separator',
       type: 'separator',
       contexts: ['page', 'selection']
-    });
-    chrome.contextMenus.create({
+    }, {
       id: 'omnipilot-summarize-page',
       title: '📄 Summarize Page',
       contexts: ['page', 'selection']
-    });
-    chrome.contextMenus.create({
+    }, {
       id: 'omnipilot-summarize-github',
       title: '🐙 Summarize Issue/PR',
       contexts: ['page'],
       documentUrlPatterns: ['*://github.com/*/issues/*', '*://github.com/*/pull/*']
-    });
-    chrome.contextMenus.create({
+    }, {
       id: 'omnipilot-open-side-panel',
       title: '💬 Ask about this page',
       contexts: ['page', 'selection']
-    });
+    }];
+
+    let pending = items.length;
+    for (const item of items) {
+      chrome.contextMenus.create(item, () => {
+        // Always consume lastError so Chrome does not report an unchecked
+        // runtime error if an individual menu item cannot be registered.
+        void chrome.runtime.lastError;
+        pending -= 1;
+        if (pending === 0) contextMenuSetupInProgress = false;
+      });
+    }
   });
 }
 

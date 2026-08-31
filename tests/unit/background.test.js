@@ -28,7 +28,7 @@ async function runActionTest({ config = {}, responseJson }) {
       },
       contextMenus: {
         removeAll(cb) { cb(); },
-        create() {},
+        create(_item, cb) { cb?.(); },
         onClicked: { addListener() {} }
       },
       storage: {
@@ -253,7 +253,7 @@ async function createBackgroundContext({
       },
       contextMenus: {
         removeAll(cb) { cb(); },
-        create() {},
+        create(_item, cb) { cb?.(); },
         onClicked: { addListener() {} }
       },
       storage: { sync, local }
@@ -4619,6 +4619,26 @@ async function assertContextMenuSetupCreatesExpectedMenuItems() {
   assert.strictEqual(typeof context.setupContextMenus, 'function');
 }
 
+async function assertContextMenuSetupIsSingleFlight() {
+  const { context } = await createBackgroundContext({ storage: {} });
+  const removeCallbacks = [];
+  const createdIds = [];
+
+  context.chrome.contextMenus.removeAll = callback => removeCallbacks.push(callback);
+  context.chrome.contextMenus.create = (item, callback) => {
+    createdIds.push(item.id);
+    callback?.();
+  };
+
+  context.setupContextMenus();
+  context.setupContextMenus();
+
+  assert.strictEqual(removeCallbacks.length, 1, 'overlapping lifecycle events must share one menu rebuild');
+  removeCallbacks[0]();
+  assert.strictEqual(createdIds.length, 11);
+  assert.strictEqual(new Set(createdIds).size, createdIds.length, 'one rebuild must not create duplicate IDs');
+}
+
 async function assertContextMenuMessageToATablessPageIsNotAnUnhandledRejection() {
   const { context } = await createBackgroundContext({ storage: {} });
 
@@ -5311,6 +5331,7 @@ async function main() {
   await assertA2aToolProviderRegistersOnePerSkill();
   await assertA2aToolProviderUsesCollisionSafeNames();
   await assertContextMenuSetupCreatesExpectedMenuItems();
+  await assertContextMenuSetupIsSingleFlight();
   await assertContextMenuMessageToATablessPageIsNotAnUnhandledRejection();
   await assertNewActionPromptsExist();
 }
