@@ -4619,6 +4619,24 @@ async function assertContextMenuSetupCreatesExpectedMenuItems() {
   assert.strictEqual(typeof context.setupContextMenus, 'function');
 }
 
+async function assertTabSidePanelUsesDedicatedDocument() {
+  const { context } = await createBackgroundContext({ storage: {} });
+  const options = [];
+  context.chrome.sidePanel = {
+    setOptions(value) {
+      options.push(value);
+      return Promise.resolve();
+    }
+  };
+
+  context.configureTabSidePanel(42);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(options)), [{
+    tabId: 42,
+    path: 'dist/sidepanel.html?tabId=42',
+    enabled: true
+  }]);
+}
+
 async function assertContextMenuSetupIsSingleFlight() {
   const { context } = await createBackgroundContext({ storage: {} });
   const removeCallbacks = [];
@@ -5331,6 +5349,7 @@ async function main() {
   await assertA2aToolProviderRegistersOnePerSkill();
   await assertA2aToolProviderUsesCollisionSafeNames();
   await assertContextMenuSetupCreatesExpectedMenuItems();
+  await assertTabSidePanelUsesDedicatedDocument();
   await assertContextMenuSetupIsSingleFlight();
   await assertContextMenuMessageToATablessPageIsNotAnUnhandledRejection();
   await assertNewActionPromptsExist();

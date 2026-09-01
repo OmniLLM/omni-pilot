@@ -95,7 +95,16 @@ function PopupApp() {
     try {
       chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
         const tabId = tabs && tabs[0] && tabs[0].id;
-        if (typeof tabId === 'number') tabIdRef.current = tabId;
+        if (typeof tabId === 'number') {
+          tabIdRef.current = tabId;
+          try {
+            chrome.sidePanel?.setOptions?.({
+              tabId,
+              path: `dist/sidepanel.html?tabId=${tabId}`,
+              enabled: true
+            })?.catch?.(() => {});
+          } catch {}
+        }
       });
     } catch {}
     return undefined;
@@ -206,6 +215,13 @@ function PopupApp() {
     if (typeof chrome === 'undefined' || !chrome.sidePanel?.open) return;
     const tabId = tabIdRef.current;
     try {
+      if (typeof tabId === 'number') {
+        chrome.sidePanel.setOptions?.({
+          tabId,
+          path: `dist/sidepanel.html?tabId=${tabId}`,
+          enabled: true
+        })?.catch?.(() => {});
+      }
       const opened = tabId === null
         ? chrome.sidePanel.open({})
         : chrome.sidePanel.open({ tabId });

@@ -29,6 +29,29 @@ the user is viewing, without requiring the browser's own side panel menu.
 - **WHEN** either affordance is activated
 - **THEN** the side panel open call is issued synchronously within the click handler, so the browser's user-gesture requirement is satisfied
 
+### Requirement: Each tab owns its side panel
+
+The extension SHALL configure the side panel for the tab that opened it. Its
+conversation and page context SHALL NOT be shared with other open tabs.
+
+#### Scenario: A tab has not opened the assistant
+
+- **GIVEN** another tab has opened "Ask about this page"
+- **WHEN** the user visits a tab that has not opened the assistant
+- **THEN** that tab does not inherit the other tab's panel
+
+#### Scenario: Switching between tabs with panels
+
+- **GIVEN** two tabs have each opened "Ask about this page"
+- **WHEN** the user switches between those tabs
+- **THEN** each tab shows its own side-panel document and conversation
+
+#### Scenario: Another tab becomes active
+
+- **GIVEN** a side panel is bound to one tab
+- **WHEN** a different tab becomes active
+- **THEN** the first tab's panel does not replace its page context with the other tab's page
+
 ### Requirement: The page is readable by the side panel
 
 The content script SHALL answer a page-context request with the current page's
@@ -98,10 +121,10 @@ user exclude it.
 - **AND WHEN** the user unchecks it
 - **THEN** the page is excluded from subsequent requests
 
-#### Scenario: The chip follows the user
+#### Scenario: The chip follows navigation in its tab
 
-- **WHEN** the user switches to another tab, or the active tab finishes loading a new page
-- **THEN** the chip refreshes to describe the newly active page
+- **WHEN** the panel's owning tab finishes loading a new page
+- **THEN** the chip refreshes to describe that page
 
 ### Requirement: Conversations are grounded in the page
 

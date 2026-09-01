@@ -143,6 +143,28 @@ const ACTION_PROMPTS = Object.fromEntries(
 );
 
 const CHAT_SYSTEM_PROMPT = 'You are a helpful assistant. Continue the conversation naturally.';
+const SIDE_PANEL_PATH = 'dist/sidepanel.html';
+
+// Give every tab its own side-panel document. The tab id in the URL is both
+// the page-context binding and an instance key: Chrome can now swap between
+// independent panel documents instead of reusing one global conversation.
+function configureTabSidePanel(tabId) {
+  if (typeof tabId !== 'number') return;
+  try {
+    chrome.sidePanel?.setOptions?.({
+      tabId,
+      path: `${SIDE_PANEL_PATH}?tabId=${tabId}`,
+      enabled: true
+    })?.catch?.(() => {});
+  } catch {}
+}
+
+// The manifest path is a fallback required by the API, not a global chat.
+// Disable that fallback so tabs that have not explicitly opened OmniPilot do
+// not inherit another tab's panel. A tab-specific enabled option overrides it.
+try {
+  chrome.sidePanel?.setOptions?.({ enabled: false })?.catch?.(() => {});
+} catch {}
 
 // ── Context Menu Setup ─────────────────────────────────────────────────────────
 
@@ -244,6 +266,7 @@ if (chrome.contextMenus) {
     // requires an active user gesture and rejects if awaited past it.
     if (action === 'open-side-panel') {
       try {
+        configureTabSidePanel(tab.id);
         chrome.sidePanel?.open?.({ tabId: tab.id })?.catch?.(() => {});
       } catch {}
       return;

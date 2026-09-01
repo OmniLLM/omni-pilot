@@ -25,6 +25,12 @@ const PAGE_CONTEXT_MAX_CHARS = 12000;
 const NO_PAGE_FOR_ACTION_ERROR = "This page can't be read, so there is nothing to run that on.";
 const DEFAULT_MODEL = 'claude-sonnet-4-5';
 const DEFAULT_PROVIDER_TYPE = 'custom-provider';
+const PANEL_TAB_ID = (() => {
+  const value = new URLSearchParams(globalThis.location?.search || '').get('tabId');
+  if (value === null || value === '') return null;
+  const tabId = Number(value);
+  return Number.isInteger(tabId) && tabId >= 0 ? tabId : null;
+})();
 
 // Chat is not one of ACTIONS — it is the absence of an action — but it heads
 // the selector so the user can get back to plain conversation.
@@ -41,33 +47,54 @@ function providerLabel(providerType) {
  */
 function fetchPageContext() {
   return new Promise(resolve => {
-    if (typeof chrome === 'undefined' || !chrome.tabs?.query) {
+    if (typeof chrome === 'undefined' || !chrome.tabs) {
       resolve(null);
       return;
     }
+    const readTab = tab => {
+      if (!tab?.id) {
+        resolve(null);
+        return;
+      }
+      try {
+        chrome.tabs.sendMessage(tab.id, { type: 'GET_PAGE_CONTEXT' }, response => {
+          if (chrome.runtime.lastError || !response?.success) {
+            resolve(null);
+            return;
+          }
+          resolve({
+            tabId: tab.id,
+            title: response.title || tab.title || '',
+            url: response.url || tab.url || '',
+            content: String(response.content || '').slice(0, PAGE_CONTEXT_MAX_CHARS)
+          });
+        });
+      } catch {
+        resolve(null);
+      }
+    };
     try {
+      if (PANEL_TAB_ID !== null && chrome.tabs.get) {
+        chrome.tabs.get(PANEL_TAB_ID, tab => {
+          if (chrome.runtime.lastError) {
+            resolve(null);
+            return;
+          }
+          readTab(tab);
+        });
+        return;
+      }
+      if (!chrome.tabs.query) {
+        resolve(null);
+        return;
+      }
       chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
         const tab = tabs && tabs[0];
         if (chrome.runtime.lastError || !tab?.id) {
           resolve(null);
           return;
         }
-        try {
-          chrome.tabs.sendMessage(tab.id, { type: 'GET_PAGE_CONTEXT' }, response => {
-            if (chrome.runtime.lastError || !response?.success) {
-              resolve(null);
-              return;
-            }
-            resolve({
-              tabId: tab.id,
-              title: response.title || tab.title || '',
-              url: response.url || tab.url || '',
-              content: String(response.content || '').slice(0, PAGE_CONTEXT_MAX_CHARS)
-            });
-          });
-        } catch {
-          resolve(null);
-        }
+        readTab(tab);
       });
     } catch {
       resolve(null);
@@ -413,7 +440,9 @@ function SidePanel() {
     if (body) body.scrollTop = body.scrollHeight;
   }, [messages]);
 
-  // Track the page the user is looking at, so the conversation can be about it.
+  // Bind this panel to the tab that opened it. Other tab activations must not
+  // replace its page context or conversation; only navigation in its own tab
+  // refreshes the page snapshot.
   useEffect(() => {
     let cancelled = false;
 
@@ -428,16 +457,13 @@ function SidePanel() {
     refresh();
 
     const tabs = typeof chrome !== 'undefined' ? chrome.tabs : undefined;
-    const onActivated = () => refresh();
-    const onUpdated = (_tabId, changeInfo, tab) => {
-      if (tab?.active && changeInfo?.status === 'complete') refresh();
+    const onUpdated = (tabId, changeInfo) => {
+      if (PANEL_TAB_ID !== null && tabId === PANEL_TAB_ID && changeInfo?.status === 'complete') refresh();
     };
-    tabs?.onActivated?.addListener?.(onActivated);
     tabs?.onUpdated?.addListener?.(onUpdated);
 
     return () => {
       cancelled = true;
-      tabs?.onActivated?.removeListener?.(onActivated);
       tabs?.onUpdated?.removeListener?.(onUpdated);
     };
   }, []);

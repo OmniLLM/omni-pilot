@@ -27,6 +27,7 @@ async function open(page, stored = {}) {
     window.__store = store;
     window.__openedOptions = 0;
     window.__sidePanelOpens = [];
+    window.__sidePanelOptions = [];
     window.__tabsQueries = 0;
     window.__fireChange = (changes, area = 'sync') => {
       Object.entries(changes).forEach(([key, value]) => { store[key] = value.newValue; });
@@ -52,6 +53,10 @@ async function open(page, stored = {}) {
         }
       },
       sidePanel: {
+        setOptions(options) {
+          window.__sidePanelOptions.push(options);
+          return undefined;
+        },
         open(options) {
           window.__sidePanelOpens.push(options);
           return undefined;
@@ -275,6 +280,10 @@ test('the primary action opens the side panel synchronously for the resolved tab
   expect(await page.evaluate(() => window.__tabsQueries)).toBe(1);
   expect(await page.evaluate(() => window.__sidePanelCallWasSynchronous)).toBe(true);
   expect(await page.evaluate(() => window.__sidePanelOpens)).toEqual([{ tabId: 37 }]);
+  expect(await page.evaluate(() => window.__sidePanelOptions)).toEqual([
+    { tabId: 37, path: 'dist/sidepanel.html?tabId=37', enabled: true },
+    { tabId: 37, path: 'dist/sidepanel.html?tabId=37', enabled: true }
+  ]);
 });
 
 test('the settings button opens the options page', async ({ page }) => {

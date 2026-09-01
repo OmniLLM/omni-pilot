@@ -20,7 +20,11 @@ const PAGE = {
  * @param {object|null} pageResponse what the content script replies with, or
  *   null to simulate a page that has no content script (restricted URLs).
  */
-async function open(page, { pageResponse = PAGE, tab = { id: 7, title: 'Quarterly Report', url: 'https://example.com/report' } } = {}) {
+async function open(page, {
+  pageResponse = PAGE,
+  tab = { id: 7, title: 'Quarterly Report', url: 'https://example.com/report' },
+  panelTabId = null
+} = {}) {
   await page.addInitScript(({ pageResponse, tab }) => {
     const ports = [];
     window.__ports = ports;
@@ -49,6 +53,7 @@ async function open(page, { pageResponse = PAGE, tab = { id: 7, title: 'Quarterl
       },
       tabs: {
         query(_info, callback) { callback(tab ? [tab] : []); },
+        get(tabId, callback) { callback(tab && tab.id === tabId ? tab : undefined); },
         sendMessage(_tabId, message, callback) {
           if (message.type !== 'GET_PAGE_CONTEXT') { callback(undefined); return; }
           if (!pageResponse) {
@@ -77,7 +82,7 @@ async function open(page, { pageResponse = PAGE, tab = { id: 7, title: 'Quarterl
     };
   }, { pageResponse, tab });
 
-  await page.goto(SIDEPANEL_URL);
+  await page.goto(panelTabId === null ? SIDEPANEL_URL : `${SIDEPANEL_URL}?tabId=${panelTabId}`);
 }
 
 async function send(page, text) {
@@ -187,8 +192,8 @@ test('sends no page context when the page has no extractable text', async ({ pag
   expect(messages).toEqual([{ role: 'user', content: 'Hello' }]);
 });
 
-test('refreshes the chip when the user switches tabs', async ({ page }) => {
-  await open(page);
+test('a tab-specific panel ignores other tab activations', async ({ page }) => {
+  await open(page, { panelTabId: 7 });
   await expect(page.locator('.sp-context-text')).toHaveText('Quarterly Report');
 
   await page.evaluate(() => {
@@ -199,5 +204,25 @@ test('refreshes the chip when the user switches tabs', async ({ page }) => {
     window.__tabListeners.activated.forEach(fn => fn({ tabId: 9 }));
   });
 
-  await expect(page.locator('.sp-context-text')).toHaveText('Another Page');
+  await expect(page.locator('.sp-context-text')).toHaveText('Quarterly Report');
+  expect(await page.evaluate(() => window.__tabListeners.activated.length)).toBe(0);
+});
+
+test('a tab-specific panel refreshes only when its own tab finishes navigating', async ({ page }) => {
+  await open(page, { panelTabId: 7 });
+  await expect(page.locator('.sp-context-text')).toHaveText('Quarterly Report');
+
+  await page.evaluate(() => {
+    window.chrome.tabs.sendMessage = (_tabId, message, callback) => {
+      if (message.type !== 'GET_PAGE_CONTEXT') { callback(undefined); return; }
+      callback({ success: true, title: 'Updated Report', url: 'https://example.com/report/2', content: 'New text.' });
+    };
+    window.__tabListeners.updated.forEach(fn => fn(9, { status: 'complete' }, { active: true }));
+  });
+  await expect(page.locator('.sp-context-text')).toHaveText('Quarterly Report');
+
+  await page.evaluate(() => {
+    window.__tabListeners.updated.forEach(fn => fn(7, { status: 'complete' }, { active: false }));
+  });
+  await expect(page.locator('.sp-context-text')).toHaveText('Updated Report');
 });
