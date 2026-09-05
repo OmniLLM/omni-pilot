@@ -3,6 +3,7 @@ const vm = require('vm');
 const assert = require('assert');
 
 const source = fs.readFileSync('dist/background.js', 'utf8');
+const coreStreamMessages = messages => messages.filter(message => !['request.details', 'tools.available', 'tools.unavailable', 'tool.details'].includes(message.activity?.type));
 
 const RESPONSE_BY_SHAPE = {
   'openai-compatible': { choices: [{ message: { content: 'ok' } }] },
@@ -3954,14 +3955,28 @@ async function assertStreamingChatAutoRouteHandlesA2aToolCalls() {
   // 'working' follows the dispatch: once the tool result is back, the runner
   // makes another provider round to compose the answer, and the spinner must
   // stop claiming it is still delegating.
-  assert.deepStrictEqual(JSON.parse(JSON.stringify(portMessages)), [
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(coreStreamMessages(portMessages))), [
+    { type: 'activity', activity: { type: 'context.built' } },
+    { type: 'activity', activity: { type: 'tools.discovery' } },
+    { type: 'activity', activity: { type: 'provider.request' } },
     { type: 'status', status: 'delegating' },
+    { type: 'activity', activity: { type: 'tool.dispatch', toolName: 'a2a__launcher__skill_alibaba', callId: '0:0' } },
+    { type: 'activity', activity: { type: 'tool.result', toolName: 'a2a__launcher__skill_alibaba', callId: '0:0', ok: true } },
+    { type: 'activity', activity: { type: 'provider.request' } },
     { type: 'status', status: 'working' },
     { type: 'chunk', text: '11053 Alibaba VMs' },
     { type: 'done' }
   ]);
   assert.ok(requests.some(request => request.url === 'https://custom.example/v1/chat/completions'), 'should let the model choose an A2A tool');
   assert.ok(requests.some(request => request.url === 'https://launcher.example/a2a'), 'should delegate selected A2A tool call');
+  const available = portMessages.find(message => message.activity?.type === 'tools.available')?.activity;
+  assert.ok(available?.tools.some(tool => tool.name === 'a2a__launcher__skill_alibaba'));
+  const details = portMessages.filter(message => message.activity?.type === 'tool.details').map(message => message.activity);
+  assert.strictEqual(details.length, 2, 'dispatch and result include tool details');
+  assert.ok(details[0].serverName);
+  assert.ok(details[0].skillName);
+  assert.ok(details[1].durationMs >= 0);
+  assert.ok(details[1].textLen > 0);
 }
 
 // Regression: before the streaming fix, ordinary chat (no A2A servers) was
@@ -4004,7 +4019,11 @@ async function assertStreamingChatPlainChatStreams() {
   await new Promise(resolve => setTimeout(resolve, 30));
 
   assert.ok(!portMessages.some(m => m.type === 'status'), 'plain chat should not emit a delegating status');
-  assert.deepStrictEqual(JSON.parse(JSON.stringify(portMessages)), [
+  assert.ok(portMessages.some(m => m.activity?.type === 'tools.unavailable'));
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(coreStreamMessages(portMessages))), [
+    { type: 'activity', activity: { type: 'context.built' } },
+    { type: 'activity', activity: { type: 'tools.discovery' } },
+    { type: 'activity', activity: { type: 'provider.request' } },
     { type: 'chunk', text: 'Refund policy explained.' },
     { type: 'done' }
   ]);
@@ -4061,7 +4080,10 @@ async function assertStreamingChatDoesNotShowDelegatingBeforeToolSelection() {
   });
 
   assert.ok(!portMessages.some(m => m.type === 'status'), 'direct answers should not show A2A delegation status before any tool call');
-  assert.deepStrictEqual(JSON.parse(JSON.stringify(portMessages)), [
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(coreStreamMessages(portMessages))), [
+    { type: 'activity', activity: { type: 'context.built' } },
+    { type: 'activity', activity: { type: 'tools.discovery' } },
+    { type: 'activity', activity: { type: 'provider.request' } },
     { type: 'chunk', text: 'Direct answer without delegation.' },
     { type: 'done' }
   ]);
@@ -4490,6 +4512,7 @@ async function assertStreamingActionIgnoresDisconnectedPortDuringDone() {
   });
 
   assert.deepStrictEqual(JSON.parse(JSON.stringify(portMessages)), [
+    { type: 'activity', activity: { type: 'provider.request' } },
     { type: 'chunk', text: 'partial' }
   ]);
 }
@@ -4528,10 +4551,8 @@ async function assertStreamingChatConnectedPortStillReceivesErrorAndDone() {
     messages: [{ role: 'user', content: 'trigger an upstream failure' }]
   });
 
-  assert.strictEqual(portMessages.length, 2, 'connected stream port should receive error and done');
-  assert.strictEqual(portMessages[0].type, 'error');
-  assert.ok(portMessages[0].error.includes('upstream unavailable'), `expected upstream error, got ${portMessages[0].error}`);
-  assert.strictEqual(portMessages[1].type, 'done');
+  assert.deepStrictEqual(coreStreamMessages(portMessages).map(message => message.type), ['activity', 'activity', 'activity', 'error', 'done']);
+  assert.ok(portMessages.at(-2).error.includes('upstream unavailable'), `expected upstream error, got ${portMessages.at(-2).error}`);
 }
 
 // A dedicated A2A provider streams a delegating status then the delegated text.

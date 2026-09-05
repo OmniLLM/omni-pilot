@@ -5,6 +5,7 @@ import { t, normalizeLanguage } from '../utils/i18n.mjs';
 import { createAppearanceController } from '../utils/appearance.mjs';
 import { PROVIDER_LABELS, getProviderEntries, ACTIONS } from '../utils/catalog.mjs';
 import { renderMarkdown, escapeHtml } from '../utils/markdown.mjs';
+import { createPromptHistory, createChatNavigation, createRequestActivity, updateRequestActivity, finishRequestActivity, renderRequestActivity } from '../utils/chat-ui.mjs';
 
 (function () {
   'use strict';
@@ -12,12 +13,16 @@ import { renderMarkdown, escapeHtml } from '../utils/markdown.mjs';
   let bubble = null;
   let dropdown = null;
   let panel = null;
+  let chatNavigation = null;
   let minimizedOrb = null; // floating icon shown while the panel is minimized
   let panelMinimized = false;
   let lastSelection = '';
   let lastSelectionRect = null;
   let currentLanguage = 'en';
   let conversationHistory = []; // stores {role, content} for multi-turn chat
+  const promptHistory = createPromptHistory(() => conversationHistory
+    .filter(message => message.role === 'user' && !message.kind && typeof message.content === 'string')
+    .map(message => message.content));
   let currentModel = '';
   let currentProvider = '';
   let currentAction = ''; // tracks which action is running
@@ -1239,6 +1244,17 @@ import { renderMarkdown, escapeHtml } from '../utils/markdown.mjs';
       body.setAttribute('role', 'log');
       body.setAttribute('aria-label', 'Conversation transcript');
       body.setAttribute('aria-relevant', 'additions');
+      body.tabIndex = 0;
+      body.setAttribute('aria-describedby', 'omnipilot-chat-hint');
+      const latest = document.createElement('button');
+      latest.type = 'button';
+      latest.className = 'omnipilot-latest';
+      latest.textContent = '↓ Latest message';
+      latest.hidden = true;
+      chatNavigation?.dispose();
+      chatNavigation = createChatNavigation(body, away => { latest.hidden = !away; });
+      latest.addEventListener('click', () => chatNavigation.latest());
+      body.addEventListener('keydown', event => chatNavigation.keydown(event));
 
       body.addEventListener('click', e => {
         const settingsLink = e.target.closest?.('.omnipilot-error-link');
@@ -1284,8 +1300,11 @@ import { renderMarkdown, escapeHtml } from '../utils/markdown.mjs';
       input.className = 'omnipilot-panel-input';
       input.placeholder = label('askFollowUp');
       input.rows = 1;
+      input.setAttribute('aria-describedby', 'omnipilot-chat-hint');
       input.addEventListener('keydown', e => {
-        if (e.key === 'Enter' && !e.shiftKey && input.value.trim()) {
+        if (promptHistory.keydown(e)) return;
+        chatNavigation?.keydown(e);
+        if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && input.value.trim()) {
           e.preventDefault();
           e.stopPropagation();
           sendFollowUp(input.value.trim());
@@ -1295,6 +1314,7 @@ import { renderMarkdown, escapeHtml } from '../utils/markdown.mjs';
         if (e.key === 'Escape') e.stopPropagation();
       });
       input.addEventListener('input', () => {
+        promptHistory.reset();
         input.style.height = 'auto';
         const maxH = parseInt(input.style.maxHeight, 10) || 120;
         input.style.height = Math.min(input.scrollHeight, maxH) + 'px';
@@ -1316,10 +1336,16 @@ import { renderMarkdown, escapeHtml } from '../utils/markdown.mjs';
       inputArea.appendChild(inputLabel);
       inputArea.appendChild(input);
       inputArea.appendChild(sendBtn);
+      const hint = document.createElement('p');
+      hint.id = 'omnipilot-chat-hint';
+      hint.className = 'omnipilot-chat-hint';
+      hint.textContent = '↑ ↓ previous / next prompt · Alt + ↑ ↓ scroll chat';
+      inputArea.appendChild(hint);
 
       panel.appendChild(header);
       panel.appendChild(status);
       panel.appendChild(body);
+      panel.appendChild(latest);
       panel.appendChild(inputArea);
       panel.appendChild(resizeHandle);
       getUiMount().appendChild(panel);
@@ -1367,6 +1393,7 @@ import { renderMarkdown, escapeHtml } from '../utils/markdown.mjs';
   }
 
   function sendFollowUp(question) {
+    promptHistory.reset();
     conversationHistory.push({ role: 'user', content: question });
     const a2aMentionTask = parseA2aMentionTask(question);
 
@@ -1394,6 +1421,28 @@ import { renderMarkdown, escapeHtml } from '../utils/markdown.mjs';
 
     // A2A delegation uses non-streaming sendMessage (A2A protocol is not SSE)
     if (a2aMentionTask?.server) {
+      const activityDetails = document.createElement('details');
+      activityDetails.className = 'op-activity';
+      activityDetails.open = false;
+      const summary = document.createElement('summary');
+      const activityBody = document.createElement('div');
+      activityBody.className = 'op-activity-body';
+      const toolName = a2aMentionTask.server.name || a2aMentionTask.server.id;
+      let activity = updateRequestActivity(createRequestActivity(), { type: 'tool.dispatch', toolName });
+      summary.textContent = activity.status;
+      activityBody.innerHTML = renderRequestActivity(activity);
+      activityDetails.appendChild(summary);
+      activityDetails.appendChild(activityBody);
+      body.appendChild(activityDetails);
+      chatNavigation?.latest();
+      const settleActivity = outcome => {
+        activity = updateRequestActivity(activity, { type: 'tool.result', toolName, ok: outcome === 'complete' });
+        activity = finishRequestActivity(activity, outcome);
+        summary.textContent = activity.status;
+        activityBody.innerHTML = renderRequestActivity(activity);
+        chatNavigation?.refresh();
+      };
+      signal.addEventListener('abort', () => settleActivity('cancelled'), { once: true });
       const sent = safeSendMessage(
         runtime,
         {
@@ -1406,19 +1455,23 @@ import { renderMarkdown, escapeHtml } from '../utils/markdown.mjs';
           if (signal.aborted) return;
           body.querySelector('.omnipilot-loading')?.remove();
           if (runtime.lastError) {
+            settleActivity('error');
             body.appendChild(createErrorElement(humanizeError(runtime.lastError.message)));
             return;
           }
           if (!response || !response.success) {
+            settleActivity('error');
             body.appendChild(createErrorElement(humanizeError(response?.error)));
             return;
           }
           conversationHistory.push({ role: 'assistant', content: response.result, kind: 'a2a-result' });
+          settleActivity('complete');
           body.appendChild(createAssistantMessage(response.result));
-          body.scrollTop = body.scrollHeight;
+          chatNavigation?.refresh();
         }
       );
       if (!sent) {
+        settleActivity('error');
         body.querySelector('.omnipilot-loading')?.remove();
         body.appendChild(createErrorElement(label('extensionContextUnavailable')));
       }
@@ -1493,9 +1546,11 @@ import { renderMarkdown, escapeHtml } from '../utils/markdown.mjs';
 
     const body = panel.querySelector('.omnipilot-panel-body');
     if (body) {
-      const prevHtml = body.innerHTML || '';
-      body.innerHTML = prevHtml + renderSelectionContext(text, contextId);
-      body.scrollTop = body.scrollHeight;
+      body.insertAdjacentHTML('beforeend', renderSelectionContext(text, contextId));
+      chatNavigation?.latest();
+      // Keep the newly attached context's remove control reachable even when
+      // the transcript is shorter than the context card itself.
+      body.lastElementChild?.querySelector('.omnipilot-context-remove')?.scrollIntoView({ block: 'nearest' });
     }
   }
 
@@ -2349,6 +2404,35 @@ import { renderMarkdown, escapeHtml } from '../utils/markdown.mjs';
     let streamingMsg = null;
     let streamMsgDiv = null;
     let settled = false;
+    chatNavigation?.latest();
+    let activity = createRequestActivity();
+    const activityDetails = document.createElement('details');
+    activityDetails.className = 'op-activity';
+    activityDetails.open = false;
+    const activitySummary = document.createElement('summary');
+    const activityBody = document.createElement('div');
+    activityBody.className = 'op-activity-body';
+    activityDetails.appendChild(activitySummary);
+    activityDetails.appendChild(activityBody);
+    body.appendChild(activityDetails);
+    function paintActivity() {
+      activitySummary.textContent = `${activity.status} · Activity`;
+      activityBody.innerHTML = renderRequestActivity(activity);
+      chatNavigation?.refresh();
+    }
+    function endActivity(outcome) {
+      activity = finishRequestActivity(activity, outcome);
+      paintActivity();
+    }
+    paintActivity();
+    signal.addEventListener('abort', () => {
+      if (settled) return;
+      settled = true;
+      clearWatchdog();
+      endActivity('cancelled');
+      if (streamMsgDiv) finalizeStreamingMessage(streamMsgDiv);
+      try { port.disconnect(); } catch {}
+    }, { once: true });
 
     let watchdog = null;
     function clearWatchdog() {
@@ -2361,6 +2445,8 @@ import { renderMarkdown, escapeHtml } from '../utils/markdown.mjs';
       watchdog = setTimeout(() => {
         if (settled || signal.aborted) return;
         settled = true;
+        endActivity('interrupted');
+        if (streamMsgDiv) finalizeStreamingMessage(streamMsgDiv);
         removeLoadingIndicators(body);
         if (!accumulated && !body.querySelector('.omnipilot-error')) {
           body.appendChild(createErrorElement(label('noResponse')));
@@ -2379,6 +2465,8 @@ import { renderMarkdown, escapeHtml } from '../utils/markdown.mjs';
 
       if (msg.type === 'chunk') {
         if (!streamingMsg) {
+          activity = updateRequestActivity(activity, { type: 'response.streaming' });
+          paintActivity();
           body.querySelector('.omnipilot-loading')?.remove();
           const created = createStreamingAssistantMessage();
           streamingMsg = created.container;
@@ -2387,11 +2475,15 @@ import { renderMarkdown, escapeHtml } from '../utils/markdown.mjs';
         }
         accumulated += msg.text;
         streamMsgDiv.textContent = accumulated;
-        body.scrollTop = body.scrollHeight;
-      } else if (msg.type === 'status' && onStatus) {
-        onStatus(msg);
+        chatNavigation?.refresh();
+      } else if (msg.type === 'activity' || msg.type === 'status') {
+        activity = updateRequestActivity(activity, msg.type === 'activity' ? msg.activity : msg);
+        paintActivity();
+        if (msg.type === 'status') onStatus?.(msg);
+        if (msg.activity?.type !== 'reasoning.summary') updatePanelStatus(activity.status);
       } else if (msg.type === 'error') {
         settled = true;
+        endActivity('error');
         clearWatchdog();
         removeLoadingIndicators(body);
         if (accumulated && streamMsgDiv) {
@@ -2401,10 +2493,11 @@ import { renderMarkdown, escapeHtml } from '../utils/markdown.mjs';
         body.appendChild(createErrorElement(humanizeError(msg.error || label('unknownError'))));
         currentAction = '';
         updatePanelMeta();
-        body.scrollTop = body.scrollHeight;
+        chatNavigation?.refresh();
         try { port.disconnect(); } catch {}
       } else if (msg.type === 'done') {
         settled = true;
+        endActivity(accumulated ? 'complete' : 'error');
         clearWatchdog();
         removeLoadingIndicators(body);
         if (accumulated && streamMsgDiv) {
@@ -2415,7 +2508,7 @@ import { renderMarkdown, escapeHtml } from '../utils/markdown.mjs';
         }
         currentAction = '';
         updatePanelMeta();
-        body.scrollTop = body.scrollHeight;
+        chatNavigation?.refresh();
         try { port.disconnect(); } catch {}
       }
     });
@@ -2424,6 +2517,7 @@ import { renderMarkdown, escapeHtml } from '../utils/markdown.mjs';
       clearWatchdog();
       if (settled || signal.aborted) return;
       settled = true;
+      endActivity('interrupted');
       removeLoadingIndicators(body);
       if (accumulated && streamMsgDiv) {
         finalizeStreamingMessage(streamMsgDiv);

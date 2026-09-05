@@ -42,9 +42,10 @@ const appearanceInlined = inlineModule('src/utils/appearance.mjs')
 const timeoutInlined = inlineModule('src/utils/timeout.mjs')
 const catalogInlined = inlineModule('src/utils/catalog.mjs')
 const markdownInlined = inlineModule('src/utils/markdown.mjs')
+const chatUiInlined = inlineModule('src/utils/chat-ui.mjs')
 
 function stripUtilityImports(src) {
-  return src.replace(/^import\s+\{[^}]+\}\s+from\s+['"][^'"]*(?:i18n|appearance|catalog|markdown)\.mjs['"];?\s*\n/gm, '')
+  return src.replace(/^import\s+\{[^}]+\}\s+from\s+['"][^'"]*(?:i18n|appearance|catalog|markdown|chat-ui)\.mjs['"];?\s*\n/gm, '')
 }
 
 // Strip `export { ... };` / `export default ...;` blocks so declarations
@@ -128,7 +129,9 @@ const contentAppearanceCss = appearanceCss
   .replace(/, \[data-appearance-preview\]/g, '')
   .replace(/:where\(#omnipilot-extension-root-7f3a9c\[data-surface="content"\], \[data-appearance-root\]\[data-surface="sidepanel"\]\)/g, '#omnipilot-extension-root-7f3a9c[data-surface="content"]')
 const contentCss = fs.readFileSync('src/content-script/styles.css', 'utf8')
-const contentStyles = `${contentAppearanceCss}\n${contentCss}`
+const activityCss = fs.readFileSync('src/styles/chat-activity.css', 'utf8')
+  .replace(/(^|\n)(\.op-activity[^\n{]*\{)/g, '$1#omnipilot-extension-root-7f3a9c $2')
+const contentStyles = `${contentAppearanceCss}\n${contentCss}\n${activityCss}`
 const contentStylesInlined =
   `// ── inlined: dist/styles.css, injected into the content script's shadow root ──\n` +
   `const OMNIPILOT_CONTENT_CSS = ${JSON.stringify(contentStyles)};\n`
@@ -142,6 +145,7 @@ for (const { name, src, needsI18n, needsAppearance, needsAgent, needsPreact, nee
   if (needsI18n) parts.push(i18nInlined)
   if (needsCatalog) parts.push(catalogInlined)
   if (needsMarkdown) parts.push(markdownInlined)
+  if (needsMarkdown) parts.push(chatUiInlined)
   if (needsAppearance) parts.push(appearanceInlined)
   if (needsAgent) parts.push(agentPrimitives)
   if (needsAgent) parts.push(backgroundProviders)

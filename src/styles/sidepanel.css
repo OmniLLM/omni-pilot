@@ -1,3 +1,5 @@
+@import './chat-activity.css';
+
 /* In @layer base so utilities can override it. */
 @layer base {
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -33,6 +35,8 @@ button { color: inherit; }
 }
 
 .sp-header {
+  justify-content: space-between;
+  gap: 12px;
   min-height: 64px;
   padding: var(--appearance-space-3) var(--appearance-space-4);
   display: flex;
@@ -324,6 +328,8 @@ button { color: inherit; }
 }
 
 .sp-body {
+  height: 100%;
+  overflow-anchor: none;
   min-height: 0;
   padding: var(--appearance-space-4);
   overflow-y: auto;
@@ -370,6 +376,7 @@ button { color: inherit; }
 }
 
 .sp-msg {
+  flex-shrink: 0;
   max-width: min(88%, 680px);
   padding: 10px 14px;
   border-radius: var(--appearance-radius-md);
@@ -388,6 +395,7 @@ button { color: inherit; }
 }
 
 .sp-msg-assistant {
+  max-width: 100%;
   width: min(100%, 680px);
   align-self: flex-start;
   padding-inline: 0;
@@ -657,7 +665,8 @@ button { color: inherit; }
 }
 
 .sp-composer:focus-within {
-  border-color: color-mix(in srgb, var(--appearance-focus) 72%, var(--appearance-border));
+  outline: 2px solid var(--appearance-focus);
+  outline-offset: 2px;
 }
 
 .sp-input {
@@ -709,7 +718,8 @@ button { color: inherit; }
 .sp-composer-hint {
   margin-top: 6px;
   color: var(--appearance-text-subtle);
-  font-size: 10px;
+  font-size: 11px;
+  line-height: 1.6;
   text-align: right;
 }
 
@@ -721,6 +731,32 @@ button { color: inherit; }
   clip-path: inset(50%);
   white-space: nowrap;
 }
+
+.sp-transcript { min-height: 0; position: relative; }
+.sp-body:focus-visible { outline: 2px solid var(--appearance-focus); outline-offset: -3px; }
+.sp-session-label { color: var(--appearance-text-muted); font-size: 11px; letter-spacing: 0.05em; text-transform: uppercase; }
+.sp-empty { width: min(340px, 100%); padding: 24px 8px; }
+.sp-empty h2 { font-size: 22px; letter-spacing: -0.03em; }
+.sp-starters { display: grid; gap: 8px; margin-top: 24px; }
+.sp-starters button {
+  display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  padding: 12px; min-height: 44px; text-align: left;
+  border: 1px solid var(--appearance-border); border-radius: var(--appearance-radius-md);
+  background: var(--appearance-surface); color: var(--appearance-text); font-size: 12px; cursor: pointer;
+}
+.sp-starters button:hover { border-color: var(--appearance-accent); background: var(--appearance-selected-surface); }
+.sp-latest {
+  position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%);
+  min-height: 44px; padding: 8px 16px; white-space: nowrap;
+  border: 1px solid var(--appearance-border-strong); border-radius: var(--appearance-radius-pill);
+  background: var(--appearance-surface-raised); color: var(--appearance-text);
+  box-shadow: var(--appearance-shadow-2); font-size: 12px; cursor: pointer;
+}
+.sp-latest:focus-visible, .sp-starters button:focus-visible, .omnipilot-code-block-copy-btn:focus-visible {
+  outline: 2px solid var(--appearance-focus); outline-offset: 2px;
+}
+.sp-selector > [role='listbox'] { max-height: min(340px, calc(100vh - 220px)); overflow-y: auto; }
+.sp-context-kicker, .sp-composer-hint { color: var(--appearance-text-muted); }
 
 @media (max-width: 340px) {
   .sp-header { min-height: 56px; }

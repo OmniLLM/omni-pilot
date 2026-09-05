@@ -32,6 +32,14 @@ function createElement(documentRef, tagName = 'div') {
       if (child.id) documentRef.elementsById[child.id] = child;
       return child;
     },
+    insertAdjacentHTML(position, html) {
+      assert.strictEqual(position, 'beforeend');
+      const fragment = createElement(documentRef);
+      fragment.innerHTML = html;
+      this._innerHTML += html;
+      this._textContent += fragment._textContent;
+      for (const child of [...fragment.children]) this.appendChild(child);
+    },
     remove() {
       if (this.parentNode) {
         this.parentNode.children = this.parentNode.children.filter(child => child !== this);

@@ -1,0 +1,36 @@
+/* Shared by the extension side panel and the isolated floating panel. */
+.op-activity {
+  flex-shrink: 0;
+  width: 100%;
+  margin: 8px 0;
+  border: 1px solid var(--appearance-border);
+  border-radius: var(--appearance-radius-md);
+  background: var(--appearance-surface);
+  color: var(--appearance-text-muted);
+  font: 12px/1.6 var(--appearance-font-body);
+  overflow-wrap: anywhere;
+}
+.op-activity summary {
+  min-height: 44px;
+  padding: 10px 12px;
+  cursor: pointer;
+  color: var(--appearance-text);
+}
+.op-activity summary small { float: right; margin-left: 8px; color: var(--appearance-text-muted); }
+.op-activity summary:focus-visible { outline: 2px solid var(--appearance-focus); outline-offset: -3px; }
+.op-activity-body { border-top: 1px solid var(--appearance-border); padding: 12px; max-height: 240px; overflow-y: auto; }
+.op-activity ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.op-activity li { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
+.op-activity li small { flex-shrink: 0; font-size: 11px; }
+.op-activity li[data-state='running'] small { color: var(--appearance-accent); }
+.op-activity li[data-state='error'] small { color: var(--appearance-danger); }
+.op-activity-reasoning { border-bottom: 1px solid var(--appearance-border); margin-bottom: 12px; padding-bottom: 12px; }
+.op-activity-reasoning h3 { margin: 0 0 8px; font-size: 12px; font-weight: 600; }
+.op-activity-reasoning p { white-space: pre-wrap; margin: 0; }
+.op-activity-indicator { display: inline-block; width: 6px; height: 6px; margin-right: 8px; background: var(--appearance-text-muted); border-radius: var(--appearance-radius-pill); }
+.op-activity-indicator[data-active='true'] { background: var(--appearance-accent); }
+.op-activity-detail { display: block; margin-top: 3px; color: var(--appearance-text-muted); font-size: 11px; }
+.op-activity-tools { margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--appearance-border); }
+.op-activity-tools h3 { font-size: 12px; font-weight: 600; margin: 0 0 6px; }
+.op-activity-tools p, .op-activity-request { margin: 0 0 6px; }
+.op-activity-tools ul { padding: 0; list-style: none; display: grid; gap: 8px; }

@@ -27,6 +27,8 @@ OmniPilot adds AI workflows directly to the browser:
 ## Key Features
 
 - **In-page assistant UI** — selection bubble, action dropdown, streaming output, follow-up chat, copy controls, code-block copy, read-aloud, context chips, and runtime provider/model/action selectors.
+- **Prompt history** — Up/Down recalls previous/next sent prompts in the composer, restoring your unsent draft after the newest prompt. Alt+Up/Down scrolls the transcript. Scrolling up pauses automatic following, and Latest message returns to the response.
+- **Live request activity** — expandable request stages, tool names and outcomes, plus public reasoning summaries when the provider supplies them. Available in the side panel and floating chat.
 - **Multiple provider modes** — GitHub Copilot device-flow sign-in, Custom Provider, and Azure Foundry.
 - **Three API wire formats** — OpenAI Chat Completions, Anthropic Messages, and OpenAI Responses.
 - **A2A agent orchestration** — discover agent cards, enable/disable servers and individual skills, run health checks, store local tokens, and let the model call enabled A2A skills as tools while preserving each skill's structured input schema.
