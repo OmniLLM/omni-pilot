@@ -347,6 +347,7 @@ chrome.runtime.onConnect?.addListener(port => {
           messages: [{ role: 'user', content: request.text }],
           systemPrompt,
           onChunk: text => postStreamMessage({ type: 'chunk', text }),
+          onActivity: activity => postStreamMessage({ type: 'activity', activity }),
           onDone: () => postStreamMessage({ type: 'done' }),
           onError: postStreamErrorAndDone
         });
@@ -355,6 +356,7 @@ chrome.runtime.onConnect?.addListener(port => {
           messages: request.messages,
           onChunk: text => postStreamMessage({ type: 'chunk', text }),
           onStatus: status => postStreamMessage({ type: 'status', status }),
+          onActivity: activity => postStreamMessage({ type: 'activity', activity }),
           onDone: () => postStreamMessage({ type: 'done' }),
           onError: postStreamErrorAndDone
         });
@@ -2274,7 +2276,7 @@ async function handleAIChat(messages) {
 // Restores real token streaming for ordinary chat (the common case) while
 // keeping A2A tool routing: A2A delegation is non-streaming, so those paths
 // surface a 'delegating' status and a bounded await instead of a dead spinner.
-async function handleAIChatStreaming({ messages, onChunk, onStatus, onDone, onError }) {
+async function handleAIChatStreaming({ messages, onChunk, onStatus, onActivity, onDone, onError }) {
   let agent;
   try {
     agent = await createAgent();
@@ -2282,7 +2284,7 @@ async function handleAIChatStreaming({ messages, onChunk, onStatus, onDone, onEr
     onError(error?.message || 'Unexpected extension error');
     return;
   }
-  await agent.chatStreaming({ messages, onChunk, onStatus, onDone, onError });
+  await agent.chatStreaming({ messages, onChunk, onStatus, onActivity, onDone, onError });
 }
 
 function withA2aStatusHeartbeat(promise, onStatus, ms = globalThis.A2A_STATUS_HEARTBEAT_MS || A2A_STATUS_HEARTBEAT_MS) {
@@ -2313,7 +2315,7 @@ function shouldAutoRouteA2a(config) {
   return config.a2aAutoRoute !== false && !isA2aProviderType(config.providerType);
 }
 
-async function executeApiRequestWithA2aRouting({ config, messages, systemPrompt, a2aServers, toolSchemas, onStatus, onEvent, deadline }) {
+async function executeApiRequestWithA2aRouting({ config, messages, systemPrompt, a2aServers, toolSchemas, onStatus, onEvent, onActivity, deadline }) {
   const { copilotToken } = await requireApiKey(config);
 
   const session = createSession({ messages });
@@ -2323,6 +2325,7 @@ async function executeApiRequestWithA2aRouting({ config, messages, systemPrompt,
   // contextText per run and ensure every dispatch sees the same text.
   const contextText = getA2aConversationContext(messages);
   registerA2aToolsInRegistry(registry, a2aServers, { getContextText: () => contextText, deadline });
+  onActivity?.(publicRequestActivity('tools.available', { tools: registry.list() }));
   const guardrails = createGuardrails({
     mode: config.guardrailsMode,
     denyDomains: Array.isArray(config.guardrailsDenyDomains) ? config.guardrailsDenyDomains : [],
@@ -2338,6 +2341,7 @@ async function executeApiRequestWithA2aRouting({ config, messages, systemPrompt,
     session,
     onStatus,
     onEvent,
+    onActivity,
     deadline,
     maxTurns: A2A_MAX_ROUNDS
   });
@@ -2569,7 +2573,7 @@ function getStreamChunkParser(apiShape) {
   return parseStreamChunkOpenAIChat;
 }
 
-async function executeApiRequestStreaming({ config: preloadedConfig, messages, systemPrompt, onChunk, onDone, onError, deadline, continuationAttempt = 0 }) {
+async function executeApiRequestStreaming({ config: preloadedConfig, messages, systemPrompt, onChunk, onActivity, onDone, onError, deadline, continuationAttempt = 0 }) {
   const config = preloadedConfig || await loadConfig();
   let copilotToken;
   try {
@@ -2596,6 +2600,7 @@ async function executeApiRequestStreaming({ config: preloadedConfig, messages, s
 
   let response;
   try {
+    onActivity?.({ type: 'provider.request' });
     response = await fetch(requestUrl, {
       method: 'POST',
       headers: requestHeaders,
@@ -2635,6 +2640,7 @@ async function executeApiRequestStreaming({ config: preloadedConfig, messages, s
           ? parseOpenAIResponsesText
           : parseOpenAIChatText;
       const content = parseContent(data);
+      emitReasoningSummary(data, onActivity);
       if (content) onChunk(content);
       const termination = classifyApiTermination(apiShape, data);
       if (termination?.status === 'truncated') {
@@ -2654,7 +2660,8 @@ async function executeApiRequestStreaming({ config: preloadedConfig, messages, s
           onDone,
           onError,
           deadline,
-          continuationAttempt: continuationAttempt + 1
+          continuationAttempt: continuationAttempt + 1,
+          onActivity
         });
         return;
       }
@@ -2695,6 +2702,7 @@ async function executeApiRequestStreaming({ config: preloadedConfig, messages, s
           const jsonStr = trimmed.slice(6);
           try {
             const json = JSON.parse(jsonStr);
+            emitReasoningSummary(json, onActivity);
             const text = parseChunk(json);
             if (text) {
               accumulated += text;
@@ -2727,7 +2735,8 @@ async function executeApiRequestStreaming({ config: preloadedConfig, messages, s
         onDone,
         onError,
         deadline,
-        continuationAttempt: continuationAttempt + 1
+        continuationAttempt: continuationAttempt + 1,
+        onActivity
       });
       return;
     }

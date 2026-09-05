@@ -1450,6 +1450,24 @@
 }
 
 /* Theme-specific component exceptions remain local to the extension mount. */
+#omnipilot-extension-root-7f3a9c .omnipilot-panel-body { scrollbar-gutter: stable; overflow-anchor: none; }
+#omnipilot-extension-root-7f3a9c .omnipilot-panel-body > * { flex-shrink: 0; }
+#omnipilot-extension-root-7f3a9c .omnipilot-panel-body:focus-visible { outline: 2px solid var(--op-accent); outline-offset: -3px; }
+#omnipilot-extension-root-7f3a9c .omnipilot-panel-input-area { flex-wrap: wrap; }
+#omnipilot-extension-root-7f3a9c .omnipilot-panel-input { min-width: 0; }
+#omnipilot-extension-root-7f3a9c .omnipilot-chat-hint { flex-basis: 100%; margin: 0; font-size: 11px; line-height: 1.5; color: var(--op-ink2); }
+#omnipilot-extension-root-7f3a9c .omnipilot-latest {
+  flex-shrink: 0; align-self: center; min-height: 44px; padding: 8px 16px;
+  border: 1px solid var(--op-border); border-radius: var(--appearance-radius-pill);
+  background: var(--op-bg2); color: var(--op-ink); cursor: pointer;
+  font: 12px var(--op-font); box-shadow: var(--op-shadow-1);
+}
+#omnipilot-extension-root-7f3a9c .omnipilot-latest[hidden] { display: none; }
+#omnipilot-extension-root-7f3a9c .omnipilot-latest:focus-visible { outline: 2px solid var(--op-accent); outline-offset: 2px; }
+#omnipilot-extension-root-7f3a9c .omnipilot-msg { max-width: 92%; box-shadow: none; }
+#omnipilot-extension-root-7f3a9c .omnipilot-msg-assistant { max-width: 100%; background: transparent; border-color: transparent; padding-inline: 0; }
+#omnipilot-extension-root-7f3a9c .omnipilot-panel-input:focus-visible { outline: 2px solid var(--op-accent); outline-offset: 2px; }
+
 #omnipilot-extension-root-7f3a9c[data-theme="dark"] .omnipilot-msg-user {
   background: color-mix(in srgb, var(--appearance-accent) 72%, var(--appearance-canvas));
 }

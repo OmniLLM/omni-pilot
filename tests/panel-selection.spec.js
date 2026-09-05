@@ -199,6 +199,45 @@ async function openChatAndSendFollowUp(page, text) {
   await page.waitForTimeout(40);
 }
 
+test('floating chat preserves reading position and draft while tool activity updates', async ({ page }) => {
+  await setupPageWithControllablePort(page);
+  await openChatAndSendFollowUp(page, 'Find context');
+  const emit = message => page.evaluate(m => window.__port.emit(m), message);
+  await emit({ type: 'activity', activity: { type: 'tool.dispatch', toolName: 'lookup', callId: '1' } });
+  const activity = page.locator('#omnipilot-panel .op-activity').last();
+  await expect(activity).not.toHaveAttribute('open');
+  await expect(activity.locator('.op-activity-body')).toBeHidden();
+  await expect(activity.locator('summary')).toContainText('Using lookup');
+  await emit({ type: 'chunk', text: 'A long answer with context.\n\n'.repeat(80) });
+  const body = page.locator('.omnipilot-panel-body');
+  const input = page.locator('.omnipilot-panel-input');
+  await expect.poll(() => body.evaluate(el => el.scrollTop)).toBeGreaterThan(500);
+  await input.press('Alt+ArrowUp');
+  const reading = await body.evaluate(el => el.scrollTop);
+  await emit({ type: 'chunk', text: 'Another paragraph.\n\n'.repeat(10) });
+  await expect.poll(() => body.evaluate(el => el.scrollTop)).toBe(reading);
+  await input.fill('Keep this draft');
+  await input.press('ArrowUp');
+  await expect(input).toHaveValue('Find context');
+  await input.press('ArrowDown');
+  await expect(input).toHaveValue('Keep this draft');
+  expect(await body.evaluate(el => el.scrollTop)).toBe(reading);
+  await input.press('Alt+ArrowUp');
+  await expect.poll(() => body.evaluate(el => el.scrollTop)).toBeLessThan(reading);
+  await page.locator('.omnipilot-latest').click();
+  await expect.poll(() => body.evaluate(el => el.scrollHeight - el.clientHeight - el.scrollTop)).toBeLessThan(2);
+  await emit({ type: 'activity', activity: { type: 'tool.result', toolName: 'lookup', callId: '1', ok: false } });
+  await emit({ type: 'error', error: 'Request failed' });
+  await expect(activity.locator('summary')).toContainText('Request failed');
+  await expect(page.locator('.omnipilot-streaming')).toHaveCount(0);
+  await expect(activity).not.toHaveAttribute('open');
+  await activity.locator('summary').click();
+  await expect(activity.locator('.op-activity-body')).toBeVisible();
+  await expect(activity.locator('li').filter({ hasText: 'lookup' })).toContainText('Failed');
+  await activity.locator('summary').press('Enter');
+  await expect(activity.locator('.op-activity-body')).toBeHidden();
+});
+
 // End-to-end reproduction of the reported bug in a real browser: a chat whose
 // stream port disconnects before any content used to leave the panel blank
 // (spinner removed, no answer, no error). It must now show an error.

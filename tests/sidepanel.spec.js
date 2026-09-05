@@ -97,6 +97,144 @@ async function disconnect(page) {
 const portCount = page => page.evaluate(() => window.__ports.length);
 const lastPosted = page => page.evaluate(() => window.__lastPort().posted);
 
+test('arrow navigation preserves drafts and reading position during streaming', async ({ page }) => {
+  await page.setViewportSize({ width: 400, height: 700 });
+  await open(page);
+  await send(page, 'Long answer');
+  await emit(page, { type: 'chunk', text: 'A paragraph of useful context.\n\n'.repeat(65) });
+  const body = page.locator('#chatBody');
+  const input = page.locator('#chatInput');
+  await expect.poll(() => body.evaluate(el => el.scrollTop)).toBeGreaterThan(500);
+  const bottom = await body.evaluate(el => el.scrollTop);
+  await input.press('Alt+ArrowUp');
+  await expect.poll(() => body.evaluate(el => el.scrollTop)).toBeLessThan(bottom);
+  const reading = await body.evaluate(el => el.scrollTop);
+  await emit(page, { type: 'chunk', text: 'More content.\n\n'.repeat(10) });
+  await expect.poll(() => body.evaluate(el => el.scrollTop)).toBe(reading);
+  await input.fill('My draft\nSecond line');
+  await input.press('ArrowUp');
+  await expect(input).toHaveValue('My draft\nSecond line');
+  expect(await body.evaluate(el => el.scrollTop)).toBe(reading);
+  await input.press('Alt+ArrowUp');
+  await expect.poll(() => body.evaluate(el => el.scrollTop)).toBeLessThan(reading);
+  await page.getByRole('button', { name: 'Latest message' }).click();
+  await expect.poll(() => body.evaluate(el => el.scrollHeight - el.clientHeight - el.scrollTop)).toBeLessThan(2);
+  await body.focus();
+  await body.press('Home');
+  await expect.poll(() => body.evaluate(el => el.scrollTop)).toBe(0);
+  await body.press('ArrowDown');
+  await expect.poll(() => body.evaluate(el => el.scrollTop)).toBeGreaterThan(0);
+});
+
+test('composer arrows recall sent prompts and restore the unsent draft', async ({ page }) => {
+  await open(page);
+  const input = page.locator('#chatInput');
+  await input.fill('Unsent draft');
+  await input.press('ArrowUp');
+  await expect(input).toHaveValue('Unsent draft');
+  for (const prompt of ['First prompt', 'Second prompt\nwith another line']) {
+    await send(page, prompt);
+    await emit(page, { type: 'chunk', text: 'Answer' });
+    await emit(page, { type: 'done' });
+  }
+  await input.fill('Unsent draft');
+  await input.press('ArrowUp');
+  await expect(input).toHaveValue('Second prompt\nwith another line');
+  await input.press('ArrowUp');
+  await input.press('ArrowUp');
+  await expect(input).toHaveValue('First prompt');
+  await input.press('ArrowDown');
+  await expect(input).toHaveValue('Second prompt\nwith another line');
+  await input.press('ArrowDown');
+  await expect(input).toHaveValue('Unsent draft');
+  await input.press('ArrowUp');
+  await input.fill('Edited recalled prompt');
+  await input.press('Enter');
+  await input.press('ArrowUp');
+  await expect(input).toHaveValue('Edited recalled prompt');
+  await input.press('ArrowDown');
+  await expect(input).toHaveValue('');
+  expect(await portCount(page)).toBe(3);
+});
+
+test('activity shows tools and public summaries, stays separate from answer and history', async ({ page }) => {
+  await open(page);
+  await send(page, 'Find context');
+  await expect(page.locator('.op-activity')).not.toHaveAttribute('open');
+  await expect(page.locator('.op-activity-body')).toBeHidden();
+  await page.locator('.op-activity > summary').click();
+  await emit(page, { type: 'activity', activity: { type: 'tool.dispatch', toolName: 'search', callId: '1' } });
+  await expect(page.locator('.op-activity summary')).toContainText('Using search');
+  await emit(page, { type: 'activity', activity: { type: 'reasoning.summary', text: '<img src=x onerror=alert(1)>Checking sources.' } });
+  await expect(page.locator('.op-activity-reasoning')).toContainText('Checking sources.');
+  await expect(page.locator('.op-activity img')).toHaveCount(0);
+  await emit(page, { type: 'activity', activity: { type: 'tool.result', toolName: 'search', callId: '1', ok: true } });
+  await expect(page.locator('.op-activity li').filter({ hasText: 'search' })).toContainText('Done');
+  await emit(page, { type: 'chunk', text: 'The answer.' });
+  await emit(page, { type: 'done' });
+  await expect(page.locator('.op-activity')).toHaveAttribute('open');
+  await expect(page.locator('.op-activity-reasoning')).toBeVisible();
+  await page.locator('.op-activity > summary').press('Enter');
+  await expect(page.locator('.op-activity-body')).toBeHidden();
+  await send(page, 'Follow up');
+  const payload = (await lastPosted(page))[0];
+  expect(JSON.stringify(payload.messages)).not.toContain('Checking sources');
+  expect(JSON.stringify(payload.messages)).not.toContain('tool.dispatch');
+});
+
+test('partial errors settle activity and remove every busy indicator', async ({ page }) => {
+  await open(page);
+  await send(page, 'Hi');
+  await emit(page, { type: 'chunk', text: 'Partial answer' });
+  await emit(page, { type: 'error', error: 'Connection failed' });
+  await expect(page.locator('.sp-error')).toContainText('Connection failed');
+  await expect(page.locator('.sp-streaming')).toHaveCount(0);
+  await expect(page.locator('.op-activity summary')).toContainText('Request failed');
+  await expect(page.locator('.sp-msg-assistant')).toHaveText('Partial answer');
+});
+
+test('activity reports available tools, actual calls and tool result details', async ({ page }) => {
+  await open(page);
+  await send(page, 'Look up resources');
+  await page.locator('.op-activity > summary').click();
+  await emit(page, { type: 'activity', activity: { type: 'tools.available', count: 1, tools: [{ name: 'a2a_lookup', skillName: 'Cloud lookup', serverName: 'Cloud agent' }] } });
+  await expect(page.locator('.op-activity-tools')).toContainText('1 tools available');
+  await page.getByText('Available tools', { exact: true }).click();
+  await expect(page.locator('.op-activity-tools')).toContainText('Cloud agent');
+  await emit(page, { type: 'activity', activity: { type: 'tool.dispatch', callId: '0:0', toolName: 'a2a_lookup' } });
+  await emit(page, { type: 'activity', activity: { type: 'tool.details', callId: '0:0', toolName: 'a2a_lookup', serverName: 'Cloud agent', skillName: 'Cloud lookup' } });
+  const call = page.locator('.op-activity-body > ol li').filter({ hasText: 'a2a_lookup' });
+  await expect(call).toContainText('Cloud agent · Cloud lookup');
+  await expect(call).toContainText('Running');
+  await emit(page, { type: 'activity', activity: { type: 'tool.result', callId: '0:0', toolName: 'a2a_lookup', ok: true } });
+  await emit(page, { type: 'activity', activity: { type: 'tool.details', callId: '0:0', toolName: 'a2a_lookup', serverName: 'Cloud agent', skillName: 'Cloud lookup', durationMs: 1234, textLen: 230 } });
+  await expect(call).toContainText('1.2s · 230 response characters');
+  await expect(call).toContainText('Done');
+});
+
+test('activity explains when discovery finds no tools', async ({ page }) => {
+  await open(page);
+  await send(page, 'Hello');
+  await emit(page, { type: 'activity', activity: { type: 'tools.unavailable', reason: 'none_configured' } });
+  await emit(page, { type: 'chunk', text: 'Hello!' });
+  await emit(page, { type: 'done' });
+  await expect(page.locator('.op-activity')).not.toHaveAttribute('open');
+  await page.locator('.op-activity > summary').click();
+  await expect(page.locator('.op-activity-tools')).toContainText('No enabled agent tools');
+  await expect(page.locator('.op-activity-tools')).toContainText('No tool calls were reported');
+});
+
+test('compact chat remains within a narrow viewport with usable targets', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 640 });
+  await open(page);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
+  for (const selector of ['#sendBtn', '.sp-starters button', '#chatInput']) {
+    const box = await page.locator(selector).first().boundingBox();
+    expect(box.height).toBeGreaterThanOrEqual(44);
+    expect(box.x + box.width).toBeLessThanOrEqual(320);
+  }
+});
+
 // ── Composing and sending ────────────────────────────────────────────────
 
 test('the empty state is shown before any conversation', async ({ page }) => {
@@ -255,13 +393,13 @@ test('an error is surfaced when nothing has streamed', async ({ page }) => {
   await expect(page.locator('.sp-error')).toHaveText('Provider exploded');
 });
 
-test('an error is suppressed once text has streamed', async ({ page }) => {
+test('an error remains visible alongside partial text', async ({ page }) => {
   await open(page);
   await send(page, 'Hi');
   await emit(page, { type: 'chunk', text: 'partial' });
   await emit(page, { type: 'error', error: 'Provider exploded' });
 
-  await expect(page.locator('.sp-error')).toHaveCount(0);
+  await expect(page.locator('.sp-error')).toHaveText('Provider exploded');
   await expect(page.locator('.sp-msg-assistant')).toHaveText('partial');
 });
 
@@ -374,7 +512,7 @@ test('status announcements are concise and streaming chunks do not rewrite them'
 
   await emit(page, { type: 'chunk', text: 'One' });
   await emit(page, { type: 'chunk', text: ' two' });
-  await expect(page.locator('.sp-sr-status')).toHaveText('Thinking…');
+  await expect(page.locator('.sp-sr-status')).toHaveText('Writing response…');
 
   await emit(page, { type: 'done' });
   await expect(page.locator('.sp-sr-status')).toHaveText('Response complete. One two');

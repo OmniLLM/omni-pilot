@@ -12,6 +12,7 @@ import { createAppearanceController } from '../utils/appearance.mjs';
 import { t, normalizeLanguage } from '../utils/i18n.mjs';
 import { PROVIDER_LABELS, getProviderEntries, ACTIONS } from '../utils/catalog.mjs';
 import { renderMarkdown } from '../utils/markdown.mjs';
+import { createPromptHistory, createChatNavigation, createRequestActivity, updateRequestActivity, finishRequestActivity, renderRequestActivity } from '../utils/chat-ui.mjs';
 
 const { html, render, useState, useEffect, useLayoutEffect, useRef } = htmPreact;
 
@@ -135,6 +136,12 @@ function isExtensionContextInvalidatedError(err) {
 }
 
 function Message({ message }) {
+  if (message.role === 'activity') {
+    return html`<details class="op-activity">
+      <summary><span class="op-activity-indicator" data-active=${!message.activity.ended} aria-hidden="true"></span><span>${message.activity.status}</span><small>Activity</small></summary>
+      <div class="op-activity-body" dangerouslySetInnerHTML=${{ __html: renderRequestActivity(message.activity) }}></div>
+    </details>`;
+  }
   if (message.role === 'error') {
     return html`<div class="sp-error" role="alert" aria-atomic="true">${message.content}</div>`;
   }
@@ -342,9 +349,14 @@ function SidePanel() {
   const [action, setAction] = useState('');
   const [openSelector, setOpenSelector] = useState(null);
   const [announcement, setAnnouncement] = useState('');
+  const [awayFromLatest, setAwayFromLatest] = useState(false);
 
   const bodyRef = useRef(null);
   const inputRef = useRef(null);
+  const navigationRef = useRef(null);
+  const promptsRef = useRef([]);
+  const promptHistoryRef = useRef(null);
+  if (!promptHistoryRef.current) promptHistoryRef.current = createPromptHistory(() => promptsRef.current);
   const historyRef = useRef([]);
   const watchdogMsRef = useRef(RESPONSE_TIMEOUT_DEFAULT_MS);
   const nextIdRef = useRef(0);
@@ -431,13 +443,14 @@ function SidePanel() {
     return () => document.removeEventListener('mousedown', onMouseDown);
   }, [openSelector]);
 
-  // Keep the newest content in view as the transcript grows. This has to be a
-  // layout effect: Preact defers useEffect past paint, so a streaming chunk
-  // could be painted before the scroll caught up, leaving the newest text
-  // below the fold.
   useLayoutEffect(() => {
-    const body = bodyRef.current;
-    if (body) body.scrollTop = body.scrollHeight;
+    navigationRef.current = createChatNavigation(bodyRef.current, setAwayFromLatest);
+    return () => navigationRef.current?.dispose();
+  }, []);
+
+  // Follow new content only while the reader remains at the latest message.
+  useLayoutEffect(() => {
+    navigationRef.current?.refresh();
   }, [messages]);
 
   // Bind this panel to the tab that opened it. Other tab activations must not
@@ -472,6 +485,9 @@ function SidePanel() {
     const input = inputRef.current;
     const text = input.value.trim();
     if (!text) return;
+    promptsRef.current.push(text);
+    promptHistoryRef.current.reset();
+    navigationRef.current?.latest();
 
     input.value = '';
     input.style.height = 'auto';
@@ -514,6 +530,18 @@ function SidePanel() {
     let accumulated = '';
     let streamId = nextId();
     let settled = false;
+    const activityId = nextId();
+    let activity = createRequestActivity();
+    append({ id: activityId, role: 'activity', activity });
+    const showActivity = event => {
+      activity = updateRequestActivity(activity, event);
+      setMessages(previous => previous.map(message => message.id === activityId ? { ...message, activity } : message));
+      if (event?.type !== 'reasoning.summary') setAnnouncement(activity.status);
+    };
+    const endActivity = outcome => {
+      activity = finishRequestActivity(activity, outcome);
+      setMessages(previous => previous.map(message => message.id === activityId ? { ...message, activity } : message));
+    };
 
     // Insert the pending row before posting to the port. This guarantees
     // immediate feedback even when the service worker is still waking up.
@@ -524,11 +552,13 @@ function SidePanel() {
     const updateStream = content => setMessages(previous =>
       previous.map(message => (message.id === streamId ? { ...message, content, thinking: false } : message))
     );
-    const settleStream = () => {
+    const settleStream = (outcome = 'complete') => {
       setMessages(previous =>
         previous.map(message => (message.id === streamId ? { ...message, streaming: false } : message))
       );
-      setAnnouncement(accumulated ? `Response complete. ${accumulated}` : 'Response complete.');
+      setAnnouncement(outcome === 'complete'
+        ? (accumulated ? `Response complete. ${accumulated}` : 'Response complete.')
+        : 'Response interrupted. Partial answer retained.');
     };
     // Drops any pending placeholder, then reports "no response" unless the
     // transcript already carries an error. The check spans the whole
@@ -563,10 +593,12 @@ function SidePanel() {
       clearWatchdog();
       watchdog = setTimeout(() => {
         if (settled) return;
+        endActivity('interrupted');
         if (!accumulated) {
+          setMessages(previous => previous.filter(message => message.id !== streamId));
           append({ id: nextId(), role: 'error', content: TIMEOUT_ERROR });
         } else if (streamId !== null) {
-          settleStream();
+          settleStream('interrupted');
           historyRef.current.push({ role: 'assistant', content: accumulated });
         }
         finish();
@@ -580,9 +612,13 @@ function SidePanel() {
       if (settled) return;
       armWatchdog();
       if (msg.type === 'chunk') {
+        if (!accumulated) showActivity({ type: 'response.streaming' });
         accumulated += msg.text;
         updateStream(accumulated);
+      } else if (msg.type === 'activity') {
+        showActivity(msg.activity);
       } else if (msg.type === 'status') {
+        showActivity(msg);
         if (!accumulated) {
           const label = statusLabel(msg.status);
           setMessages(previous => previous.map(message => (
@@ -591,6 +627,7 @@ function SidePanel() {
           setAnnouncement(label);
         }
       } else if (msg.type === 'error') {
+        endActivity('error');
         if (!accumulated) {
           const pendingId = streamId;
           streamId = null;
@@ -598,8 +635,14 @@ function SidePanel() {
             ...previous.filter(message => message.id !== pendingId),
             { id: nextId(), role: 'error', content: msg.error }
           ]);
+        } else {
+          settleStream('error');
+          historyRef.current.push({ role: 'assistant', content: accumulated });
+          append({ id: nextId(), role: 'error', content: msg.error });
         }
+        finish();
       } else if (msg.type === 'done') {
+        endActivity(accumulated ? 'complete' : 'error');
         if (streamId !== null && accumulated) {
           settleStream();
           historyRef.current.push({ role: 'assistant', content: accumulated });
@@ -614,10 +657,11 @@ function SidePanel() {
       clearWatchdog();
       if (settled) return;
       settled = true;
+      endActivity('interrupted');
       // Worker died before sending 'done'. Keep any partial text; otherwise show
       // an error rather than a half-rendered streaming bubble that never settles.
       if (streamId !== null && accumulated) {
-        settleStream();
+        settleStream('interrupted');
         historyRef.current.push({ role: 'assistant', content: accumulated });
       } else {
         reportNoResponse();
@@ -628,6 +672,7 @@ function SidePanel() {
       port.postMessage(payload);
     } catch (err) {
       if (isExtensionContextInvalidatedError(err)) {
+        endActivity('error');
         clearWatchdog();
         try { port.disconnect(); } catch {}
         const pendingId = streamId;
@@ -643,13 +688,16 @@ function SidePanel() {
   }
 
   const onInput = event => {
+    promptHistoryRef.current.reset();
     const input = event.target;
     input.style.height = 'auto';
     input.style.height = Math.min(input.scrollHeight, INPUT_MAX_HEIGHT) + 'px';
   };
 
   const onKeyDown = event => {
-    if (event.key === 'Enter' && !event.shiftKey) {
+    if (promptHistoryRef.current.keydown(event)) return;
+    navigationRef.current?.keydown(event);
+    if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
       event.preventDefault();
       sendMessage();
     }
@@ -703,6 +751,7 @@ function SidePanel() {
 
     const chosen = ACTIONS.find(entry => entry.id === actionId);
     const actionLabel = chosen ? `${chosen.icon} ${t(chosen.labelKey, language)}` : actionId;
+    navigationRef.current?.latest();
     append({ id: nextId(), role: 'divider', content: actionLabel });
 
     // Keep the transcript's history coherent so follow-up chat continues from
@@ -739,6 +788,7 @@ function SidePanel() {
             <p>Page-aware assistant</p>
           </div>
         </div>
+        <span class="sp-session-label">Workspace</span>
       </header>
       <section class="sp-toolbar" aria-label="Conversation settings">
         <div class="sp-meta">
@@ -790,15 +840,21 @@ function SidePanel() {
         </div>
         <${PageContextChip} page=${page} enabled=${usesPage} onToggle=${onToggleContext} />
       </section>
-      <section class="sp-body" id="chatBody" ref=${bodyRef} onClick=${onBodyClick} role="log" aria-label="Conversation" aria-relevant="additions" aria-busy=${messages.some(message => message.streaming) ? 'true' : 'false'}>
+      <div class="sp-transcript">
+      <section class="sp-body" id="chatBody" ref=${bodyRef} tabIndex="0" onKeyDown=${event => navigationRef.current?.keydown(event)} onClick=${onBodyClick} role="log" aria-label="Conversation" aria-describedby="spComposerHint" aria-relevant="additions" aria-busy=${messages.some(message => message.streaming) ? 'true' : 'false'}>
         ${messages.length === 0
           ? html`<div class="sp-empty">
               <span class="sp-empty-mark" aria-hidden="true">✦</span>
               <h2>Ready when you are</h2>
               <p>${EMPTY_PROMPT}</p>
+              <div class="sp-starters">
+                ${['Summarize this page', 'Explain the key ideas', 'Help me write something'].map(prompt => html`<button type="button" onClick=${() => { inputRef.current.value = prompt; inputRef.current.focus(); }}> ${prompt}<span aria-hidden="true">↗</span></button>`)}
+              </div>
             </div>`
           : messages.map(message => html`<${Message} message=${message} key=${message.id} />`)}
       </section>
+      ${awayFromLatest ? html`<button class="sp-latest" type="button" onClick=${() => navigationRef.current?.latest()}>↓ Latest message</button>` : null}
+      </div>
       <div class="sp-sr-status" role="status" aria-live="polite" aria-atomic="true">${announcement}</div>
       <form class="sp-input-area" aria-label="Message composer" onSubmit=${event => { event.preventDefault(); sendMessage(); }}>
         <label class="sp-input-label" for="chatInput">Message</label>
@@ -817,7 +873,7 @@ function SidePanel() {
             <span>Send</span><span class="sp-send-icon" aria-hidden="true">↑</span>
           </button>
         </div>
-        <p class="sp-composer-hint" id="spComposerHint">Enter to send · Shift + Enter for a new line</p>
+        <p class="sp-composer-hint" id="spComposerHint">Enter to send · Shift + Enter for a new line<br />↑ ↓ previous / next prompt · Alt + ↑ ↓ scroll chat</p>
       </form>
     </main>
   `;

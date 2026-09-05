@@ -121,12 +121,19 @@ async function createAgent(overrides = {}) {
     }
   }
 
-  async function chatStreaming({ messages, onChunk, onStatus, onDone, onError }) {
+  async function chatStreaming({ messages, onChunk, onStatus, onActivity, onDone, onError }) {
     const deadline = createResponseDeadline(config.responseTimeoutMs);
     recorder.startRun('chat-streaming');
+    const emit = (type, data) => {
+      recorder.event(type, data);
+      const activity = publicRequestActivity(type, data);
+      if (activity) onActivity?.(activity);
+    };
     try {
       const basePrompt = overrides.systemPrompt || CHAT_SYSTEM_PROMPT;
       const built = assembleContext(basePrompt, messages);
+      onActivity?.({ type: 'context.built' });
+      onActivity?.({ type: 'request.details', model: config.model, provider: config.providerType, messageCount: built.messages.length });
       recorder.event('context.built', {
         tokens: built.systemPrompt.length,
         dropped: built.dropped.map(d => d.name)
@@ -135,8 +142,10 @@ async function createAgent(overrides = {}) {
       if (shouldAutoRouteA2a(config)) {
         let a2aServers = [];
         try {
+          onActivity?.({ type: 'tools.discovery' });
           a2aServers = await ensureEnabledA2aServersDiscovered();
         } catch (error) {
+          onActivity?.({ type: 'tools.unavailable', reason: 'discovery_failed' });
           console.warn(`OmniPilot A2A discovery failed; streaming without tools: ${error?.message || error}`);
         }
         if (a2aServers.length) {
@@ -147,7 +156,8 @@ async function createAgent(overrides = {}) {
             a2aServers,
             toolSchemas: buildA2aToolSchemas(a2aServers),
             onStatus,
-            onEvent: (type, data) => recorder.event(type, data),
+            onEvent: emit,
+            onActivity,
             deadline
           });
           onChunk(result);
@@ -160,6 +170,9 @@ async function createAgent(overrides = {}) {
           await recorder.endRun('ok');
           return;
         }
+        onActivity?.({ type: 'tools.unavailable', reason: 'none_configured' });
+      } else {
+        onActivity?.({ type: 'tools.unavailable', reason: 'routing_disabled' });
       }
 
       let ended = false;
@@ -194,6 +207,7 @@ async function createAgent(overrides = {}) {
         messages: built.messages,
         systemPrompt: built.systemPrompt,
         onChunk,
+        onActivity,
         onDone: wrappedDone,
         onError: wrappedError,
         deadline

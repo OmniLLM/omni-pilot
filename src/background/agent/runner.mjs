@@ -21,6 +21,7 @@ function createRunner({
   session,
   onStatus,
   onEvent = () => {},
+  onActivity,
   deadline,
   maxTurns = A2A_MAX_ROUNDS
 }) {
@@ -80,6 +81,7 @@ function createRunner({
       }
 
       const data = await response.json();
+      emitReasoningSummary(data, onActivity);
       const termination = classifyApiTermination(apiShape, data);
       if (termination?.status === 'truncated') {
         throw new Error('The response reached the provider output limit before it completed. Try again or ask the model to continue.');
@@ -165,9 +167,16 @@ function createRunner({
         };
       }
 
-      const settled = await Promise.all(runnable.map(async ({ call, tool, key }) => {
+      const settled = await Promise.all(runnable.map(async ({ call, tool, key }, index) => {
         session.markDispatched(key);
-        safeEmit('tool.dispatch', { toolName: call.toolName, serverId: tool.meta.serverId });
+        const callId = `${round}:${index}`;
+        safeEmit('tool.dispatch', { toolName: call.toolName, callId, serverId: tool.meta.serverId });
+        const startedAt = Date.now();
+        const details = {
+          callId, toolName: call.toolName, serverName: tool.meta.serverName,
+          skillName: tool.meta.isHubMetaTool ? call.parsedArgs?.skill_id : tool.meta.skillName
+        };
+        safeEmit('tool.details', details);
         try {
           // Pass all parsed arguments — meta-tools (hub invoke_skill) need
           // skill_id in addition to task; standard tools ignore extra fields.
@@ -177,11 +186,13 @@ function createRunner({
             onStatus
           );
           const entry = buildSettledEntry(call, tool, text, null);
-          safeEmit('tool.result', { toolName: call.toolName, ok: true, textLen: (entry.text || '').length, error: entry.error });
+          safeEmit('tool.result', { toolName: call.toolName, callId, ok: !entry.error, textLen: (entry.text || '').length, error: entry.error });
+          safeEmit('tool.details', { ...details, durationMs: Date.now() - startedAt, textLen: (entry.text || '').length });
           return entry;
         } catch (error) {
           const entry = buildSettledEntry(call, tool, '', error?.message || String(error));
-          safeEmit('tool.result', { toolName: call.toolName, ok: false, textLen: (entry.text || '').length, error: entry.error });
+          safeEmit('tool.result', { toolName: call.toolName, callId, ok: false, textLen: (entry.text || '').length, error: entry.error });
+          safeEmit('tool.details', { ...details, durationMs: Date.now() - startedAt, textLen: 0 });
           return entry;
         }
       }));

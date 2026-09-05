@@ -152,8 +152,8 @@ const contentAppearanceCss = appearanceCss
   .replace(/:where\(#omnipilot-extension-root-7f3a9c\[data-surface="content"\], \[data-appearance-root\]\[data-surface="sidepanel"\]\)/g, '#omnipilot-extension-root-7f3a9c[data-surface="content"]');
 assert.strictEqual(
   contentCss,
-  `${contentAppearanceCss}\n${read('src/content-script/styles.css')}`,
-  'the inlined content stylesheet must remain exactly the transformed appearance CSS plus the hand-written content CSS'
+  `${contentAppearanceCss}\n${read('src/content-script/styles.css')}\n${read('src/styles/chat-activity.css').replace(/(^|\n)(\.op-activity[^\n{]*\{)/g, '$1#omnipilot-extension-root-7f3a9c $2')}`,
+  'the inlined content stylesheet must contain only scoped appearance, content, and shared activity CSS'
 );
 // The whole point of the shadow root: nothing is injected into the host page.
 const manifest = JSON.parse(read('manifest.json'));
